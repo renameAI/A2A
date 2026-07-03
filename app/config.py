@@ -1,0 +1,54 @@
+"""환경 설정 — API 키는 .env로만 주입 (ING-05, SEC-01).
+
+키가 없으면 엔진은 Mock 모드로 degrade한다. 코드에 키를 넣지 않는다.
+"""
+import os
+from pathlib import Path
+
+_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+
+def _load_dotenv() -> None:
+    if not _ENV_PATH.exists():
+        return
+    for line in _ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+class Settings:
+    def __init__(self):
+        _load_dotenv()
+        # LLM 프로바이더 고정 — 기본은 friendli(K-EXAONE 소버린 트랙, 기획서 13.2).
+        # 다른 어댑터는 LLM_PROVIDER를 명시적으로 바꿀 때만 사용된다.
+        self.llm_provider = os.environ.get("LLM_PROVIDER", "friendli").lower()
+        # K-EXAONE (Friendli dedicated)
+        self.friendli_token = os.environ.get("FRIENDLI_TOKEN", "")
+        self.friendli_endpoint_id = os.environ.get("FRIENDLI_ENDPOINT_ID", "")
+        # 로컬/저사양 OpenAI 호환 모델 (Ollama 등) — LLM_PROVIDER=local, 오프라인 실행
+        self.local_base_url = os.environ.get(
+            "LOCAL_LLM_BASE_URL", "http://localhost:11434/v1/chat/completions")
+        self.local_model = os.environ.get("LOCAL_LLM_MODEL", "exaone3.5:7.8b")
+        self.local_token = os.environ.get("LOCAL_LLM_TOKEN", "")  # Ollama는 불필요
+        # Anthropic — LLM_PROVIDER=anthropic일 때만 사용
+        self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        self.anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
+        self.apify_token = os.environ.get("APIFY_TOKEN", "")
+        self.fetch_timeout = float(os.environ.get("INGEST_FETCH_TIMEOUT", "15"))
+        self.llm_timeout = float(os.environ.get("LLM_TIMEOUT", "300"))  # reasoning 모델 대비
+
+    @property
+    def llm_enabled(self) -> bool:
+        if self.llm_provider == "friendli":
+            return bool(self.friendli_token and self.friendli_endpoint_id)
+        if self.llm_provider == "local":
+            return bool(self.local_base_url and self.local_model)
+        if self.llm_provider == "anthropic":
+            return bool(self.anthropic_api_key)
+        return False
+
+
+def get_settings() -> Settings:
+    return Settings()

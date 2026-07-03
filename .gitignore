@@ -1,0 +1,13 @@
+# 비밀 — 절대 커밋 금지
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+uploads/
+
+# 머신 전용 프리뷰/에디터 설정
+.claude/
