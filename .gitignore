@@ -11,3 +11,7 @@ uploads/
 
 # 머신 전용 프리뷰/에디터 설정
 .claude/
+
+# 런타임 산출물
+cache/
+audit/

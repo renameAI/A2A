@@ -11,3 +11,10 @@ os.environ["FRIENDLI_TOKEN"] = ""
 os.environ["FRIENDLI_ENDPOINT_ID"] = ""
 os.environ["APIFY_TOKEN"] = ""
 os.environ["INGEST_FETCH_TIMEOUT"] = "5"
+
+# 테스트 산출물 격리 — 프로젝트 폴더에 cache/·audit/ 흔적을 남기지 않는다
+import tempfile
+
+_tmp = tempfile.mkdtemp(prefix="a2a-test-")
+os.environ.setdefault("A2A_CACHE_DIR", os.path.join(_tmp, "cache"))
+os.environ.setdefault("A2A_AUDIT_DIR", os.path.join(_tmp, "audit"))

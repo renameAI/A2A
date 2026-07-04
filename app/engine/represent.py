@@ -48,7 +48,11 @@ def _asset_text(asset, settings: Settings) -> str:
         return pdf_to_text(fetch_pdf_bytes(asset.url or "", settings))
     if asset.type == AssetType.instagram:
         return fetch_instagram(asset.url or "", settings)
-    return fetch_url(asset.url or "", settings)
+    if asset.type == AssetType.website:
+        # 웹사이트는 멀티페이지 크롤 (소개·제품 등 우선순위 링크, robots 준수)
+        from ..ingest.crawler import crawl_website
+        return crawl_website(asset.url or "", settings)
+    return fetch_url(asset.url or "", settings)   # 기사 등 단일 페이지
 
 
 def _ingest_assets(req: RepresentRequest, settings: Settings
@@ -168,6 +172,14 @@ def represent(req: RepresentRequest, settings: Settings | None = None
 
     _check_minimum(profile, open_questions)
     progress.log("게이트", "최소 프로필 기준(REP-06) 통과")
+
+    from .. import audit
+    audit.record("represent", {                    # SYS-04
+        "name": profile.basic.name, "engine_mode": engine_mode,
+        "assets": [a.type.value for a in req.assets],
+        "open_questions": open_questions,
+        "portrait": profile.portrait.model_dump() if profile.portrait else None,
+    })
 
     anchors = [
         OntologyAnchor(category="industry", value=profile.basic.industry),

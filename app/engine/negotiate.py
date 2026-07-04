@@ -126,9 +126,9 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
                     dimension=Dimension(e.details["dimension"]),
                     reason=e.details["reason"], recoverable=False),
                 knobs_adjusted=pending_adjustments))
-            return NegotiationResult(rounds=rounds,
-                                     termination=TerminationType.breakdown,
-                                     rounds_used=round_no)
+            return _audited(req, NegotiationResult(
+                rounds=rounds, termination=TerminationType.breakdown,
+                rounds_used=round_no))
 
         # 못 푸는 거절 먼저 분류 (NEG-03: 재제안 전 거절 분류 선행)
         hard_reason = _unrecoverable_reason(req)
@@ -139,9 +139,9 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
                                         reason=f"못 푸는 거절 — {hard_reason}",
                                         recoverable=False),
                 knobs_adjusted=pending_adjustments))
-            return NegotiationResult(rounds=rounds,
-                                     termination=TerminationType.breakdown,
-                                     rounds_used=round_no)
+            return _audited(req, NegotiationResult(
+                rounds=rounds, termination=TerminationType.breakdown,
+                rounds_used=round_no))
 
         concern = _find_concern(review, state.resolved)
         progress.log("협상", f"R{round_no} 검토 결과 — {review.decision.value}"
@@ -153,9 +153,9 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
             rounds.append(NegotiationRound(
                 round=round_no, proposal=proposal, response=RoundResponse.accept,
                 knobs_adjusted=pending_adjustments))
-            return NegotiationResult(rounds=rounds,
-                                     termination=TerminationType.agreement,
-                                     rounds_used=round_no)
+            return _audited(req, NegotiationResult(
+                rounds=rounds, termination=TerminationType.agreement,
+                rounds_used=round_no))
         if review.decision == DecisionType.terminate or concern is None:
             rounds.append(NegotiationRound(
                 round=round_no, proposal=proposal, response=RoundResponse.reject,
@@ -163,9 +163,9 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
                                         reason=review.decision_rationale,
                                         recoverable=False),
                 knobs_adjusted=pending_adjustments))
-            return NegotiationResult(rounds=rounds,
-                                     termination=TerminationType.breakdown,
-                                     rounds_used=round_no)
+            return _audited(req, NegotiationResult(
+                rounds=rounds, termination=TerminationType.breakdown,
+                rounds_used=round_no))
 
         # 풀리는 거절 → 손잡이 묶음 동시 조정 후 재제안 (NEG-04)
         bundle = _KNOB_BUNDLES[concern]
@@ -193,6 +193,19 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
         pending_adjustments = adjustments   # 다음 라운드 제안에 반영된 조정 기록
 
     # 라운드 상한 도달 (NEG-05) — 무한 협상 방지
-    return NegotiationResult(rounds=rounds,
-                             termination=TerminationType.round_limit,
-                             rounds_used=req.max_rounds)
+    return _audited(req, NegotiationResult(rounds=rounds,
+                                           termination=TerminationType.round_limit,
+                                           rounds_used=req.max_rounds))
+
+
+def _audited(req: NegotiateRequest, result: NegotiationResult) -> NegotiationResult:
+    """협상 로그 축적 (NEG-07·SYS-04) — 거절사유→조건변경→결과 학습용 튜플."""
+    from .. import audit
+    audit.record("negotiate", {
+        "seller": req.seller_profile.basic.name,
+        "buyer": req.buyer_profile.basic.name,
+        "termination": result.termination.value,
+        "rounds_used": result.rounds_used,
+        "rounds": [r.model_dump(mode="json") for r in result.rounds],
+    })
+    return result

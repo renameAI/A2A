@@ -34,6 +34,21 @@ class ProductStore:
         self._companies[rec.company_id] = rec
         return rec
 
+    def update_company(self, company_id: str, profile: Profile,
+                       private_state: PrivateState, open_questions: list[str],
+                       evidence: Optional[dict], engine_mode: str
+                       ) -> Optional[CompanyRecord]:
+        """자료 추가·보강 답변 반영 재분석 시 같은 회사를 갱신 (REP-09)."""
+        rec = self._companies.get(company_id)
+        if rec is None:
+            return None
+        rec.profile = profile
+        rec.private_state = private_state
+        rec.open_questions = open_questions
+        rec.evidence = evidence
+        rec.engine_mode = engine_mode
+        return rec
+
     def get(self, company_id: str) -> Optional[CompanyRecord]:
         return self._companies.get(company_id)
 

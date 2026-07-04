@@ -39,10 +39,8 @@ def fetch_url(url: str, settings: Settings,
     except httpx.HTTPError as e:
         raise FetchFailed(url, str(e))
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    for tag in soup(["script", "style", "nav", "footer", "noscript"]):
-        tag.decompose()
-    text = re.sub(r"\n{3,}", "\n\n", soup.get_text(separator="\n")).strip()
+    from .crawler import extract_main_text   # trafilatura 1차 + BS4 폴백
+    text = extract_main_text(resp.text, url)
     if not text:
         raise FetchFailed(url, "본문 텍스트 없음")
     return text

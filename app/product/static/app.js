@@ -138,6 +138,7 @@ async function onboard() {
       assets: assets.map((a) => a.url ? { type: a.type, content: "", url: a.url } : a),
       dialogue: collectDialogue(),
       private_state: collectPrivateState(),
+      company_id: state.companyId,   // 재분석이면 같은 회사를 갱신 (REP-09)
     };
     const data = await runJob("/product/onboard", body, $("#onboard-log"));
     state.companyId = data.company_id;

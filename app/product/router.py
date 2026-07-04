@@ -68,6 +68,7 @@ class OnboardRequest(BaseModel):
     assets: list[Asset] = Field(min_length=1)
     dialogue: list[DialogueTurn] = []
     private_state: list[PrivateStateItem] = []   # 판매자 사전정보 (선택)
+    company_id: Optional[str] = None             # 있으면 갱신 (REP-09), 없으면 신규
 
 
 @router.post("/onboard", status_code=202)
@@ -75,7 +76,12 @@ def onboard(req: OnboardRequest, background: BackgroundTasks):
     def _run() -> dict:
         # 최소 프로필 미달이면 EngineError(409) → job.error로 수렴, 프론트가 보강 질문 표시
         rep = represent(RepresentRequest(assets=req.assets, dialogue=req.dialogue))
-        rec = store.save_company(
+        rec = req.company_id and store.update_company(
+            req.company_id, profile=rep.profile,
+            private_state=PrivateState(items=req.private_state),
+            open_questions=rep.open_questions, evidence=rep.evidence,
+            engine_mode=rep.engine_mode)
+        rec = rec or store.save_company(
             profile=rep.profile,
             private_state=PrivateState(items=req.private_state),
             open_questions=rep.open_questions,

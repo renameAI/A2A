@@ -37,6 +37,7 @@ class Settings:
         self.anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
         self.apify_token = os.environ.get("APIFY_TOKEN", "")
         self.fetch_timeout = float(os.environ.get("INGEST_FETCH_TIMEOUT", "15"))
+        self.crawl_max_pages = int(os.environ.get("CRAWL_MAX_PAGES", "5"))
         self.llm_timeout = float(os.environ.get("LLM_TIMEOUT", "300"))  # reasoning 모델 대비
 
     @property

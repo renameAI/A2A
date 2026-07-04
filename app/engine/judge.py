@@ -207,13 +207,31 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     return result
 
 
+def _audit_judge(req: JudgeRequest, result: JudgeResult) -> None:
+    """감사 가능 로그 (SYS-04) — 입력·추론 궤적·결정 저장 (HITL 검토·재학습용)."""
+    from .. import audit
+    audit.record("judge", {
+        "self": req.self_profile.basic.name,
+        "counterpart": req.counterpart_profile.basic.name,
+        "vantage": req.vantage.value, "objective": req.objective.value,
+        "intent": req.intent.model_dump(mode="json"),
+        "decision": result.decision.value,
+        "verdicts": {d.dimension.value: d.verdict.value
+                     for d in result.category_judgments},
+        "risks": [f"{r.type.value}: {r.description}" for r in result.risks],
+        "trajectory": result.trajectory,
+    })
+
+
 def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
     # 결격 게이트 — LLM 경로에서도 하드 차단·비노출은 항상 규칙으로 보장 (JDG-04)
     check_deal_breakers(req.self_profile, req.counterpart_profile)
 
     extractor = get_extractor(get_settings())
     if extractor is not None:
-        return _llm_judge(req, extractor, deep=deep)
+        result = _llm_judge(req, extractor, deep=deep)
+        _audit_judge(req, result)
+        return result
 
     dims = _judge_dimensions(req)
     risks = _collect_risks(req, dims)
@@ -249,7 +267,7 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
     trajectory = "\n".join(f"[{d.dimension.value}] {d.verdict.value}: {d.rationale}"
                            for d in dims) + f"\n[결정] {decision.value}: {rationale}"
 
-    return JudgeResult(
+    result = JudgeResult(
         category_judgments=dims,
         risks=risks,
         reasoning_moves=_reasoning_moves(req, dims, risks, deal_structure),
@@ -262,3 +280,5 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         deal_structure=deal_structure,
         confidence_band=band,
     )
+    _audit_judge(req, result)
+    return result
