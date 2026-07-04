@@ -71,7 +71,8 @@ def get_job(job_id: str):
     if job is None:
         raise EngineError(404, "not_found", f"job {job_id} 없음")
     return JobOut(job_id=job.job_id, status=job.status,
-                  result=job.result, error=job.error, logs=job.log.entries)
+                  result=job.result, error=job.error, logs=job.log.entries,
+                  elapsed=job.log.elapsed)
 
 
 @app.post("/v1/compose", response_model=ComposeResponse)

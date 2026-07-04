@@ -86,31 +86,33 @@ def _match_points(synth: str, rec: CandidateRecord) -> list[str]:
 
 def retrieve(req: RetrieveRequest) -> RetrieveResponse:
     from .. import progress
-    progress.log("합성", "1단 — 이상적 상대상 합성 시작 (보완성 검색의 검색어)")
-    synth = synthesize_counterpart(req)
-    progress.log("합성", f"합성 완료 — \"{synth[:80]}...\"")
-    records = [r for r in get_pool()
-               if req.pool == PoolChoice.both or r.pool.value == req.pool.value]
-    # 자기 자신은 후보에서 제외
-    records = [r for r in records
-               if r.profile.basic.name != req.requester_profile.basic.name]
+    with progress.node("synth", "이상적 상대상 합성 (1단)"):
+        progress.log("합성", "1단 — 이상적 상대상 합성 시작 (보완성 검색의 검색어)")
+        synth = synthesize_counterpart(req)
+        progress.log("합성", f"합성 완료 — \"{synth[:80]}...\"")
+    with progress.node("search", "하이브리드 검색 (2단)"):
+        records = [r for r in get_pool()
+                   if req.pool == PoolChoice.both or r.pool.value == req.pool.value]
+        # 자기 자신은 후보에서 제외
+        records = [r for r in records
+                   if r.profile.basic.name != req.requester_profile.basic.name]
 
-    scored = sorted(((r, _score(req, synth, r)) for r in records),
-                    key=lambda x: x[1], reverse=True)
-    strong = [(r, s) for r, s in scored if s >= _STRONG_THRESHOLD]
-    progress.log("검색", f"2단 — 하이브리드 검색 완료: {len(records)}건 중 "
-                         f"강한 후보 {len(strong)}건 (경쟁사·무관 후보 강등)")
-    if not strong:
-        raise NoStrongCandidate()   # 재현율 우선이되, 정직성 (RET-06)
+        scored = sorted(((r, _score(req, synth, r)) for r in records),
+                        key=lambda x: x[1], reverse=True)
+        strong = [(r, s) for r, s in scored if s >= _STRONG_THRESHOLD]
+        progress.log("검색", f"2단 — 하이브리드 검색 완료: {len(records)}건 중 "
+                             f"강한 후보 {len(strong)}건 (경쟁사·무관 후보 강등)")
+        if not strong:
+            raise NoStrongCandidate()   # 재현율 우선이되, 정직성 (RET-06)
 
-    candidates = [
-        CandidateOut(
-            company_id=r.company_id,
-            profile_ref=r.company_id,
-            pool=r.pool,
-            match_points=_match_points(synth, r),
-            retrieval_score=s,
-        )
-        for r, s in strong[: req.k]
-    ]
+        candidates = [
+            CandidateOut(
+                company_id=r.company_id,
+                profile_ref=r.company_id,
+                pool=r.pool,
+                match_points=_match_points(synth, r),
+                retrieval_score=s,
+            )
+            for r, s in strong[: req.k]
+        ]
     return RetrieveResponse(candidates=candidates, synthesized_counterpart=synth)

@@ -72,29 +72,42 @@ def _llm_compose(req: ComposeRequest, extractor) -> ComposeResponse:
                            send_blocked=True)              # CMP-06 항상 차단
 
 
+def _send_gate(resp: ComposeResponse) -> ComposeResponse:
+    from .. import progress
+    with progress.node("sendgate", "사람 승인 게이트 (CMP-06)"):
+        progress.log("Compose", f"초안 {len(resp.messages)}건 생성 — "
+                                "send_blocked=true, 발송은 사람 승인 후")
+    return resp
+
+
 def compose(req: ComposeRequest) -> ComposeResponse:
+    from .. import progress
     extractor = get_extractor(get_settings())
     if extractor is not None:
-        return _llm_compose(req, extractor)
+        with progress.node("compose.llm", "메시지 생성 (LLM)"):
+            resp = _llm_compose(req, extractor)
+        return _send_gate(resp)
 
     # Purchase = 끌어당기기: 1안·톤 없음 (CMP-05)
-    variants = req.variants if req.lens == Lens.sell else 1
-    messages: list[ComposedMessage] = []
+    with progress.node("compose.template", "메시지 생성 (템플릿·Mock)"):
+        variants = req.variants if req.lens == Lens.sell else 1
+        messages: list[ComposedMessage] = []
 
-    for v in range(variants):
-        tone = (req.tone or _TONES[v % len(_TONES)]) if req.lens == Lens.sell else "표준"
-        if req.mode == ComposeMode.outreach:
-            body, claims = _outreach_body(req, tone)
-            title = (f"{req.counterpart_profile.problem_solved.value} — "
-                     f"{req.self_profile.basic.name}의 제안")
-        else:
-            body, claims = _summary_body(req)
-            title = f"추천 요약: {req.counterpart_profile.basic.name}"
-        messages.append(ComposedMessage(
-            variant_label=chr(ord("A") + v),
-            title=title,
-            body=body,
-            claim_trace=claims,
-            reference_used=req.judge_result.match_summary.reference,
-        ))
-    return ComposeResponse(messages=messages, send_blocked=True)   # CMP-06
+        for v in range(variants):
+            tone = (req.tone or _TONES[v % len(_TONES)]) if req.lens == Lens.sell else "표준"
+            if req.mode == ComposeMode.outreach:
+                body, claims = _outreach_body(req, tone)
+                title = (f"{req.counterpart_profile.problem_solved.value} — "
+                         f"{req.self_profile.basic.name}의 제안")
+            else:
+                body, claims = _summary_body(req)
+                title = f"추천 요약: {req.counterpart_profile.basic.name}"
+            messages.append(ComposedMessage(
+                variant_label=chr(ord("A") + v),
+                title=title,
+                body=body,
+                claim_trace=claims,
+                reference_used=req.judge_result.match_summary.reference,
+            ))
+    return _send_gate(
+        ComposeResponse(messages=messages, send_blocked=True))   # CMP-06

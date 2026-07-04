@@ -154,32 +154,36 @@ def represent(req: RepresentRequest, settings: Settings | None = None
               ) -> RepresentResponse:
     from .. import progress
     settings = settings or get_settings()
-    chunks, full_text = _ingest_assets(req, settings)
-    progress.log("청킹", f"청킹 완료 — {len(chunks)}개 청크 (출처 라벨 유지)")
+    with progress.node("fetch", "자료 수집·청킹"):
+        chunks, full_text = _ingest_assets(req, settings)
+        progress.log("청킹", f"청킹 완료 — {len(chunks)}개 청크 (출처 라벨 유지)")
 
     extractor = get_extractor(settings)
     if extractor is not None:
-        progress.log("추출", "K-EXAONE 다층 독해 시작 — 회사의 상(像) 구축")
+        progress.log("추출", "다층 독해 시작 — 회사의 상(像) 구축")
         profile, open_questions, evidence = extract_profile(chunks, extractor)
         progress.log("추출", f"프로필 완성 — {profile.basic.name} / "
                              f"보강 질문 {len(open_questions)}건")
         engine_mode = "llm"
     else:
-        progress.log("추출", "Mock 모드 — 구조화 텍스트 파서 사용 (LLM 키 없음)")
-        profile, open_questions = _mock_extract(full_text)
+        with progress.node("mock.parse", "Mock 파서 (LLM 키 없음)"):
+            progress.log("추출", "Mock 모드 — 구조화 텍스트 파서 사용")
+            profile, open_questions = _mock_extract(full_text)
         evidence = None
         engine_mode = "mock"
 
-    _check_minimum(profile, open_questions)
-    progress.log("게이트", "최소 프로필 기준(REP-06) 통과")
+    with progress.node("gate", "최소 프로필 게이트 (REP-06)"):
+        _check_minimum(profile, open_questions)
+        progress.log("게이트", "최소 프로필 기준(REP-06) 통과")
 
     from .. import audit
-    audit.record("represent", {                    # SYS-04
-        "name": profile.basic.name, "engine_mode": engine_mode,
-        "assets": [a.type.value for a in req.assets],
-        "open_questions": open_questions,
-        "portrait": profile.portrait.model_dump() if profile.portrait else None,
-    })
+    with progress.node("audit", "감사 로그 (SYS-04)"):
+        audit.record("represent", {
+            "name": profile.basic.name, "engine_mode": engine_mode,
+            "assets": [a.type.value for a in req.assets],
+            "open_questions": open_questions,
+            "portrait": profile.portrait.model_dump() if profile.portrait else None,
+        })
 
     anchors = [
         OntologyAnchor(category="industry", value=profile.basic.industry),

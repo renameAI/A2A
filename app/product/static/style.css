@@ -145,3 +145,51 @@ details pre { white-space: pre-wrap; background: #f7f5f0; padding: 10px; border-
 @keyframes pulse { 50% { opacity: .45; } }
 .log-collapsed { max-height: 34px; overflow: hidden; opacity: .75; }
 .log-collapsed::after { content: " (클릭해서 펼치기)"; color: #6b7688; }
+.log-filter { background: #2c3547; color: #d9a441; border-radius: 10px;
+  padding: 1px 10px; font-size: 11px; margin-left: 8px; cursor: pointer; }
+.log-nstart { color: #8ab4f8; }
+.log-nok { color: #7fb069; }
+.log-nerr { color: #e06c75; }
+
+/* ── 파이프라인 DAG 캔버스 (DevOps 뷰) ── */
+.pipebox {
+  background: #0f1219; border: 1px solid #262e3f; border-radius: 10px;
+  margin-top: 12px; overflow: hidden;
+}
+.pipe-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px; color: #e8e3d6; font-size: 13px; font-weight: 700;
+  background: #151a26; border-bottom: 1px solid #262e3f;
+}
+.pipe-total { color: #d9a441; font-size: 12px; font-weight: 600; }
+.pipe-scroll { overflow-x: auto; padding: 6px 4px; }
+.pipe-hint { padding: 6px 14px 10px; color: #5b6474; font-size: 11px; }
+
+/* 노드 */
+.pnode { cursor: pointer; }
+.pnode rect { fill: #1a2030; stroke: #333d52; stroke-width: 1.5; }
+.pnode:hover rect { stroke: #d9a441; }
+.pn-label { fill: #dfe6f2; font-size: 13px; font-weight: 700; }
+.pn-sub { fill: #7d8798; font-size: 11px; }
+.pn-port { fill: #3d4a63; }
+
+.pn-pending rect { stroke-dasharray: none; opacity: .75; }
+.pn-skipped rect { stroke-dasharray: 5 4; opacity: .45; }
+.pn-skipped .pn-label, .pn-skipped .pn-sub { opacity: .6; }
+.pn-running rect { stroke: #d9a441; stroke-width: 2;
+  animation: node-pulse 1.4s ease-in-out infinite; }
+.pn-running .pn-sub { fill: #d9a441; }
+.pn-ok rect { stroke: #4c9a52; }
+.pn-ok .pn-sub { fill: #7fb069; }
+.pn-ok .pn-port { fill: #4c9a52; }
+.pn-error rect { stroke: #c0392b; stroke-width: 2; fill: #251418; }
+.pn-error .pn-sub { fill: #e06c75; }
+@keyframes node-pulse { 50% { stroke-opacity: .35; } }
+
+/* 연결선 */
+.pedge { fill: none; stroke-width: 2; }
+.pe-idle { stroke: #2c3547; }
+.pe-done { stroke: #3f7a45; }
+.pe-active { stroke: #d9a441; stroke-dasharray: 7 5;
+  animation: edge-flow .8s linear infinite; }
+@keyframes edge-flow { to { stroke-dashoffset: -12; } }

@@ -117,8 +117,10 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
 
         # 수신측(구매자) 검토 — deal-breaker면 즉시 결렬 (7-A.4)
         try:
-            review = _buyer_review(
-                req, adjusted_note=f"재제안 반영: {state.resolved}" if state.resolved else None)
+            with progress.node(f"round{round_no}.review", f"R{round_no} 구매자 검토"):
+                review = _buyer_review(
+                    req, adjusted_note=f"재제안 반영: {state.resolved}"
+                    if state.resolved else None)
         except DealBreaker as e:
             rounds.append(NegotiationRound(
                 round=round_no, proposal=proposal, response=RoundResponse.reject,
@@ -168,18 +170,20 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
                 rounds_used=round_no))
 
         # 풀리는 거절 → 손잡이 묶음 동시 조정 후 재제안 (NEG-04)
-        bundle = _KNOB_BUNDLES[concern]
-        adjustments: list[KnobAdjustment] = []
-        for knob, _default, to_value in bundle:
-            current = state.knobs[knob]
-            if current == to_value:
-                continue
-            # 판매자 최저선 검사 (NEG-06): 최저선에 도달한 손잡이는 더 움직이지 않는다
-            if knob in floors and current == floors[knob]:
-                continue
-            adjustments.append(KnobAdjustment(knob=knob, **{"from": current}, to=to_value))
-            state.knobs[knob] = to_value
-        state.resolved.add(concern.value)
+        with progress.node(f"round{round_no}.adjust", f"R{round_no} 손잡이 조정"):
+            bundle = _KNOB_BUNDLES[concern]
+            adjustments: list[KnobAdjustment] = []
+            for knob, _default, to_value in bundle:
+                current = state.knobs[knob]
+                if current == to_value:
+                    continue
+                # 판매자 최저선 검사 (NEG-06): 최저선 도달 손잡이는 더 안 움직인다
+                if knob in floors and current == floors[knob]:
+                    continue
+                adjustments.append(
+                    KnobAdjustment(knob=knob, **{"from": current}, to=to_value))
+                state.knobs[knob] = to_value
+            state.resolved.add(concern.value)
         progress.log("협상", f"R{round_no} 풀리는 거절 — 손잡이 묶음 조정: "
                      + (", ".join(f"{a.knob}→{a.to}" for a in adjustments) or "조정 없음"))
 
@@ -200,7 +204,10 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
 
 def _audited(req: NegotiateRequest, result: NegotiationResult) -> NegotiationResult:
     """협상 로그 축적 (NEG-07·SYS-04) — 거절사유→조건변경→결과 학습용 튜플."""
-    from .. import audit
+    from .. import audit, progress
+    with progress.node("termination", "종료 판정 (NEG-05)"):
+        progress.log("협상", f"종료 — {result.termination.value} · "
+                             f"{result.rounds_used}라운드")
     audit.record("negotiate", {
         "seller": req.seller_profile.basic.name,
         "buyer": req.buyer_profile.basic.name,

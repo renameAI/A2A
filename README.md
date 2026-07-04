@@ -74,6 +74,24 @@ cp .env.example .env    # FRIENDLI_TOKEN + FRIENDLI_ENDPOINT_ID 설정 (K-EXAONE
 설계·요구사항: [docs/PHASE2_수집추출_설계.md](docs/PHASE2_수집추출_설계.md)
 ⚠ `.env`는 절대 커밋 금지 — 키 노출 시 즉시 재발급.
 
+## 파이프라인 DAG 뷰 (DevOps 모니터링)
+
+각 모듈(`/product/onboard`·`/match`·`/judge`·`/compose`·`/negotiate`)이 실행되는 동안
+웹 UI가 **노드 그래프**로 진행 과정을 보여준다:
+
+- **노드 상태**: 대기(회색 점선) → 실행 중(주황 펄스) → 완료(초록) / 실패(빨강, 예외 메시지 포함)
+- **소요 시간**: 노드마다 `완료 · 0.3s` 식으로 표기, 실행 중이면 서버 경과시간 기준 실시간 갱신
+- **노드 간 연결**: 완료된 경로는 실선, 진행 중인 경로는 애니메이션 점선, 이번 실행에서
+  건너뛴 분기(예: LLM 키 없어 Mock 경로를 탄 경우)는 옅은 점선으로 표시
+- **협상(negotiate)은 동적 DAG**: 라운드마다 노드가 새로 생기고, 그 라운드 내부의
+  결격 게이트·판단·감사 단계가 자식 노드로 세로로 이어진다 (라운드 = 부모, 내부 단계 = 자식)
+- **로그 필터**: 노드를 클릭하면 그 구간에서 찍힌 로그만 필터링해서 보여준다
+
+구현: 백엔드 [progress.py](app/progress.py)의 `with progress.node(id, label):` 컨텍스트가
+`node_start`/`node_end` 이벤트를 구조화 로그로 남기고, 프론트 [app.js](app/product/static/app.js)의
+`renderPipeline()`이 이를 SVG DAG로 그린다. 로그 문자열 파싱이 아니라 정확한 수명주기 이벤트 기반이라
+실패 지점이 항상 정확한 노드에 표시된다.
+
 ## 엔드포인트 (API_계약서 v1.0)
 
 | 엔드포인트 | 방식 | 역할 |

@@ -47,7 +47,7 @@ def product_job(job_id: str):
         raise EngineError(404, "not_found", f"job {job_id} 없음")
     return {"job_id": job.job_id, "status": job.status.value,
             "result": job.result, "error": job.error,
-            "logs": job.log.entries}
+            "logs": job.log.entries, "elapsed": job.log.elapsed}
 
 
 # ── 업로드 (IR덱 PDF) ────────────────────────────────────────────────

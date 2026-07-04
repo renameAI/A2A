@@ -7,6 +7,7 @@
 v0: 규칙 기반 차원 판정. Phase 2: EXAONE CoT 파인튜닝 모델 호출로 교체 (JDG-12)
 — 출력 계약(JudgeResult)은 동일하므로 이 모듈의 판정 함수만 갈아끼운다.
 """
+from .. import progress
 from ..config import get_settings
 from ..schemas import (BUY_ONLY_DIMENSIONS, CategoryJudgment, ConfidenceBand,
                        DecisionType, Dimension, JudgeRequest, JudgeResult,
@@ -192,18 +193,20 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
         data["fit_reasons"] = ["판단 근거 부족 — 접촉으로 확인 필요"]
     if not data.get("reasoning_moves"):
         data["reasoning_moves"] = ["risk_triage"]
-    result = JudgeResult.model_validate(data)
-    # buy 렌즈 차원 계약 검증 (JDG-02) — 누락 시 명시적 실패가 조용한 오판보다 낫다
-    dims = {d.dimension for d in result.category_judgments}
-    required = set(Dimension) if req.vantage == Vantage.buyer else \
-        set(Dimension) - set(BUY_ONLY_DIMENSIONS)
-    missing = required - dims
-    if missing:
-        from ..errors import EngineError
-        raise EngineError(502, "llm_error",
-                          f"판단 차원 누락: {[d.value for d in missing]} — 재시도 필요")
-    progress.log("Judge", f"판단 완료 — 결정: {result.decision.value} "
-                          f"({len(result.category_judgments)}차원 · 리스크 {len(result.risks)}건)")
+    with progress.node("validate", "차원 계약 검증 (JDG-02)"):
+        result = JudgeResult.model_validate(data)
+        # buy 렌즈 차원 계약 검증 — 누락 시 명시적 실패가 조용한 오판보다 낫다
+        dims = {d.dimension for d in result.category_judgments}
+        required = set(Dimension) if req.vantage == Vantage.buyer else \
+            set(Dimension) - set(BUY_ONLY_DIMENSIONS)
+        missing = required - dims
+        if missing:
+            from ..errors import EngineError
+            raise EngineError(502, "llm_error",
+                              f"판단 차원 누락: {[d.value for d in missing]} — 재시도 필요")
+        progress.log("Judge", f"판단 완료 — 결정: {result.decision.value} "
+                              f"({len(result.category_judgments)}차원 · "
+                              f"리스크 {len(result.risks)}건)")
     return result
 
 
@@ -225,15 +228,19 @@ def _audit_judge(req: JudgeRequest, result: JudgeResult) -> None:
 
 def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
     # 결격 게이트 — LLM 경로에서도 하드 차단·비노출은 항상 규칙으로 보장 (JDG-04)
-    check_deal_breakers(req.self_profile, req.counterpart_profile)
+    with progress.node("gate.dealbreaker", "결격 게이트 (JDG-04)"):
+        check_deal_breakers(req.self_profile, req.counterpart_profile)
+        progress.log("게이트", "deal-breaker 없음 — 판단 진행")
 
     extractor = get_extractor(get_settings())
     if extractor is not None:
         result = _llm_judge(req, extractor, deep=deep)
-        _audit_judge(req, result)
+        with progress.node("audit", "감사 로그 (SYS-04)"):
+            _audit_judge(req, result)
         return result
 
-    dims = _judge_dimensions(req)
+    with progress.node("rules.judge", "규칙 기반 판단 (Mock)"):
+        dims = _judge_dimensions(req)
     risks = _collect_risks(req, dims)
     willingness = _effective_willingness(req)
     decision, rationale = _decide(dims, willingness)
@@ -280,5 +287,6 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         deal_structure=deal_structure,
         confidence_band=band,
     )
-    _audit_judge(req, result)
+    with progress.node("audit", "감사 로그 (SYS-04)"):
+        _audit_judge(req, result)
     return result

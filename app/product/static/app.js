@@ -30,26 +30,258 @@ async function api(path, options = {}) {
   return data;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   파이프라인 DAG 시각화 — 각 모듈의 실행 과정을 노드 그래프로.
+   backend의 node_start/node_end 이벤트로 상태·소요시간을 그리고,
+   노드 클릭 시 해당 구간 로그만 필터한다.
+   ═══════════════════════════════════════════════════════════════ */
+
+const PIPELINES = {
+  onboard: {
+    title: "Represent — 자료 → 프로필 + 상(像)",
+    nodes: [
+      { id: "fetch",       col: 0, row: 0, icon: "📥", label: "자료 수집·청킹",   desc: "URL 크롤(robots·캐시)·PDF·SNS → 출처 라벨 청크" },
+      { id: "llm.reason",  col: 1, row: 0, icon: "🧠", label: "다층 독해 (추론)", desc: "reasoning ON — 5층 독해로 회사의 상(像) 구축" },
+      { id: "llm.format",  col: 2, row: 0, icon: "🧩", label: "구조화",           desc: "스키마 강제 + sanitize 정화 + grounding 검증" },
+      { id: "mock.parse",  col: 1, row: 1, icon: "📋", label: "Mock 파서",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
+      { id: "gate",        col: 3, row: 0, icon: "🚧", label: "최소 프로필 게이트", desc: "REP-06 — 문제·솔루션·타겟·VP 미달 시 409" },
+      { id: "audit",       col: 4, row: 0, icon: "🗂", label: "감사 로그",        desc: "SYS-04 — audit/*.jsonl 축적" },
+    ],
+    edges: [["fetch", "llm.reason"], ["llm.reason", "llm.format"], ["llm.format", "gate"],
+            ["fetch", "mock.parse"], ["mock.parse", "gate"], ["gate", "audit"]],
+  },
+  match: {
+    title: "Retrieve — 보완성 검색 (유사도 아님)",
+    nodes: [
+      { id: "synth",  col: 0, row: 0, icon: "🎯", label: "이상적 상대상 합성", desc: "1단 — 내 솔루션이 푸는 문제를 '겪는' 상대의 상" },
+      { id: "search", col: 1, row: 0, icon: "🔍", label: "하이브리드 검색",   desc: "2단 — 벡터 유사 + 온톨로지 보정 + 경쟁사 강등" },
+    ],
+    edges: [["synth", "search"]],
+  },
+  judge: {
+    title: "Judge — 점수가 아닌 구조화 판단",
+    nodes: [
+      { id: "gate.dealbreaker", col: 0, row: 0, icon: "🚫", label: "결격 게이트",   desc: "JDG-04 — deal-breaker 하드 차단 (항상 규칙)" },
+      { id: "llm.reason",       col: 1, row: 0, icon: "🧠", label: "깊은 추론",     desc: "reasoning ON — 상 재구성 → 차원 판정 → 딜 구조" },
+      { id: "llm.format",       col: 2, row: 0, icon: "🧩", label: "구조화",        desc: "스키마 강제 — 판단을 JudgeResult 계약으로" },
+      { id: "rules.judge",      col: 1, row: 1, icon: "📐", label: "규칙 판단",     desc: "Mock — bigram 보완성 + 온톨로지 규칙" },
+      { id: "validate",         col: 3, row: 0, icon: "✅", label: "차원 계약 검증", desc: "JDG-02 — sell 5차원 / buy 7차원 누락 검사" },
+      { id: "audit",            col: 4, row: 0, icon: "🗂", label: "감사 로그",     desc: "SYS-04 — 입력·궤적·결정 저장 (재학습용)" },
+    ],
+    edges: [["gate.dealbreaker", "llm.reason"], ["llm.reason", "llm.format"],
+            ["llm.format", "validate"], ["validate", "audit"],
+            ["gate.dealbreaker", "rules.judge"], ["rules.judge", "audit"]],
+  },
+  compose: {
+    title: "Compose — 수신자가 사는 가치의 언어로",
+    nodes: [
+      { id: "compose.llm",      col: 0, row: 0, icon: "✍️", label: "생성 (LLM)",    desc: "fit_reasons에서만 주장 — claim_trace 추적" },
+      { id: "llm.format",       col: 1, row: 0, icon: "🧩", label: "구조화",        desc: "스키마 강제 — 변형 A/B + 근거 매핑" },
+      { id: "compose.template", col: 0, row: 1, icon: "📋", label: "생성 (템플릿)", desc: "Mock — Judge 근거 기반 템플릿" },
+      { id: "sendgate",         col: 2, row: 0, icon: "🔒", label: "사람 승인 게이트", desc: "CMP-06 — send_blocked, 발송은 항상 사람" },
+    ],
+    edges: [["compose.llm", "llm.format"], ["llm.format", "sendgate"],
+            ["compose.template", "sendgate"]],
+  },
+  negotiate: { title: "A2A 협상 — 제안 ↔ 검토 ↔ 재제안 (7-A)", dynamic: true },
+};
+
+const NODE_W = 170, NODE_H = 64, GAP_X = 56, GAP_Y = 30, PAD = 14;
+
+function nodeInstances(logs) {
+  /* node_start/node_end 이벤트 → 인스턴스 목록. 같은 id 반복 실행 지원(협상 라운드) +
+     parent 추적(전역 콜스택 top) — 중첩 노드가 어느 부모 아래인지 그래프로 이어준다. */
+  const openById = {}, callStack = [], instances = [];
+  for (const e of logs) {
+    if (e.type === "node_start") {
+      const parent = callStack.length ? callStack[callStack.length - 1] : null;
+      const inst = { id: e.node, label: e.stage, start: e.t, depth: e.depth || 1,
+                     status: "running", parent };
+      (openById[e.node] = openById[e.node] || []).push(inst);
+      callStack.push(inst);
+      instances.push(inst);
+    } else if (e.type === "node_end") {
+      const stack = openById[e.node] || [];
+      const inst = stack.pop();
+      if (inst) {
+        inst.end = e.t;
+        inst.status = e.status === "ok" ? "ok" : "error";
+        const idx = callStack.lastIndexOf(inst);
+        if (idx >= 0) callStack.splice(idx, 1);
+      }
+    }
+  }
+  return instances;
+}
+
+function fmtElapsed(inst, job) {
+  if (inst.end != null) return `${(inst.end - inst.start).toFixed(1)}s`;
+  if (inst.status === "running") return `${Math.max(job.elapsed - inst.start, 0).toFixed(1)}s…`;
+  return "";
+}
+
+const STATUS_KO = { pending: "대기", running: "실행 중", ok: "완료",
+                    error: "실패", skipped: "건너뜀" };
+
+function svgNode(x, y, node, inst, job) {
+  const status = inst ? inst.status
+    : (job.status === "running" || job.status === "queued") ? "pending" : "skipped";
+  const elapsed = inst ? fmtElapsed(inst, job) : "";
+  const sub = `${STATUS_KO[status]}${elapsed ? " · " + elapsed : ""}`;
+  return `<g class="pnode pn-${status}" data-node="${esc(node.id)}" transform="translate(${x},${y})">
+    <title>${esc(node.desc || node.label)}</title>
+    <rect width="${NODE_W}" height="${NODE_H}" rx="10"></rect>
+    <text x="12" y="24" class="pn-label">${node.icon || "▫"} ${esc(node.label)}</text>
+    <text x="12" y="46" class="pn-sub">${esc(sub)}</text>
+    <circle class="pn-port" cx="0" cy="${NODE_H / 2}" r="3.5"></circle>
+    <circle class="pn-port" cx="${NODE_W}" cy="${NODE_H / 2}" r="3.5"></circle>
+    <circle class="pn-port" cx="${NODE_W / 2}" cy="0" r="3.5"></circle>
+    <circle class="pn-port" cx="${NODE_W / 2}" cy="${NODE_H}" r="3.5"></circle>
+  </g>`;
+}
+
+function svgEdge(x1, y1, x2, y2, cls, vertical = false) {
+  if (vertical) {
+    const my = (y1 + y2) / 2;
+    return `<path class="pedge ${cls}" d="M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}"></path>`;
+  }
+  const mx = (x1 + x2) / 2;
+  return `<path class="pedge ${cls}" d="M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}"></path>`;
+}
+
+function renderPipeline(pipeBox, kind, job) {
+  const def = PIPELINES[kind];
+  if (!def) return;
+  const instances = nodeInstances(job.logs);
+
+  let nodes, edges, states = {}, parentOf = {};
+  if (def.dynamic) {
+    /* 협상: 라운드(부모)마다 컬럼 하나 — 그 라운드 내부 판단 노드는 같은 컬럼 아래로
+       쌓아 부모-자식 연결선으로 잇는다 (round → gate.dealbreaker → rules.judge → audit). */
+    const rootIndex = new Map();   // root inst → column
+    let nextCol = 0;
+    for (const inst of instances) {
+      if (!inst.parent) rootIndex.set(inst, nextCol++);
+    }
+    const rowCounter = {};   // col → 다음 행 번호
+    nodes = instances.map((inst, i) => {
+      let root = inst, ancestors = [];
+      while (root.parent) { ancestors.push(root); root = root.parent; }
+      const col = rootIndex.get(root);
+      const row = inst.parent ? (rowCounter[col] = (rowCounter[col] || 1)) : 0;
+      if (inst.parent) rowCounter[col] = row + 1;
+      const id = `i${i}`;
+      if (inst.parent) parentOf[id] = instances.indexOf(inst.parent);
+      return { id, col, row, icon: inst.parent ? "└" : "🔁", label: inst.label, inst };
+    });
+    edges = [];
+    const roots = nodes.filter((n) => n.row === 0);
+    for (let i = 1; i < roots.length; i++) edges.push([roots[i - 1].id, roots[i].id, false]);
+    const byInstIdx = Object.fromEntries(nodes.map((n, i) => [i, n.id]));
+    for (const [childId, parentInstIdx] of Object.entries(parentOf)) {
+      edges.push([byInstIdx[parentInstIdx], childId, true]);
+    }
+  } else {
+    /* 정적 그래프: 같은 id 첫 인스턴스를 상태로 매핑 */
+    for (const inst of instances) if (!states[inst.id]) states[inst.id] = inst;
+    nodes = def.nodes.map((n) => ({ ...n, inst: states[n.id] }));
+    edges = def.edges.map(([a, b]) => [a, b, false]);
+  }
+
+  const pos = {};
+  let maxX = 0, maxY = 0;
+  for (const n of nodes) {
+    pos[n.id] = { x: PAD + n.col * (NODE_W + GAP_X), y: PAD + n.row * (NODE_H + GAP_Y) };
+    maxX = Math.max(maxX, pos[n.id].x + NODE_W);
+    maxY = Math.max(maxY, pos[n.id].y + NODE_H);
+  }
+
+  const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+  const edgeSvg = edges.map(([a, b, vertical]) => {
+    const A = pos[a], B = pos[b];
+    if (!A || !B) return "";
+    const sa = byId[a].inst?.status, sb = byId[b].inst?.status;
+    const cls = (sa === "ok" && (sb === "ok" || sb === "error")) ? "pe-done"
+      : (sa === "ok" || sa === "running") && sb === "running" ? "pe-active"
+      : sa === "ok" && !sb && (job.status === "running") ? "pe-active" : "pe-idle";
+    return vertical
+      ? svgEdge(A.x + NODE_W / 2, A.y + NODE_H, B.x + NODE_W / 2, B.y, cls, true)
+      : svgEdge(A.x + NODE_W, A.y + NODE_H / 2, B.x, B.y + NODE_H / 2, cls);
+  }).join("");
+
+  const nodeSvg = nodes.map((n) => svgNode(pos[n.id].x, pos[n.id].y, n, n.inst, job)).join("");
+  const totalTime = job.status === "done" || job.status === "error"
+    ? (job.logs.length ? job.logs[job.logs.length - 1].t.toFixed(1) : "0") : job.elapsed.toFixed(1);
+
+  pipeBox.classList.remove("hidden");
+  pipeBox.innerHTML = `
+    <div class="pipe-head">
+      <span>⚙️ ${esc(def.title)}</span>
+      <span class="pipe-total">총 ${totalTime}s · ${STATUS_KO[job.status === "queued" ? "pending" : job.status] || job.status}</span>
+    </div>
+    <div class="pipe-scroll"><svg width="${maxX + PAD}" height="${maxY + PAD}"
+      viewBox="0 0 ${maxX + PAD} ${maxY + PAD}">${edgeSvg}${nodeSvg}</svg></div>
+    <div class="pipe-hint">노드를 클릭하면 해당 구간의 로그만 필터됩니다 · 점선 = 이번 실행에서 건너뜀</div>`;
+
+  /* 노드 클릭 → 로그 필터 */
+  const logBox = pipeBox._logBox;
+  pipeBox.querySelectorAll(".pnode").forEach((g) => {
+    g.addEventListener("click", () => {
+      const nodeId = def.dynamic
+        ? (nodes.find((n) => n.id === g.dataset.node)?.inst || {}).id
+        : g.dataset.node;
+      if (!logBox) return;
+      logBox._filter = logBox._filter === nodeId ? null : nodeId;
+      renderLogs(logBox, logBox._logs || [], logBox._status || "done");
+    });
+  });
+}
+
+function ensurePipeline(logBox, kind) {
+  if (logBox._pipe) return logBox._pipe;
+  const pipe = document.createElement("div");
+  pipe.className = "pipebox hidden";
+  pipe._logBox = logBox;
+  logBox.parentNode.insertBefore(pipe, logBox);
+  logBox._pipe = pipe;
+  return pipe;
+}
+
 /* ── 비동기 job + 라이브 진행 로그 ──────────────────────────────
    LLM 작업(K-EXAONE reasoning)은 수 분 걸린다 — job을 던지고
-   1.2초마다 폴링하며 엔진의 사고 과정을 logBox에 실시간 렌더한다. */
+   1.2초마다 폴링하며 엔진의 사고 과정을 DAG + logBox에 실시간 렌더한다. */
 
 function renderLogs(logBox, logs, status) {
   if (!logBox) return;
   logBox.classList.remove("hidden");
-  const lines = logs.map((l) =>
-    `<div class="log-line"><span class="log-t">${l.t.toFixed(1)}s</span>` +
-    `<span class="log-stage">[${esc(l.stage)}]</span> ${esc(l.message)}</div>`).join("");
+  logBox._logs = logs; logBox._status = status;
+  const filter = logBox._filter;
+  const shown = filter ? logs.filter((l) => l.node === filter) : logs;
+  const filterChip = filter
+    ? `<span class="log-filter">노드 필터: ${esc(filter)} ✕</span>` : "";
+  const lines = shown.map((l) => {
+    const cls = l.type === "node_start" ? " log-nstart"
+      : l.type === "node_end" ? (l.status === "ok" ? " log-nok" : " log-nerr") : "";
+    return `<div class="log-line${cls}"><span class="log-t">${l.t.toFixed(1)}s</span>` +
+      `<span class="log-stage">[${esc(l.stage)}]</span> ${esc(l.message)}</div>`;
+  }).join("");
   const spinner = status === "running" || status === "queued"
     ? `<div class="log-line log-wait">⏳ 진행 중... (K-EXAONE reasoning은 수 분 걸릴 수 있어요)</div>` : "";
-  logBox.innerHTML = `<div class="log-head">엔진 진행 로그</div>${lines}${spinner}`;
+  logBox.innerHTML = `<div class="log-head">엔진 진행 로그 ${filterChip}</div>${lines}${spinner}`;
+  const chip = logBox.querySelector(".log-filter");
+  if (chip) chip.onclick = (e) => {
+    e.stopPropagation(); logBox._filter = null;
+    renderLogs(logBox, logBox._logs, logBox._status);
+  };
   logBox.scrollTop = logBox.scrollHeight;
 }
 
-async function runJob(path, body, logBox) {
+async function runJob(path, body, logBox, kind) {
+  const pipe = kind && logBox ? ensurePipeline(logBox, kind) : null;
   const { job_id } = await api(path, { method: "POST", body: JSON.stringify(body) });
   while (true) {
     const job = await api(`/product/jobs/${job_id}`);
+    if (pipe) renderPipeline(pipe, kind, job);
     renderLogs(logBox, job.logs, job.status);
     if (job.status === "done") return job.result;
     if (job.status === "error") {
@@ -140,7 +372,7 @@ async function onboard() {
       private_state: collectPrivateState(),
       company_id: state.companyId,   // 재분석이면 같은 회사를 갱신 (REP-09)
     };
-    const data = await runJob("/product/onboard", body, $("#onboard-log"));
+    const data = await runJob("/product/onboard", body, $("#onboard-log"), "onboard");
     state.companyId = data.company_id;
     $("#questions-panel").classList.add("hidden");
     renderProfile(data);
@@ -237,7 +469,7 @@ $("#btn-match").onclick = async () => {
   try {
     const data = await runJob("/product/match",
       { company_id: state.companyId, intent: state.intent, pool: "external", k: 5 },
-      $("#match-log"));
+      $("#match-log"), "match");
     $("#synth").innerHTML = `<b>합성된 이상적 상대상</b> (검색어가 된 문장): ${esc(data.synthesized_counterpart)}`;
     $("#synth").classList.remove("hidden");
     renderCandidates(data.candidates);
@@ -283,7 +515,7 @@ async function judgeCandidate(candidateId, btn) {
   try {
     const data = await runJob("/product/judge",
       { company_id: state.companyId, candidate_id: candidateId,
-        intent: state.intent || collectIntent() }, logBox);
+        intent: state.intent || collectIntent() }, logBox, "judge");
     state.judged[candidateId] = data.judge_result;
     area.innerHTML = renderJudgment(data.judge_result, candidateId);
     area.prepend(logBox);                       // 로그는 결과 위에 유지 (접힘)
@@ -335,7 +567,7 @@ async function composeDraft(candidateId, btn) {
   try {
     const data = await runJob("/product/compose",
       { company_id: state.companyId, candidate_id: candidateId,
-        judge_result: state.judged[candidateId], mode: "outreach", variants: 2 }, logBox);
+        judge_result: state.judged[candidateId], mode: "outreach", variants: 2 }, logBox, "compose");
     area.innerHTML = data.messages.map((m) => `
       <div class="draft">
         <h4>변형 ${esc(m.variant_label)} — ${esc(m.title)}</h4>
@@ -358,7 +590,7 @@ async function negotiateSim(candidateId, btn) {
   try {
     const data = await runJob("/product/negotiate",
       { company_id: state.companyId, candidate_id: candidateId,
-        intent: state.intent || collectIntent(), max_rounds: 3 }, logBox);
+        intent: state.intent || collectIntent(), max_rounds: 3 }, logBox, "negotiate");
     const neg = data.negotiation;
     const RESP_KO = { accept: "✅ 수락", reject: "🚫 거절", counter: "↩ 거절+사유 → 재제안" };
     area.innerHTML = `

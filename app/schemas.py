@@ -412,4 +412,5 @@ class JobOut(BaseModel):
     status: JobStatus
     result: Optional[dict] = None
     error: Optional[dict] = None
-    logs: list[dict] = []            # 진행 과정 로그 (v1.1 확장)
+    logs: list[dict] = []            # 진행 과정 로그 + 노드 이벤트 (v1.1 확장)
+    elapsed: float = 0.0             # 서버 기준 총 경과 초 — 실행 중 노드 시간 계산용

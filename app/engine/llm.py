@@ -208,21 +208,24 @@ class _OpenAICompatExtractor:
     def extract_json(self, system: str, user: str, schema: dict,
                      deep: bool = False) -> dict:
         if deep:
-            progress.log("추론", "1단계 — 깊은 추론 시작 (자유 서술, 수 분 소요될 수 있음)")
-            analysis = self._chat(
-                system,
-                user + "\n\n지시된 절차대로 깊게 추론한 뒤, 요구된 모든 항목의 내용을 "
-                       "하나도 빠짐없이 자연어로 서술하라. (JSON이 아니라 서술문으로. "
-                       "빈 항목을 남기지 말 것 — 모르면 '미상'과 그 이유를 쓴다. "
-                       "자료에 없는 고유명사·수치·날짜를 절대 지어내지 마라.)",
-                thinking=True, max_tokens=16384)
-            progress.log("추론", f"1단계 완료 — 분석 {len(analysis):,}자 생성")
-            progress.log("추론", "2단계 — 구조화 시작 (스키마 강제)")
-            format_user = (f"[스키마 규칙 원문]\n{system}\n\n[전문가 분석]\n{analysis}\n\n"
-                           "위 분석을 스키마 JSON으로 구조화하라. 분석에 없는 내용을 "
-                           "추가하지 마라.")
-            return self._retry_json(_FORMAT_SYSTEM, format_user, schema)
-        return self._retry_json(system, user, schema)
+            with progress.node("llm.reason", "깊은 추론 (reasoning ON)"):
+                progress.log("추론", "1단계 — 깊은 추론 시작 (자유 서술, 수 분 소요될 수 있음)")
+                analysis = self._chat(
+                    system,
+                    user + "\n\n지시된 절차대로 깊게 추론한 뒤, 요구된 모든 항목의 내용을 "
+                           "하나도 빠짐없이 자연어로 서술하라. (JSON이 아니라 서술문으로. "
+                           "빈 항목을 남기지 말 것 — 모르면 '미상'과 그 이유를 쓴다. "
+                           "자료에 없는 고유명사·수치·날짜를 절대 지어내지 마라.)",
+                    thinking=True, max_tokens=16384)
+                progress.log("추론", f"1단계 완료 — 분석 {len(analysis):,}자 생성")
+            with progress.node("llm.format", "구조화 (스키마 강제)"):
+                progress.log("추론", "2단계 — 구조화 시작 (스키마 강제)")
+                format_user = (f"[스키마 규칙 원문]\n{system}\n\n[전문가 분석]\n{analysis}\n\n"
+                               "위 분석을 스키마 JSON으로 구조화하라. 분석에 없는 내용을 "
+                               "추가하지 마라.")
+                return self._retry_json(_FORMAT_SYSTEM, format_user, schema)
+        with progress.node("llm.format", "구조화 (단일 호출)"):
+            return self._retry_json(system, user, schema)
 
     def _retry_json(self, system: str, user: str, schema: dict) -> dict:
         for attempt in (1, 2):
