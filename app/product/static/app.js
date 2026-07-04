@@ -518,6 +518,7 @@ async function judgeCandidate(candidateId, btn) {
         intent: state.intent || collectIntent() }, logBox, "judge");
     state.judged[candidateId] = data.judge_result;
     area.innerHTML = renderJudgment(data.judge_result, candidateId);
+    if (logBox._pipe) area.prepend(logBox._pipe);   // 파이프박스도 함께 복원 (innerHTML로 유실 방지)
     area.prepend(logBox);                       // 로그는 결과 위에 유지 (접힘)
     logBox.classList.add("log-collapsed");
     logBox.onclick = () => logBox.classList.toggle("log-collapsed");
@@ -576,6 +577,7 @@ async function composeDraft(candidateId, btn) {
         <button onclick="navigator.clipboard.writeText(this.previousElementSibling.previousElementSibling.textContent)">복사</button>
       </div>`).join("") +
       `<div class="send-blocked">🔒 send_blocked — 엔진은 초안까지만 생성합니다. 발송은 검토 후 사람이 직접.</div>`;
+    if (logBox._pipe) area.prepend(logBox._pipe);
     area.prepend(logBox);
     logBox.classList.add("log-collapsed");
     logBox.onclick = () => logBox.classList.toggle("log-collapsed");
@@ -604,6 +606,7 @@ async function negotiateSim(candidateId, btn) {
           </div>`).join("")}
         ${data.buyer_simulated ? `<div class="sim-note">⚠ 구매자 사전정보는 시뮬레이션 가상 부여 [시뮬] — 실증은 파일럿에서 (정직 프레이밍)</div>` : ""}
       </div>`;
+    if (logBox._pipe) area.prepend(logBox._pipe);
     area.prepend(logBox);
     logBox.classList.add("log-collapsed");
     logBox.onclick = () => logBox.classList.toggle("log-collapsed");
