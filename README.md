@@ -92,6 +92,27 @@ cp .env.example .env    # FRIENDLI_TOKEN + FRIENDLI_ENDPOINT_ID 설정 (K-EXAONE
 `renderPipeline()`이 이를 SVG DAG로 그린다. 로그 문자열 파싱이 아니라 정확한 수명주기 이벤트 기반이라
 실패 지점이 항상 정확한 노드에 표시된다.
 
+## AI 컨설턴트 인터뷰 (CON-01~02) 로컬에서 써보기
+
+기존 `LLM_PROVIDER` 설정을 그대로 재사용한다 — 이 기능만을 위한 별도 키·환경변수는 없다.
+
+```bash
+# 무료 스모크 테스트 (키 없이 바로 흐름 확인)
+LLM_PROVIDER=mock .venv/bin/uvicorn app.main:app --port 8425
+# 웹 UI → ① 자료 입력 → 프로필 분석 → "②+ AI 컨설턴트 인터뷰" 섹션 → "인터뷰 시작"
+```
+
+- **Mock 경로**: 검증된 실제 인터뷰 3건을 기반으로 한 고정 10턴 스크립트
+  (`_MOCK_SCRIPT`, [engine/consultant.py](app/engine/consultant.py)) — 비용 0, 완전 오프라인,
+  매번 같은 흐름이라 UI·계약 검증용으로 적합.
+- **실제 LLM 경로** (`friendli`/`local`/`anthropic`): 매 턴 회사의 상(像)에서 새로 도출한
+  질문+4~6지선다(힌트 포함)를 생성. `.env`에 `FRIENDLI_TOKEN`+`FRIENDLI_ENDPOINT_ID`를 넣거나
+  (상단 "오프라인/저사양 실행" 참고) 로컬 모델을 띄운 뒤 같은 UI 흐름으로 확인.
+- **API 직접 호출**: `POST /product/consult {company_id, history:[{question,answer}]}` →
+  비동기 job, `GET /product/jobs/{id}`로 폴링. 10슬롯이 다 차면 `done:true`+`hypothesis` 반환.
+- **테스트**: `.venv/bin/python -m pytest tests/test_consultant.py -v` (5건, 전부 Mock 경로 —
+  오프라인·비용 0으로 계약 검증)
+
 ## 엔드포인트 (API_계약서 v1.0)
 
 | 엔드포인트 | 방식 | 역할 |
@@ -145,11 +166,9 @@ cp .env.example .env    # FRIENDLI_TOKEN + FRIENDLI_ENDPOINT_ID 설정 (K-EXAONE
     종료 + 최종 아웃리치 가설 산출
   - `POST /product/consult` (비동기 job) · UI ②+ 섹션(선택지 칩·복수선택·자유입력·
     가설→의도 반영) · 인터뷰 전 과정 감사 로그 축적(대표 인터뷰 = CoT 데이터 자산)
-- [ ] **Phase 4 — 데이터 파이프라인·학습·평가**: CoT JSONL 검증기·held-out 봉인·LoRA SFT (박사 협업)
-- [ ] **Phase 5 — 운영화**: 상태 영속화(PostgreSQL/Redis)·감사 로그(SYS-04)·Next.js 데모 UX
-- [ ] **Phase 3 — CoT 데이터 파이프라인**: JSONL 검증기·커버리지 매트릭스·held-out 봉인 (DAT-01~05)
-- [ ] **Phase 4 — 학습·평가**: EXAONE LoRA SFT·베이스라인 비교 (EVL-01~05, 박사 협업)
-- [ ] **Phase 5 — 통합·데모**: Next.js 프론트·감사 로그(SYS-04)·job 영속화(Redis)
+- [ ] **Phase 4 — CoT 데이터 파이프라인**: JSONL 검증기·커버리지 매트릭스·held-out 봉인 (DAT-01~05)
+- [ ] **Phase 5 — 학습·평가**: EXAONE LoRA SFT·베이스라인 비교 (EVL-01~05, 박사 협업)
+- [ ] **Phase 6 — 운영화**: 상태 영속화(PostgreSQL/Redis)·감사 로그(SYS-04)·Next.js 데모 UX
 
 ## PRD P0 커버리지 (Phase 1 기준)
 
