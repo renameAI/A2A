@@ -347,14 +347,20 @@ function collectAssets() {
   }).filter(Boolean).map((a) => a.type === "text" ? a : { type: a.type, content: "", url: a.url });
 }
 
+function upsertDialogue(q, a) {   // 라운드 넘어가도 답변 유지 (런타임 엔티티 저장)
+  const hit = state.dialogue.find((d) => d.q === q);
+  if (hit) hit.a = a; else state.dialogue.push({ q, a });
+}
+
 function collectDialogue() {
+  // 이번에 입력한 보강 답변을 state.dialogue에 누적 (재분석 시 이전 답변 유실 방지)
+  document.querySelectorAll("#questions input").forEach((input) => {
+    if (input.value.trim()) upsertDialogue(input.dataset.q, input.value.trim());
+  });
   const dialogue = [...state.dialogue];
   const ws = $("#w-sell").value, wb = $("#w-buy").value;
   if (ws) dialogue.push({ q: "판매의향", a: ws });
   if (wb) dialogue.push({ q: "구매의향", a: wb });
-  document.querySelectorAll("#questions input").forEach((input) => {
-    if (input.value.trim()) dialogue.push({ q: input.dataset.q, a: input.value.trim() });
-  });
   return dialogue;
 }
 
@@ -390,10 +396,14 @@ async function onboard() {
     $("#engine-mode").textContent = `engine: ${data.engine_mode}`;
     $("#engine-mode").className = `badge mode-${data.engine_mode}`;
     updateChecklist(data.profile);
+    computeMinStatus(data.open_questions);
     if (data.open_questions.length) showQuestions(data.open_questions);
+    renderMinProgress();
   } catch (err) {
     if (err.code === "profile_below_minimum") {
-      showQuestions(err.details.open_questions);
+      computeMinStatus(err.details.open_questions);
+      showQuestions(err.details.open_questions, err.details.clarify);
+      renderMinProgress();
       showError("#onboard-error",
         "최소 프로필 기준 미달 — 아래 보강 질문에 답하면 매칭 풀에 들어갈 수 있어요.");
     } else {
@@ -404,18 +414,95 @@ async function onboard() {
 $("#btn-onboard").onclick = onboard;
 $("#btn-reanalyze").onclick = onboard;
 
-function showQuestions(questions) {
-  $("#questions").innerHTML = questions.map((q) =>
-    `<label class="block">${esc(q)}<input data-q="${esc(q.split("?")[0].slice(0, 20))}" placeholder="답변"></label>`).join("");
-  // 질문 키를 mock 파서가 이해하는 필드명으로 매핑
-  const keyMap = [["문제", "문제"], ["해결", "솔루션"], ["방식", "솔루션"],
-                  ["팔고", "타겟"], ["타겟", "타겟"], ["가치", "판매가치"], ["의향", "판매의향"]];
+function showQuestions(questions, clarify) {
+  // 질문 원문을 data-q로 그대로 보관 — 필드 매핑은 백엔드가 단독으로 한다
+  const byQ = {};
+  (clarify || []).forEach((item) => { byQ[item.question] = item; });
+  $("#questions").innerHTML = questions.map((q) => {
+    const prior = state.dialogue.find((d) => d.q === q);   // 이전 답변 복원
+    const c = byQ[q];
+    const chips = c ? `<div class="clarify-why">${esc(c.why)}</div>` +
+      `<div class="clarify-opts">` + c.options.map((o) =>
+        `<button type="button" class="opt-chip" data-val="${esc(o.label)}">` +
+        `${esc(o.label)}<small>${esc(o.hint)}</small></button>`).join("") +
+      `</div>` : "";
+    return `<div class="q-block"><label class="block">${esc(q)}${chips}` +
+      `<input data-q="${esc(q)}" value="${esc(prior ? prior.a : "")}"` +
+      ` placeholder="${c ? "다 아니면 직접 입력" : "답변"}"></label></div>`;
+  }).join("");
   document.querySelectorAll("#questions input").forEach((input) => {
-    const q = input.closest("label").textContent;
-    const hit = keyMap.find(([kw]) => q.includes(kw));
-    if (hit) input.dataset.q = hit[1];
+    input.addEventListener("input", () => {   // 직접 입력하면 칩 선택 해제
+      input.closest(".q-block").querySelectorAll(".opt-chip.sel")
+        .forEach((c) => { if (c.dataset.val !== input.value) c.classList.remove("sel"); });
+      renderMinProgress();
+    });
+  });
+  document.querySelectorAll("#questions .opt-chip").forEach((chip) => {
+    chip.onclick = () => {   // 칩 탭 = 답변 입력 (한 질문에 하나만)
+      const block = chip.closest(".q-block");
+      block.querySelectorAll(".opt-chip").forEach((c) => c.classList.remove("sel"));
+      chip.classList.add("sel");
+      const input = block.querySelector("input");
+      input.value = chip.dataset.val;
+      renderMinProgress();
+    };
   });
   $("#questions-panel").classList.remove("hidden");
+}
+
+/* ── 최소 프로필 진행바 (무엇이 채워지고 무엇이 남았는지) ─────────── */
+
+const MIN_FIELDS = [
+  { key: "problem", label: "문제" },
+  { key: "solution", label: "솔루션" },
+  { key: "target", label: "타겟" },
+  { key: "value_prop", label: "가치 제안" },
+];
+
+function classifyQuestion(q) {   // 보강 질문 원문 → 최소 필드 (구체 키워드부터)
+  if (q.includes("가치")) return "value_prop";   // '문제해결 중' 포함 → '문제'보다 먼저
+  if (q.includes("방식") || q.includes("해결하나요")) return "solution";
+  if (q.includes("팔고") || q.includes("타겟")) return "target";
+  if (q.includes("문제")) return "problem";
+  return null;                   // 의향 등 최소 필드 아님
+}
+
+// open_questions에 남아있으면 미충족, 아니면 충족 (게이트 통과 시 전부 충족)
+function computeMinStatus(openQuestions) {
+  const status = { problem: "filled", solution: "filled",
+                   target: "filled", value_prop: "filled" };
+  (openQuestions || []).forEach((q) => {
+    const f = classifyQuestion(q);
+    if (f) status[f] = "remaining";
+  });
+  state.minStatus = status;
+}
+
+function renderMinProgress() {
+  const box = $("#min-progress");
+  if (!box || !state.minStatus) return;
+  // 입력 중인 답변은 '채우는 중'으로 낙관적 표시
+  const typing = {};
+  document.querySelectorAll("#questions input").forEach((input) => {
+    if (!input.value.trim()) return;
+    const f = classifyQuestion(input.dataset.q || "");
+    if (f) typing[f] = true;
+  });
+  let done = 0;
+  const chips = MIN_FIELDS.map(({ key, label }) => {
+    let st = state.minStatus[key];
+    if (st !== "filled" && typing[key]) st = "typing";
+    if (st === "filled") done += 1;
+    const mark = st === "filled" ? "✓" : st === "typing" ? "…" : "○";
+    return `<span class="mp-chip mp-${st}">${mark} ${label}</span>`;
+  }).join("");
+  const pct = Math.round((done / MIN_FIELDS.length) * 100);
+  box.innerHTML =
+    `<div class="mp-head">최소 프로필 <b>${done}/${MIN_FIELDS.length}</b> 충족` +
+    `<span class="mp-hint">✓ 채워짐 · … 채우는 중 · ○ 남음</span></div>` +
+    `<div class="mp-bar"><div class="mp-fill" style="width:${pct}%"></div></div>` +
+    `<div class="mp-chips">${chips}</div>`;
+  box.classList.remove("hidden");
 }
 
 /* ── ② 프로필 렌더 ───────────────────────────────────────────── */

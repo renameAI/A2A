@@ -21,10 +21,12 @@ class EngineError(Exception):
 class ProfileBelowMinimum(EngineError):
     """최소 프로필 기준 미달 (REP-06) → 409."""
 
-    def __init__(self, open_questions: list[str]):
+    def __init__(self, open_questions: list[str],
+                 clarify: Optional[list] = None):
         super().__init__(409, "profile_below_minimum",
                          "최소 프로필 기준 미달 — 보강 질문에 답해 주세요.",
-                         {"open_questions": open_questions})
+                         {"open_questions": open_questions,
+                          "clarify": clarify or []})
 
 
 class NoStrongCandidate(EngineError):

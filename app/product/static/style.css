@@ -74,6 +74,28 @@ button:disabled { opacity: .5; cursor: wait; }
 .panel.warn { background: #fdf6e3; border: 1px solid #e8d49a; }
 .panel.info { background: #eef4fb; border: 1px solid #c6d9ef; font-size: 13px; }
 .panel h3 { margin: 0 0 10px; font-size: 14px; }
+
+/* 최소 프로필 진행바 */
+#min-progress { margin: 0 0 14px; }
+.mp-head { font-size: 12px; color: #6b5600; font-weight: 700; margin-bottom: 6px; }
+.mp-head b { color: #1e2430; }
+.mp-head .mp-hint { font-weight: 400; color: #9a8a5a; margin-left: 8px; }
+.mp-bar { height: 8px; background: #efe6c8; border-radius: 6px; overflow: hidden; }
+.mp-fill { height: 100%; background: #2f9e44; border-radius: 6px;
+           transition: width .35s ease; }
+.mp-chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.mp-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px;
+           border: 1px solid #d5d0c4; background: #fff; }
+.mp-chip.mp-filled { border-color: #2f9e44; background: #ebfbee; color: #1b6b2e; }
+.mp-chip.mp-typing { border-color: #e8a33d; background: #fff6e8; color: #9a6b00; }
+.mp-chip.mp-remaining { color: #9a8f7a; }
+
+/* 보강 질문 4지선다 */
+.q-block { margin-bottom: 14px; }
+.clarify-why { font-size: 12px; color: #9a6b00; margin: 4px 0 6px; }
+.clarify-opts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px;
+                font-weight: 400; }
+.clarify-opts .opt-chip { max-width: 240px; text-align: left; }
 .error { color: #b3261e; background: #fceeee; border: 1px solid #eec7c4; border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 13px; }
 .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
 .mode-mock { background: #6b7280; color: #fff; }

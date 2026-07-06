@@ -37,6 +37,38 @@ _ASK_QUESTIONS = {
     "target": "누구에게 팔고 싶으신가요? (타겟 고객)",
     "value_prop": "핵심 가치 제안은 무엇인가요? (매출/비용/임팩트/문제해결 중)",
 }
+_WILLINGNESS_QUESTION = "협력 의향(판매/구매)은 어느 정도인가요?"
+
+# 보강 질문(원문) → Mock 파서가 읽는 정규 필드명 (단일 진실 소스)
+_QUESTION_TO_FIELD = {
+    _ASK_QUESTIONS["problem"]: "문제",
+    _ASK_QUESTIONS["solution"]: "솔루션",
+    _ASK_QUESTIONS["target"]: "타겟",
+}
+
+
+def _dialogue_to_mock_lines(dialogue) -> list[str]:
+    """보강 답변을 Mock 파서용 정규 라인('필드: 값')으로 변환.
+
+    프론트는 질문 원문을 그대로 되돌려준다 — 필드 매핑은 여기서만 한다.
+    """
+    lines: list[str] = []
+    for t in dialogue:
+        q, a = (t.q or "").strip(), t.a
+        field = _QUESTION_TO_FIELD.get(q)
+        if field:
+            lines.append(f"{field}: {a}")
+        elif q == _ASK_QUESTIONS["value_prop"]:
+            props = [kw for kw in _VALUE_PROP_MAP if kw in a]
+            if "문제 해결" in a and "문제해결" not in props:
+                props.append("문제해결")
+            if props:
+                lines.append("판매가치: " + ",".join(props))
+        elif q == _WILLINGNESS_QUESTION:
+            lines.append(f"판매의향: {a}")
+        else:                               # 이미 정규 키(판매의향 등)면 그대로
+            lines.append(f"{q}: {a}")
+    return lines
 
 
 # ── 자산 수집 → 청크 (ING-01, ING-02) ───────────────────────────────
@@ -70,9 +102,9 @@ def _ingest_assets(req: RepresentRequest, settings: Settings
         chunks.extend(chunk_text(text, label))
         full_text_parts.append(text)
     if req.dialogue:
-        qa = "\n".join(f"{t.q}: {t.a}" for t in req.dialogue)
+        qa = "\n".join(f"{t.q}: {t.a}" for t in req.dialogue)      # LLM 경로: 질문 원문 유지
         chunks.extend(chunk_text(f"[보강 대화 답변 — 최우선 신뢰]\n{qa}", "dialogue"))
-        full_text_parts.append(qa)
+        full_text_parts.append("\n".join(_dialogue_to_mock_lines(req.dialogue)))
     return chunks, "\n".join(full_text_parts)
 
 
@@ -136,9 +168,94 @@ def _mock_extract(full_text: str) -> tuple[Profile, list[str]]:
     return profile, open_questions
 
 
+# ── 보강 질문 4지선다화 (자료 단서 기반 가설 선지) ──────────────────
+
+_MOCK_CLARIFY_OPTIONS = {
+    "problem": [
+        {"label": "특정 고객군의 비용 부담", "hint": "비용 절감형 파트너와 매칭"},
+        {"label": "기존 방식의 매출 정체", "hint": "매출 증대형 파트너와 매칭"},
+        {"label": "수작업·비효율 프로세스", "hint": "자동화·효율화 수요처와 매칭"},
+        {"label": "규제·품질 기준 대응 부담", "hint": "인증·컴플라이언스 축으로 매칭"},
+    ],
+    "solution": [
+        {"label": "제품(HW/SW) 직접 판매", "hint": "구매 담당자 대상 아웃리치로 매칭"},
+        {"label": "서비스·운영 대행", "hint": "위탁·파트너십 구조로 매칭"},
+        {"label": "플랫폼·중개", "hint": "양면 시장의 공급/수요 양쪽과 매칭"},
+        {"label": "데이터·구독형 SaaS", "hint": "반복 매출 구조 — PoC 후 구독 전환 매칭"},
+    ],
+    "target": [
+        {"label": "중소기업 (오너 직접 결정)", "hint": "의사결정 빠른 소규모 딜로 매칭"},
+        {"label": "대기업·체인 본사", "hint": "조달 절차가 긴 대형 계약형 매칭"},
+        {"label": "공공·기관", "hint": "입찰·레퍼런스 중심 매칭"},
+        {"label": "동종 업계 파트너사", "hint": "재판매·번들 제휴형 매칭"},
+    ],
+    "value_prop": [
+        {"label": "매출 증대", "hint": "상대의 탑라인을 올려주는 제안으로 매칭"},
+        {"label": "비용 절감", "hint": "상대의 원가·운영비를 줄이는 제안으로 매칭"},
+        {"label": "임팩트", "hint": "ESG·사회적 가치 축의 상대와 매칭"},
+        {"label": "문제 해결", "hint": "상대의 구체적 결핍을 직접 해소하는 매칭"},
+    ],
+    "willingness": [
+        {"label": "매우 적극적", "hint": "바로 아웃리치 가능한 딜로 취급"},
+        {"label": "적극적", "hint": "우선순위 높은 매칭 풀에 포함"},
+        {"label": "중간", "hint": "조건이 맞을 때만 제안"},
+        {"label": "소극적", "hint": "판단이 보수화됨 (JDG-08)"},
+    ],
+}
+
+
+def _question_field(q: str) -> str:
+    """질문 원문 → 선지 유형 (구체 키워드부터 — value_prop 질문에 '문제'가 들어있음)."""
+    if "가치" in q:
+        return "value_prop"
+    if "의향" in q:
+        return "willingness"
+    if "방식" in q or "해결하나요" in q:
+        return "solution"
+    if "팔고" in q or "타겟" in q:
+        return "target"
+    return "problem"
+
+
+def _mock_clarify(open_questions: list[str]) -> list[dict]:
+    return [{"question": q,
+             "why": "자료에서 이 항목을 확인하지 못했습니다.",
+             "options": _MOCK_CLARIFY_OPTIONS[_question_field(q)]}
+            for q in open_questions]
+
+
+def _clarify_questions(extractor, profile: Profile,
+                       open_questions: list[str], full_text: str) -> list[dict]:
+    """보강 질문마다 자료 단서 기반 4지선다 생성 — 실패 시 규칙 선지로 폴백."""
+    from .. import progress
+    if extractor is None:
+        return _mock_clarify(open_questions)
+    from .llm import sanitize
+    from .prompts import CLARIFY_SCHEMA, CLARIFY_SYSTEM, clarify_user
+    try:
+        data = sanitize(extractor.extract_json(
+            CLARIFY_SYSTEM, clarify_user(open_questions, full_text, profile),
+            CLARIFY_SCHEMA))
+        progress.log("보강", f"비즈니스 모델 파악 — {data['model_summary']}")
+        by_q = {item["question"]: item for item in data["items"]}
+        items = []
+        for i, q in enumerate(open_questions):     # 질문 원문 계약 방어 (순서 폴백)
+            item = by_q.get(q) or (data["items"][i] if i < len(data["items"]) else None)
+            if item and len(item.get("options", [])) == 4:
+                items.append({"question": q, "why": item["why"],
+                              "options": item["options"]})
+            else:
+                items.append(_mock_clarify([q])[0])
+        return items
+    except Exception as exc:                        # 선지 실패가 온보딩을 막으면 안 됨
+        progress.log("보강", f"선지 생성 실패 — 규칙 선지로 폴백 ({exc})")
+        return _mock_clarify(open_questions)
+
+
 # ── 공통 게이트·출력 ────────────────────────────────────────────────
 
-def _check_minimum(profile: Profile, open_questions: list[str]) -> None:
+def _check_minimum(profile: Profile, open_questions: list[str],
+                   extractor=None, full_text: str = "") -> None:
     """최소 프로필 기준 (REP-06): 문제·솔루션·VP·타겟 각 1개 이상."""
     minimum_met = bool(
         profile.problem_solved.value
@@ -147,7 +264,8 @@ def _check_minimum(profile: Profile, open_questions: list[str]) -> None:
         and (profile.sell_value_props or profile.purchase_value_props)
     )
     if not minimum_met:
-        raise ProfileBelowMinimum(open_questions)
+        clarify = _clarify_questions(extractor, profile, open_questions, full_text)
+        raise ProfileBelowMinimum(open_questions, clarify)
 
 
 def represent(req: RepresentRequest, settings: Settings | None = None
@@ -173,7 +291,7 @@ def represent(req: RepresentRequest, settings: Settings | None = None
         engine_mode = "mock"
 
     with progress.node("gate", "최소 프로필 게이트 (REP-06)"):
-        _check_minimum(profile, open_questions)
+        _check_minimum(profile, open_questions, extractor, full_text)
         progress.log("게이트", "최소 프로필 기준(REP-06) 통과")
 
     from .. import audit
