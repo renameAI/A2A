@@ -84,6 +84,14 @@ const PIPELINES = {
             ["compose.template", "sendgate"]],
   },
   negotiate: { title: "A2A 협상 — 제안 ↔ 검토 ↔ 재제안 (7-A)", dynamic: true },
+  consult: {
+    title: "Consultant — 진단 인터뷰 (기획서 9장)",
+    nodes: [
+      { id: "consult",    col: 0, row: 0, icon: "🎙", label: "인터뷰 턴",  desc: "슬롯 공백 분석 → 질문·선택지 설계 (회사의 상에서 도출)" },
+      { id: "llm.format", col: 1, row: 0, icon: "🧩", label: "구조화",     desc: "질문·선택지·슬롯을 스키마로 강제" },
+    ],
+    edges: [["consult", "llm.format"]],
+  },
 };
 
 const NODE_W = 170, NODE_H = 64, GAP_X = 56, GAP_Y = 30, PAD = 14;
@@ -377,6 +385,7 @@ async function onboard() {
     $("#questions-panel").classList.add("hidden");
     renderProfile(data);
     $("#step2").classList.remove("hidden");
+    $("#step-consult").classList.remove("hidden");
     $("#step3").classList.remove("hidden");
     $("#engine-mode").textContent = `engine: ${data.engine_mode}`;
     $("#engine-mode").className = `badge mode-${data.engine_mode}`;
@@ -613,6 +622,100 @@ async function negotiateSim(candidateId, btn) {
   } catch (err) { area.insertAdjacentHTML("beforeend", `<div class="error">${esc(err.message)}</div>`); }
   finally { btn.disabled = false; btn.textContent = "A2A 협상 시뮬레이션"; }
 }
+
+/* ── ②+ AI 컨설턴트 인터뷰 (CON-01~02) ─────────────────────────
+   검증된 패턴: 한 번에 하나씩 + 회사 자료에서 도출한 4~6지선다 +
+   10슬롯 확정 시 종료·가설 산출. 히스토리는 클라이언트가 보유(SYS-01). */
+
+const SLOT_KO = { solution: "솔루션", pain_point: "pain point", segments: "세그먼트",
+  market: "시장", recipient: "수신자", cta: "CTA", proof_points: "proof",
+  assets: "제공물", risk: "리스크", follow_up: "후속 흐름" };
+const consultState = { history: [], currentQ: null, selected: new Set() };
+
+async function consultNext() {
+  hideError("#consult-error");
+  const btn = $("#btn-consult");
+  btn.disabled = true; btn.textContent = "컨설턴트 생각 중...";
+  try {
+    const data = await runJob("/product/consult",
+      { company_id: state.companyId, history: consultState.history },
+      $("#consult-log"), "consult");
+    renderConsultTurn(data);
+  } catch (err) {
+    showError("#consult-error", `${err.code || ""} ${err.message}`);
+  } finally { btn.disabled = false; btn.textContent = "인터뷰 계속"; }
+}
+
+function renderConsultTurn(data) {
+  // 슬롯 진행 표시
+  const filled = Object.entries(data.filled || {}).filter(([, v]) => v);
+  $("#slot-count").textContent = filled.length;
+  $("#slot-names").textContent = filled.map(([k]) => SLOT_KO[k] || k).join(" · ");
+
+  if (data.done) {
+    $("#consult-qa").classList.add("hidden");
+    $("#btn-consult").classList.add("hidden");
+    $("#consult-result").classList.remove("hidden");
+    const market = data.filled?.market || "";
+    const region = ["유럽", "북미", "미국", "일본", "동남아", "베트남", "태국",
+                    "싱가포르", "인도", "중국", "독일", "프랑스", "영국", "MENA"]
+      .find((r) => market.includes(r));
+    $("#consult-result").innerHTML =
+      `<h3>🧭 최종 아웃리치 가설</h3><pre>${esc(data.hypothesis || "")}</pre>` +
+      (region ? `<button id="btn-apply-hypo" class="primary">이 가설로 의도 채우기 (지역: ${esc(region)})</button>` : "");
+    const apply = $("#btn-apply-hypo");
+    if (apply) apply.onclick = () => {
+      $("#intent-region").value = region;
+      updateChecklist();
+      document.querySelector("#step3").scrollIntoView({ block: "start" });
+    };
+    return;
+  }
+
+  consultState.currentQ = data.question;
+  consultState.selected = new Set();
+  const qa = $("#consult-qa");
+  qa.classList.remove("hidden");
+  qa.innerHTML = `
+    <h3>Q${consultState.history.length + 1}. ${esc(data.question)}</h3>
+    <div class="consult-why">💡 ${esc(data.why)}${data.allow_multi ? " (복수 선택 가능)" : ""}</div>
+    <div class="consult-opts">${data.options.map((o, i) =>
+      `<span class="opt-chip" data-i="${i}" data-label="${esc(o.label)}">${esc(o.label)}<small>${esc(o.hint)}</small></span>`).join("")}
+    </div>
+    <div class="consult-free">
+      <input id="consult-free-input" placeholder="선택지에 없으면 직접 입력·수정하세요 (대표의 답이 우선입니다)">
+      <button id="btn-consult-answer" class="primary">답변 제출</button>
+    </div>`;
+  qa.querySelectorAll(".opt-chip").forEach((chip) => {
+    chip.onclick = () => {
+      const label = chip.dataset.label;
+      if (data.allow_multi) {
+        chip.classList.toggle("sel");
+        consultState.selected.has(label)
+          ? consultState.selected.delete(label) : consultState.selected.add(label);
+      } else {
+        qa.querySelectorAll(".opt-chip").forEach((c) => c.classList.remove("sel"));
+        chip.classList.add("sel");
+        consultState.selected = new Set([label]);
+      }
+    };
+  });
+  qa.querySelector("#btn-consult-answer").onclick = () => {
+    const free = qa.querySelector("#consult-free-input").value.trim();
+    const parts = [...consultState.selected];
+    if (free) parts.push(free);
+    if (!parts.length) return;
+    const answer = parts.join(", ");
+    consultState.history.push({ question: consultState.currentQ, answer });
+    $("#consult-history").insertAdjacentHTML("beforeend",
+      `<div class="consult-turn"><div class="ct-q">Q${consultState.history.length}. ${esc(consultState.currentQ)}</div>
+       <div class="ct-a">→ ${esc(answer)}</div></div>`);
+    qa.classList.add("hidden");
+    consultNext();
+  };
+}
+
+$("#btn-consult").onclick = consultNext;
 
 /* ── 체크리스트 라이브 갱신 ─────────────────────────────────── */
 

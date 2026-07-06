@@ -151,6 +151,26 @@ details pre { white-space: pre-wrap; background: #f7f5f0; padding: 10px; border-
 .log-nok { color: #7fb069; }
 .log-nerr { color: #e06c75; }
 
+/* ── 컨설턴트 인터뷰 ── */
+.consult-hint { color: #6b7280; font-size: 13px; margin: 0 0 10px; }
+.slot-progress { font-size: 12px; color: #9a6b00; font-weight: 700; margin-bottom: 10px; }
+.slot-progress #slot-names { font-weight: 400; color: #8a8f99; margin-left: 8px; }
+.consult-turn { font-size: 13px; margin: 8px 0; padding: 8px 12px;
+  background: #fdfcfa; border: 1px solid #eceae4; border-radius: 8px; }
+.consult-turn .ct-q { color: #6b7280; }
+.consult-turn .ct-a { font-weight: 700; }
+.consult-why { color: #9a6b00; font-size: 12px; margin: 6px 0 10px; }
+.opt-chip { display: inline-block; border: 1px solid #d5d0c4; border-radius: 12px;
+  padding: 8px 14px; margin: 4px 8px 4px 0; cursor: pointer; background: #fff;
+  font-size: 13px; max-width: 320px; vertical-align: top; }
+.opt-chip small { display: block; color: #8a8f99; font-size: 11px; margin-top: 2px; }
+.opt-chip:hover { border-color: #9a6b00; }
+.opt-chip.sel { border-color: #1e2430; background: #1e2430; color: #fff; }
+.opt-chip.sel small { color: #cbd2dd; }
+.consult-free { display: flex; gap: 8px; margin-top: 10px; }
+.consult-free input { flex: 1; }
+#consult-result pre { white-space: pre-wrap; font: inherit; margin: 8px 0; }
+
 /* ── 파이프라인 DAG 캔버스 (DevOps 뷰) ── */
 .pipebox {
   background: #0f1219; border: 1px solid #262e3f; border-radius: 10px;

@@ -74,6 +74,20 @@
       <div id="profile-card"></div>
     </section>
 
+    <!-- ═══ ②+ AI 컨설턴트 인터뷰 (선택) ═══ -->
+    <section id="step-consult" class="step hidden">
+      <h2><span class="num">②+</span> AI 컨설턴트 인터뷰 <small>(선택 — 진단 대화로 아웃리치 가설 수립)</small></h2>
+      <p class="consult-hint">전문 컨설턴트의 인터뷰를 재현해요. 질문마다 회사 자료에서 도출한 선택지가 제시되고,
+      10개 슬롯(솔루션·pain point·세그먼트·시장·수신자·CTA·proof·제공물·리스크·후속 흐름)이 확정되면 최종 가설이 나옵니다.</p>
+      <div class="slot-progress"><span id="slot-count">0</span>/10 슬롯 확정 <span id="slot-names"></span></div>
+      <button id="btn-consult" class="primary">인터뷰 시작</button>
+      <div id="consult-log" class="logbox hidden"></div>
+      <div id="consult-history"></div>
+      <div id="consult-qa" class="panel warn hidden"></div>
+      <div id="consult-result" class="panel info hidden"></div>
+      <div id="consult-error" class="error hidden"></div>
+    </section>
+
     <!-- ═══ ③ 의도 · 후보 발굴 ═══ -->
     <section id="step3" class="step hidden">
       <h2><span class="num">③</span> 의도 설정 → 후보 발굴 <small>(보완성 검색 — 유사도 아님)</small></h2>
@@ -99,6 +113,6 @@
 </div>
 
 <footer>엔진은 초안까지만 — <b>발송·미팅 결정은 항상 사람</b>이 합니다 (CMP-06)</footer>
-<script src="/app.js?v=3"></script>
+<script src="/app.js?v=4"></script>
 </body>
 </html>

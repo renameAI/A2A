@@ -137,6 +137,14 @@ cp .env.example .env    # FRIENDLI_TOKEN + FRIENDLI_ENDPOINT_ID 설정 (K-EXAONE
   - `/` 웹 UI: "받아야 할 것" 체크리스트 + 자료입력→프로필→후보→판단→초안→협상 한 사이클
   - `/product/*` stateful 제품 레이어 (온보딩·매칭·판단·초안·협상 오케스트레이션, 인메모리)
   - 구매자 사전정보 시뮬레이션 가상 부여 + 정직 표기 (7-A.6)
+- [x] **Consultant 모드 (CON-01~02)** — 진단 인터뷰 엔진
+  - 실제 인터뷰 시뮬레이션 3건(식품소재·소재 딥테크·하드웨어 부품)에서 검증된
+    방법론을 [prompts.py](app/engine/prompts.py) `CONSULT_SYSTEM`으로 형식화:
+    한 번에 하나씩 좁히기 · 회사의 상에서 도출한 4~6지선다+힌트 · 업종별 질문 축 ·
+    10슬롯(솔루션·pain point·세그먼트·시장·수신자·CTA·proof·제공물·리스크·후속) 확정 시
+    종료 + 최종 아웃리치 가설 산출
+  - `POST /product/consult` (비동기 job) · UI ②+ 섹션(선택지 칩·복수선택·자유입력·
+    가설→의도 반영) · 인터뷰 전 과정 감사 로그 축적(대표 인터뷰 = CoT 데이터 자산)
 - [ ] **Phase 4 — 데이터 파이프라인·학습·평가**: CoT JSONL 검증기·held-out 봉인·LoRA SFT (박사 협업)
 - [ ] **Phase 5 — 운영화**: 상태 영속화(PostgreSQL/Redis)·감사 로그(SYS-04)·Next.js 데모 UX
 - [ ] **Phase 3 — CoT 데이터 파이프라인**: JSONL 검증기·커버리지 매트릭스·held-out 봉인 (DAT-01~05)

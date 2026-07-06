@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from ..engine import pool as pool_module
 from ..jobs import store as job_store
 from ..engine.compose import compose
+from ..engine.consultant import consult
 from ..engine.judge import judge
 from ..engine.negotiate import negotiate
 from ..engine.represent import represent
@@ -100,6 +101,28 @@ def companies():
     return [{"company_id": r.company_id, "name": r.profile.basic.name,
              "country": r.profile.basic.country, "engine_mode": r.engine_mode}
             for r in store.list()]
+
+
+# ── 컨설턴트 인터뷰 (CON-01~02) — 진단 대화로 아웃리치 가설 수립 ────
+
+class ConsultTurnIn(BaseModel):
+    question: str
+    answer: str
+
+
+class ConsultRequest(BaseModel):
+    company_id: str
+    history: list[ConsultTurnIn] = []   # 상태는 제품/클라이언트가 보유 (SYS-01)
+
+
+@router.post("/consult", status_code=202)
+def consult_turn(req: ConsultRequest, background: BackgroundTasks):
+    rec = _require_company(req.company_id)
+
+    def _run() -> dict:
+        return consult(rec.profile,
+                       [t.model_dump() for t in req.history])
+    return _submit(background, _run)
 
 
 # ── 후보 발굴 (엔진 retrieve 호출) ──────────────────────────────────
