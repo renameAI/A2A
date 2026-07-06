@@ -154,6 +154,10 @@ LLM_PROVIDER=mock .venv/bin/uvicorn app.main:app --port 8425
     역추론 → Judge가 "양측의 상 재구성"부터 판단 → Compose가 수신자 언어 번역에 사용.
     스타트업 독해 규칙(수사/사실 분리·부재 신호·트랙션의 언어·자료 유형 보정) 내장.
   - deal-breaker 하드 게이트는 LLM 경로에서도 항상 규칙으로 보장 (JDG-04)
+  - **프롬프트 중앙화**: 모든 LLM 시스템 프롬프트·스키마·user 빌더는 오직
+    [engine/prompts.py](app/engine/prompts.py) 한 곳에만 존재한다 — 다른 모듈(represent·judge·
+    compose·retrieve·consultant·2단계 구조화기)은 여기서 import만 하고 프롬프트를 직접
+    작성하지 않는다. 프롬프트를 고칠 곳이 항상 한 파일이라는 뜻.
 - [x] **Phase 3(일부) — 프론트엔드 + 제품 백엔드** (현재)
   - `/` 웹 UI: "받아야 할 것" 체크리스트 + 자료입력→프로필→후보→판단→초안→협상 한 사이클
   - `/product/*` stateful 제품 레이어 (온보딩·매칭·판단·초안·협상 오케스트레이션, 인메모리)

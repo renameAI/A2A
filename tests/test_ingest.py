@@ -7,7 +7,8 @@ import app.engine.represent as represent_module
 from app.config import Settings
 from app.errors import EngineError
 from app.ingest.chunking import chunk_text
-from app.ingest.extractor import EXTRACTION_SCHEMA, extract_profile
+from app.engine.prompts import EXTRACT_SCHEMA
+from app.ingest.extractor import extract_profile
 from app.ingest.fetchers import FetchFailed, fetch_instagram, fetch_url
 from app.main import app
 
@@ -119,7 +120,7 @@ class FakeExtractor:
         self.calls = []
 
     def extract_json(self, system, user, schema, deep=False):
-        assert schema == EXTRACTION_SCHEMA
+        assert schema == EXTRACT_SCHEMA
         self.calls.append(user)
         return FAKE_EXTRACTION
 

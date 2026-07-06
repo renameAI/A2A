@@ -14,6 +14,7 @@ import httpx
 from .. import progress
 from ..config import Settings
 from ..errors import EngineError
+from .prompts import FORMAT_SYSTEM
 
 
 class Extractor(Protocol):
@@ -72,13 +73,6 @@ class AnthropicExtractor:
             raise EngineError(502, "llm_refusal", "LLM이 요청을 거절했습니다.")
         return response.content[0].text
 
-
-_FORMAT_SYSTEM = ("당신은 구조화 변환기다. 주어진 전문가 분석을 지시된 JSON 스키마로 "
-                  "옮긴다. 분석에 없는 내용을 새로 지어내지 말고, 있는 내용을 빠뜨리지도 "
-                  "마라. 각 필드에는 [전문가 분석]에서 찾은 실제 값을 넣는다 — 스키마 규칙 "
-                  "설명에 나온 예시 문구·플레이스홀더('주체 회사' 등)를 값으로 복사하지 마라. "
-                  "모든 값은 완전한 한국어 문장으로 쓴다 — 한자·외국 문자·깨진 글자 혼입 금지, "
-                  "중간에 끊긴 문장 금지. 고유명사(회사명·제품명)만 원어 허용.")
 
 # 코드 레벨 정화 — 약한/작은 모델은 프롬프트를 덜 지키므로 사후에도 방어한다.
 # 한국어 비즈니스 서술에 원래 없는 문자군(한자·가나·대체문자·제어문자)을 제거.
@@ -223,7 +217,7 @@ class _OpenAICompatExtractor:
                 format_user = (f"[스키마 규칙 원문]\n{system}\n\n[전문가 분석]\n{analysis}\n\n"
                                "위 분석을 스키마 JSON으로 구조화하라. 분석에 없는 내용을 "
                                "추가하지 마라.")
-                return self._retry_json(_FORMAT_SYSTEM, format_user, schema)
+                return self._retry_json(FORMAT_SYSTEM, format_user, schema)
         with progress.node("llm.format", "구조화 (단일 호출)"):
             return self._retry_json(system, user, schema)
 
