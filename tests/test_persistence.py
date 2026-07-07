@@ -3,10 +3,15 @@
 conftest가 A2A_DB_PATH를 임시 파일로 고정한다. 새 ProductStore 인스턴스 =
 서버 재시작 시뮬레이션 — 같은 DB 파일을 다시 열어 상태가 복원돼야 한다.
 """
+from fastapi.testclient import TestClient
+
+from app.main import app
 from app.product.store import ProductStore
 from app.schemas import (BBox, BasicInfo, CommentThread, PrivateState,
                          ProvField, Provenance, Profile, QuestionPin,
                          ThreadComment)
+
+client = TestClient(app)
 
 
 def _profile(name="다이브인"):
@@ -79,3 +84,19 @@ class TestPersistenceSurvivesRestart:
         before = len(store.list())
         _seed(store, "새회사")
         assert len(ProductStore().list()) == before + 1
+
+
+class TestDbInspector:
+    """SQLite 인스펙터 — 실제 저장 형태(경로·스키마·raw 블롭)를 read-only 노출."""
+
+    def test_inspect_exposes_path_schema_and_raw_blob(self):
+        cid = _seed(ProductStore(), "인스펙트대상")
+        d = client.get("/product/db/inspect").json()
+        assert d["exists"] is True and d["size_bytes"] > 0
+        assert d["db_path"].endswith(".db")
+        assert "CREATE TABLE" in d["schema"][0]["sql"]
+        row = next(c for c in d["companies"] if c["company_id"] == cid)
+        assert row["name"] == "인스펙트대상"
+        assert row["pins"] == 1 and row["open_threads"] == 1
+        # 실제 저장된 raw JSON 블롭이 그대로 노출된다
+        assert '"company_id"' in row["raw"] and cid in row["raw"]

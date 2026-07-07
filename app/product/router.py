@@ -4,6 +4,7 @@
 분리 배포 시 이 계층만 HTTP 클라이언트로 바꾸면 된다 (엔진 계약 불변).
 구매자 사전정보는 대회 데모 규약대로 시뮬레이션 가상 부여한다 (7-A.6, [시뮬] 표시).
 """
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -251,6 +252,48 @@ def companies():
     return [{"company_id": r.company_id, "name": r.profile.basic.name,
              "country": r.profile.basic.country, "engine_mode": r.engine_mode}
             for r in store.list()]
+
+
+# ── SQLite 인스펙터 (Phase 6) — 실제 저장 형태를 read-only로 노출 ────
+# 운영 상태가 로컬 어디에 어떤 raw 블롭으로 저장되는지 눈으로 확인하기 위함.
+
+@router.get("/db/inspect")
+def db_inspect():
+    import sqlite3
+    from .store import _db_path
+    path = _db_path()
+    info = {"db_path": str(path), "exists": path.exists(),
+            "size_bytes": path.stat().st_size if path.exists() else 0,
+            "journal_mode": None, "schema": [], "row_count": 0, "companies": []}
+    if not path.exists():
+        return info
+    conn = sqlite3.connect(path, timeout=10)
+    try:
+        info["journal_mode"] = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        info["schema"] = [
+            {"name": name, "sql": sql} for name, sql in conn.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%'").fetchall()]
+        rows = conn.execute(
+            "SELECT company_id, data FROM companies").fetchall()
+        info["row_count"] = len(rows)
+        for company_id, blob in rows:
+            d = json.loads(blob)
+            info["companies"].append({
+                "company_id": company_id,
+                "name": d.get("profile", {}).get("basic", {}).get("name"),
+                "engine_mode": d.get("engine_mode"),
+                "pins": len(d.get("question_pins", [])),
+                "threads": len(d.get("threads", [])),
+                "open_threads": sum(1 for t in d.get("threads", [])
+                                    if t.get("status") == "open"),
+                "answered": len(d.get("answered_questions", [])),
+                "bytes": len(blob),
+                # 실제 저장된 raw JSON 블롭 그대로 (예쁘게 들여쓰기만)
+                "raw": json.dumps(d, ensure_ascii=False, indent=2)})
+    finally:
+        conn.close()
+    return info
 
 
 # ── 근거 시각화 (bbox) 조회·페이지 이미지·댓글 답변 ─────────────────

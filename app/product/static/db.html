@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DB 저장소 인스펙터 · A2A 매칭엔진</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>A2A B2B 매칭엔진 <span class="ver">v0</span></h1>
+  <nav class="topnav"><a href="/">매칭</a><a href="/a2a.html">A2A 흐름</a><a href="/db.html" class="active">DB 저장소</a></nav>
+</header>
+
+<main class="page">
+  <h2>🗄 SQLite 저장소 인스펙터 <small>(Phase 6 상태 영속화 — 실제 저장 그대로)</small></h2>
+  <p class="hint">인메모리가 아니라 실제 SQLite 파일에 저장됩니다. 아래는 그 파일의 위치·스키마·행을
+  read-only로 보여줘요. 매칭 화면에서 회사를 온보딩하면 여기 행이 늘어나고, 서버를 재시작해도
+  남아있습니다. 각 행의 <b>raw JSON 블롭</b>이 디스크에 실제로 들어있는 바이트예요.</p>
+
+  <div class="dbbar" id="dbbar">불러오는 중…</div>
+  <button id="refresh" class="primary">새로고침</button>
+
+  <section id="schema-sec" class="hidden">
+    <h3>테이블 스키마</h3>
+    <pre id="schema" class="rawblob"></pre>
+  </section>
+
+  <section id="rows-sec" class="hidden">
+    <h3>companies 테이블 <span id="rowcount" class="badge"></span></h3>
+    <div id="rows"></div>
+  </section>
+
+  <div id="empty" class="panel info hidden">아직 저장된 회사가 없어요 — <a href="/">매칭 화면</a>에서 온보딩하면 여기 나타납니다.</div>
+</main>
+
+<footer>SQLite = <code>data/a2a.db</code> · <code>A2A_DB_PATH</code>로 경로 변경 가능 · 재시작 생존</footer>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const kb = (n) => n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
+
+async function load() {
+  const d = await (await fetch("/product/db/inspect")).json();
+  $("#dbbar").innerHTML =
+    `<span class="db-k">파일</span> <code>${esc(d.db_path)}</code>` +
+    `<span class="db-k">존재</span> ${d.exists ? "✅" : "❌ (아직 생성 전)"}` +
+    `<span class="db-k">크기</span> ${kb(d.size_bytes)}` +
+    `<span class="db-k">journal</span> ${esc(d.journal_mode || "-")}` +
+    `<span class="db-k">행</span> ${d.row_count}`;
+
+  if (d.schema.length) {
+    $("#schema").textContent = d.schema.map((t) => t.sql).join(";\n\n");
+    $("#schema-sec").classList.remove("hidden");
+  }
+
+  $("#rowcount").textContent = `${d.row_count} rows`;
+  if (d.companies.length) {
+    $("#rows-sec").classList.remove("hidden");
+    $("#empty").classList.add("hidden");
+    $("#rows").innerHTML = d.companies.map((c, i) => `
+      <div class="dbrow">
+        <div class="dbrow-head" data-i="${i}">
+          <code class="pk">${esc(c.company_id)}</code>
+          <b>${esc(c.name || "(이름 미상)")}</b>
+          <span class="chip">${esc(c.engine_mode)}</span>
+          <span class="chip">핀 ${c.pins}</span>
+          <span class="chip">스레드 ${c.threads}${c.open_threads ? ` · 미응답 ${c.open_threads}` : ""}</span>
+          <span class="chip">답변 ${c.answered}</span>
+          <span class="chip dim">${kb(c.bytes)} 블롭</span>
+          <span class="expand">▶ raw</span>
+        </div>
+        <pre class="rawblob hidden" id="raw-${i}">${esc(c.raw)}</pre>
+      </div>`).join("");
+    document.querySelectorAll(".dbrow-head").forEach((h) => h.onclick = () => {
+      const pre = $(`#raw-${h.dataset.i}`);
+      pre.classList.toggle("hidden");
+      h.querySelector(".expand").textContent = pre.classList.contains("hidden") ? "▶ raw" : "▼ raw";
+    });
+  } else {
+    $("#rows-sec").classList.add("hidden");
+    $("#empty").classList.remove("hidden");
+  }
+}
+$("#refresh").onclick = load;
+load();
+</script>
+</body>
+</html>

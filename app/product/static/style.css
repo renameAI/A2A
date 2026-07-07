@@ -258,3 +258,75 @@ details pre { white-space: pre-wrap; background: #f7f5f0; padding: 10px; border-
 .ev-comment.ev-human b { color: #1e2430; }
 .ev-reply { display: flex; gap: 8px; align-items: flex-start; }
 .ev-reply textarea { flex: 1; }
+
+/* ── 상단 네비 (매칭 / A2A 흐름 / DB 저장소) ── */
+.topnav { display: flex; gap: 4px; margin-left: 8px; flex: 1; }
+.topnav a { color: #b9c0cc; text-decoration: none; font-size: 14px;
+  padding: 5px 12px; border-radius: 7px; }
+.topnav a:hover { background: #2c3547; color: #f3f1ec; }
+.topnav a.active { background: #d9a441; color: #1e2430; font-weight: 700; }
+
+/* 단일 페이지 (인스펙터·A2A) 레이아웃 */
+.page { max-width: 1080px; margin: 0 auto; padding: 20px 24px; }
+.page > h2 { margin: 4px 0 8px; }
+.page h3 { margin: 22px 0 10px; }
+.rawblob { background: #1e2430; color: #e6e1d6; padding: 14px 16px;
+  border-radius: 10px; overflow-x: auto; font-size: 12.5px; line-height: 1.5;
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace; white-space: pre; }
+
+/* ── DB 인스펙터 ── */
+.dbbar { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
+  background: #fff; border: 1px solid #e2ddd2; border-radius: 10px;
+  padding: 12px 16px; margin-bottom: 10px; font-size: 13.5px; }
+.dbbar code { background: #f3f1ec; padding: 2px 7px; border-radius: 5px;
+  font-size: 12.5px; word-break: break-all; }
+.db-k { color: #8b8577; font-size: 12px; margin-right: 4px; }
+.db-k:not(:first-child) { margin-left: 6px; }
+.dbrow { background: #fff; border: 1px solid #e2ddd2; border-radius: 10px;
+  margin-bottom: 8px; overflow: hidden; }
+.dbrow-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 11px 14px; cursor: pointer; }
+.dbrow-head:hover { background: #faf8f3; }
+.dbrow-head .pk { background: #eef1f6; color: #46506a; padding: 2px 8px;
+  border-radius: 5px; font-size: 12px; }
+.dbrow .chip { background: #f0ede6; color: #57606f; font-size: 11.5px;
+  padding: 2px 9px; border-radius: 20px; }
+.dbrow .chip.dim { color: #9a9384; }
+.dbrow .expand { margin-left: auto; color: #2f6fb0; font-size: 12.5px; font-weight: 700; }
+.dbrow .rawblob { margin: 0 12px 12px; }
+
+/* ── A2A 흐름 DAG ── */
+.a2a-controls { display: flex; align-items: center; gap: 12px; margin: 14px 0;
+  flex-wrap: wrap; }
+.a2a-controls label { display: flex; flex-direction: column; font-size: 12px;
+  color: #6b7280; gap: 3px; }
+.lifecycle { display: flex; align-items: center; gap: 0; margin: 16px 0 6px; }
+.lc-node { border: 2px solid #cfc9bc; border-radius: 10px; padding: 10px 18px;
+  background: #fff; text-align: center; color: #9a9384; transition: all .3s; }
+.lc-node span { display: block; font-weight: 700; font-size: 14px; }
+.lc-node small { font-size: 11px; color: #b0a894; }
+.lc-node.on { color: #1e2430; border-color: #d9a441; box-shadow: 0 2px 10px rgba(217,164,65,.25); }
+.lc-node.term-ok { border-color: #4c9a52; background: #f2faf3; }
+.lc-node.term-input { border-color: #d9a441; background: #fdf8ec; }
+.lc-node.term-fail { border-color: #c0392b; background: #fdf2f0; }
+.lc-edge { flex: 1; height: 2px; background: #cfc9bc; min-width: 26px; }
+.dag { display: flex; align-items: center; gap: 0; overflow-x: auto;
+  padding: 14px 4px; background: #fff; border: 1px solid #e2ddd2; border-radius: 12px;
+  min-height: 90px; }
+.dagnode { flex: 0 0 auto; border-radius: 9px; padding: 9px 13px; min-width: 118px;
+  max-width: 200px; cursor: pointer; border: 2px solid transparent;
+  animation: dag-pop .35s ease; }
+.dagnode:hover { filter: brightness(.97); }
+.dagnode.sel { outline: 2px solid #1e2430; outline-offset: 1px; }
+.dn-kind { font-weight: 700; font-size: 12.5px; }
+.dn-sub { font-size: 11.5px; color: #57606f; margin-top: 2px; word-break: break-word; }
+.n-task { background: #eaf1fb; border-color: #b8d0ef; }
+.n-status { background: #f2f0ea; border-color: #ddd6c8; }
+.n-artifact { background: #eefaf0; border-color: #b6e0be; }
+.n-final { background: #fdf6e6; border-color: #ecd79a; }
+.dagedge { flex: 0 0 auto; width: 26px; height: 2px; background: #c9c2b3;
+  position: relative; animation: dag-flow .5s ease; }
+.dagedge::after { content: "▶"; position: absolute; right: -4px; top: -8px;
+  font-size: 10px; color: #c9c2b3; }
+@keyframes dag-pop { from { opacity: 0; transform: translateY(6px) scale(.96); } }
+@keyframes dag-flow { from { opacity: 0; transform: scaleX(0); transform-origin: left; } }
