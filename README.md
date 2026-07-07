@@ -113,6 +113,38 @@ LLM_PROVIDER=mock .venv/bin/uvicorn app.main:app --port 8425
 - **테스트**: `.venv/bin/python -m pytest tests/test_consultant.py -v` (5건, 전부 Mock 경로 —
   오프라인·비용 0으로 계약 검증)
 
+## A2A 전송 계층 — JSON-RPC 2.0 + SSE 스트리밍
+
+Google Agent2Agent 프로토콜을 정식 채택. 단일 엔드포인트 `POST /a2a`가 JSON-RPC 봉투를
+받아 우리 엔진 스킬을 A2A Task로 감싼다 — 외부 에이전트가 표준 규약으로 이 엔진을 부른다.
+
+- **Capability discovery**: `GET /.well-known/agent.json` — Agent Card(스킬·모달리티·
+  streaming 능력). `preferredTransport: JSONRPC`, `additionalInterfaces`에 `/a2a` 광고.
+- **메서드**: `message/send`(→Task), `message/stream`(→SSE), `tasks/get`(폴링),
+  `tasks/cancel`(협조적 취소).
+- **에러코드**: JSON-RPC 표준(-32700 파싱 / -32600 잘못된 요청 / -32601 메서드없음 /
+  -32602 잘못된 파라미터) + A2A 확장(-32001 TaskNotFound / -32002 TaskNotCancelable).
+- **Task lifecycle**: job 상태를 A2A TaskState로 매핑(`submitted/working/completed/failed`).
+  **최소 프로필 미달·미응답 질문 핀 = A2A `input-required`** — "작업은 끝났지만 사람
+  입력 전까지 다음 단계 불가"를 표준 상태로 표현(강제 응답과 동일 개념).
+- **SSE 이벤트**(`message/stream`): 최초 `task` 스냅샷 → 진행 `status-update`들(엔진
+  노드 실시간) → `artifact-update`(결과) → 최종 `status-update`(`final:true`). 각 SSE
+  data는 완전한 JSON-RPC 응답이다.
+
+```bash
+# 스킬을 A2A Task로 호출 (message는 DataPart에 skill+input을 싣는다)
+curl -X POST localhost:8423/a2a -H 'Content-Type: application/json' -d '{
+  "jsonrpc":"2.0","id":"1","method":"message/send",
+  "params":{"message":{"role":"user","kind":"message","messageId":"m","parts":[
+    {"kind":"data","data":{"skill":"represent","input":{"assets":[
+      {"type":"text","content":"이름: ...\n문제: ...\n솔루션: ..."}]}}}]}}}'
+# → {"result":{"kind":"task","id":"...","status":{"state":"working"}}}
+# 스트리밍: 같은 body에 "method":"message/stream" → text/event-stream
+```
+
+`app/a2a.py` 단일 모듈, `TestClient` 스트리밍으로 lifecycle 테스트(`tests/test_a2a.py`).
+취소 한계: 엔진 스킬은 계산 중간 중단 지점이 없어 `tasks/cancel`은 협조적(완료돼도 결과 폐기).
+
 ## 근거 시각화 (bbox) — IR덱 원문 위 AI가 본 위치 + 댓글 강제
 
 Simsa(cts_screening 검토 SaaS)의 box_2d 패턴을 재사용한 선택 기능. IR덱 PDF 페이지 이미지

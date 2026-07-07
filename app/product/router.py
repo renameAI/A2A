@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .. import progress
+from ..a2a import job_state_to_a2a
 from ..config import get_settings
 from ..engine import pool as pool_module
 from ..jobs import store as job_store
@@ -57,32 +58,15 @@ def _submit(background: BackgroundTasks, fn: Callable[[], dict]) -> dict:
     return {"job_id": job.job_id}
 
 
-def _a2a_state(status: str, result, error) -> str:
-    """job 상태 → A2A Task lifecycle 상태 매핑 (submitted/working/input-required/
-    completed/failed). 사람의 입력을 기다리는 두 경우 — 최소 프로필 미달(보강 질문),
-    미응답 질문 핀 — 는 A2A의 input-required와 정확히 같은 개념이다."""
-    if status == "queued":
-        return "submitted"
-    if status == "running":
-        return "working"
-    if status == "error":
-        code = (error or {}).get("code")
-        if code in ("profile_below_minimum", "unclear_evidence_unresolved"):
-            return "input-required"
-        return "failed"
-    if status == "done" and isinstance(result, dict) \
-            and result.get("open_thread_count", 0) > 0:
-        return "input-required"     # 완료됐지만 질문 핀에 답해야 다음 단계 진행 가능
-    return "completed"
-
-
 @router.get("/jobs/{job_id}")
 def product_job(job_id: str):
     job = job_store.get(job_id)
     if job is None:
         raise EngineError(404, "not_found", f"job {job_id} 없음")
+    # A2A Task lifecycle 상태 매핑은 a2a 모듈에 단일 정의 (product·전송계층 공유).
+    # 사람 입력 대기(최소 프로필 미달·미응답 질문 핀) = A2A input-required.
     return {"job_id": job.job_id, "status": job.status.value,
-            "a2a_state": _a2a_state(job.status.value, job.result, job.error),
+            "a2a_state": job_state_to_a2a(job.status.value, job.result, job.error),
             "result": job.result, "error": job.error,
             "logs": job.log.entries, "elapsed": job.log.elapsed}
 

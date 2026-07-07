@@ -94,8 +94,12 @@ def agent_card(request: Request):
         "url": base,
         "version": app.version,
         "provider": {"organization": "MYSC"},
+        "preferredTransport": "JSONRPC",
+        "additionalInterfaces": [
+            {"transport": "JSONRPC", "url": f"{base}/a2a"},
+        ],
         "capabilities": {
-            "streaming": False,             # 폴링(GET /v1/jobs/{id})으로 상태 동기화
+            "streaming": True,              # message/stream (SSE) 지원
             "pushNotifications": False,
             "stateTransitionHistory": True, # job.logs에 노드 이벤트 전체 보존
         },
@@ -121,6 +125,12 @@ def agent_card(request: Request):
              "tags": ["vision", "human-in-the-loop"]},
         ],
     }
+
+
+# ── A2A 전송 계층 (JSON-RPC 2.0 + SSE) ──────────────────────────────
+from .a2a import router as a2a_router                  # noqa: E402
+
+app.include_router(a2a_router)
 
 
 # ── 제품 레이어 (stateful) + 프론트엔드 ─────────────────────────────
