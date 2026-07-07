@@ -32,9 +32,9 @@ from ..schemas import (Asset, AssetType, BBox, CommentThread, ComposeMode,
                        ComposeRequest, DialogueTurn, Intent, JudgeRequest,
                        JudgeResult, Lens, NegotiateRequest, Objective,
                        PoolChoice, PrivateState, PrivateStateItem, Profile,
-                       RepresentRequest, RetrieveDirection, RetrieveRequest,
-                       SourceTag, ThreadComment, ThreadReplyRequest, Vantage,
-                       ValueProp, VisualEvidence, Willingness)
+                       QuestionPin, RepresentRequest, RetrieveDirection,
+                       RetrieveRequest, SourceTag, ThreadComment,
+                       ThreadReplyRequest, Vantage, ValueProp, Willingness)
 from .store import store
 
 router = APIRouter(prefix="/product", tags=["product"])
@@ -46,15 +46,6 @@ def _pages_dir() -> Path:
     override = os.environ.get("A2A_PAGES_DIR")
     return Path(override) if override else \
         Path(__file__).resolve().parent.parent.parent / "pages"
-
-# 근거 시각화 대상 필드 — Profile 핵심 필드 + 회사의 상(portrait) 7항목
-_BBOX_TARGET_FIELDS = [
-    "problem_solved", "solution", "target_customer",
-    "sell_value_props", "purchase_value_props",
-    "portrait.identity", "portrait.business_model", "portrait.edge",
-    "portrait.stage_narrative", "portrait.assets", "portrait.gaps",
-    "portrait.risk_signals",
-]
 
 
 # ── 비동기 job 공통 (LLM 작업은 수 분 소요 — UI가 로그를 폴링) ──────
@@ -87,19 +78,23 @@ async def upload(file: UploadFile):
     return {"path": str(path), "filename": file.filename}
 
 
-# ── 근거 시각화 (bbox) — IR덱 원문 위 근거 위치 + 댓글 강제 (선택 기능) ──
-# GEMINI_API_KEY가 없으면 아무 일도 하지 않는다 — 텍스트 추출과 완전히 독립.
+# ── 질문 위치 탐지 (bbox) — 엑사원 질문을 IR덱 페이지에 핀 꽂기 (선택 기능) ──
+# 역할 분리: 엑사원(추론)이 질문을 만들고, VLM은 그 질문을 페이지 어디에 붙일지
+# 위치만 찾는다. GEMINI_API_KEY 없으면 아무 일도 안 함 — 텍스트 추출과 완전 독립.
+# 위치를 못 찾은 질문은 여기서 빠지고, 기존 텍스트 보강질문(clarify) 흐름이 담당한다.
 
-def _run_visual_grounding(company_id: str, assets: list[Asset]
-                          ) -> tuple[list[VisualEvidence], list[CommentThread]]:
+def _run_question_pinning(company_id: str, assets: list[Asset],
+                          questions: list[str]
+                          ) -> tuple[list[QuestionPin], list[CommentThread]]:
     settings = get_settings()
     vision = get_vision_extractor(settings)
-    if vision is None:
+    if vision is None or not questions:
         return [], []
 
-    evidence: list[VisualEvidence] = []
+    pins: list[QuestionPin] = []
     threads: list[CommentThread] = []
-    with progress.node("vision.grounding", "근거 위치 탐지 (bbox)"):
+    with progress.node("vision.pinning", "질문 위치 탐지 (bbox)"):
+        progress.log("비전", f"엑사원 질문 {len(questions)}건을 IR덱 페이지에서 찾는 중")
         for i, asset in enumerate(assets):
             if asset.type != AssetType.ir_deck or not asset.url:
                 continue
@@ -114,30 +109,29 @@ def _run_visual_grounding(company_id: str, assets: list[Asset]
             asset_dir.mkdir(parents=True, exist_ok=True)
             for page_no, png in enumerate(pages, start=1):
                 (asset_dir / f"a{i}_p{page_no}.png").write_bytes(png)
-                for item in vision.locate(png, _BBOX_TARGET_FIELDS, page_no):
+                for item in vision.locate(png, questions, page_no):
+                    qi = item.get("question_index")
+                    if not isinstance(qi, int) or not (0 <= qi < len(questions)):
+                        continue     # 모델이 범위 밖 인덱스를 주면 버린다
                     box = item.get("box_2d") or [0, 0, 0, 0]
-                    ev = VisualEvidence(
+                    question = questions[qi]
+                    pin = QuestionPin(
                         evidence_id=f"ev-{uuid.uuid4().hex[:8]}",
-                        field=item.get("field", ""), asset_index=i, page=page_no,
+                        question=question, asset_index=i, page=page_no,
                         box=BBox(ymin=box[0], xmin=box[1], ymax=box[2], xmax=box[3]),
-                        quote=item.get("quote", ""),
-                        confidence=item.get("confidence"),
-                        unclear=bool(item.get("unclear")),
-                        unclear_reason=item.get("unclear_reason"))
-                    evidence.append(ev)
-                    if ev.unclear:
-                        threads.append(CommentThread(
-                            thread_id=f"th-{uuid.uuid4().hex[:8]}",
-                            evidence_id=ev.evidence_id,
-                            comments=[ThreadComment(
-                                author="ai",
-                                text=f"'{ev.field}' 근거가 확실하지 않습니다 — "
-                                     f"{ev.unclear_reason or '표현이 모호합니다'}. "
-                                     f"이 부분이 맞는지 확인해 주세요.",
-                                ts=datetime.now(timezone.utc).isoformat())]))
-        progress.log("비전", f"완료 — 근거 {len(evidence)}건, "
-                            f"확인 필요 {len(threads)}건")
-    return evidence, threads
+                        quote=item.get("quote", ""))
+                    pins.append(pin)
+                    threads.append(CommentThread(
+                        thread_id=f"th-{uuid.uuid4().hex[:8]}",
+                        evidence_id=pin.evidence_id,
+                        comments=[ThreadComment(
+                            author="ai", text=question,
+                            ts=datetime.now(timezone.utc).isoformat())]))
+        located = {t.comments[0].text for t in threads}
+        unlocated = [q for q in questions if q not in located]
+        progress.log("비전", f"완료 — 핀 {len(pins)}건 · "
+                            f"페이지에서 못 찾은 질문 {len(unlocated)}건(텍스트 보강질문으로 처리)")
+    return pins, threads
 
 
 # ── 온보딩: 자료 → 프로필 (엔진 represent 호출) ─────────────────────
@@ -152,8 +146,14 @@ class OnboardRequest(BaseModel):
 @router.post("/onboard", status_code=202)
 def onboard(req: OnboardRequest, background: BackgroundTasks):
     def _run() -> dict:
+        # 소통 루프 되먹임 — 같은 회사 재분석이면, 지금까지 질문 핀에 단 답변을
+        # dialogue에 얹어 엑사원에게 전달한다. 답변이 프로필 개선으로 이어져야
+        # 핀이 진짜로 해소된다 (엑사원 질문 → 핀 → 답변 → 재분석 → 프로필 개선).
+        dialogue = list(req.dialogue)
+        if req.company_id:
+            dialogue += store.answered_dialogue(req.company_id)
         # 최소 프로필 미달이면 EngineError(409) → job.error로 수렴, 프론트가 보강 질문 표시
-        rep = represent(RepresentRequest(assets=req.assets, dialogue=req.dialogue))
+        rep = represent(RepresentRequest(assets=req.assets, dialogue=dialogue))
         rec = req.company_id and store.update_company(
             req.company_id, profile=rep.profile,
             private_state=PrivateState(items=req.private_state),
@@ -165,14 +165,15 @@ def onboard(req: OnboardRequest, background: BackgroundTasks):
             open_questions=rep.open_questions,
             evidence=rep.evidence,
             engine_mode=rep.engine_mode)
-        visual_evidence, threads = _run_visual_grounding(rec.company_id, req.assets)
-        store.set_visual_evidence(rec.company_id, visual_evidence, threads)
+        pins, threads = _run_question_pinning(
+            rec.company_id, req.assets, rep.open_questions)
+        store.set_question_pins(rec.company_id, pins, threads)
         return {"company_id": rec.company_id,
                 "profile": rep.profile.model_dump(mode="json"),
                 "ontology_anchors": [a.model_dump() for a in rep.ontology_anchors],
                 "open_questions": rep.open_questions,
                 "evidence": rep.evidence, "engine_mode": rep.engine_mode,
-                "visual_evidence_count": len(visual_evidence),
+                "question_pin_count": len(pins),
                 "open_thread_count": sum(1 for t in threads if t.status == "open")}
     return _submit(background, _run)
 
@@ -189,10 +190,12 @@ def companies():
 @router.get("/companies/{company_id}/evidence")
 def get_evidence(company_id: str):
     rec = _require_company(company_id)
-    return {"evidence": [e.model_dump(mode="json") for e in rec.visual_evidence],
+    return {"pins": [p.model_dump(mode="json") for p in rec.question_pins],
             "threads": [t.model_dump(mode="json") for t in rec.threads.values()],
             "open_thread_count": sum(1 for t in rec.threads.values()
-                                     if t.status == "open")}
+                                     if t.status == "open"),
+            # 소통 루프 상태 — 재분석에 실릴 대기 답변 수
+            "answered_count": len(rec.answered_questions)}
 
 
 @router.get("/pages/{company_id}/{filename}")
@@ -205,12 +208,15 @@ def get_page_image(company_id: str, filename: str):
 
 @router.post("/companies/{company_id}/threads/{thread_id}/reply")
 def reply_thread(company_id: str, thread_id: str, req: ThreadReplyRequest):
-    _require_company(company_id)
+    rec = _require_company(company_id)
     thread = store.reply_thread(company_id, thread_id, req.text,
                                 datetime.now(timezone.utc).isoformat())
     if thread is None:
         raise EngineError(404, "not_found", f"스레드 {thread_id} 없음")
-    return thread.model_dump(mode="json")
+    return {"thread": thread.model_dump(mode="json"),
+            "open_thread_count": sum(1 for t in rec.threads.values()
+                                     if t.status == "open"),
+            "answered_count": len(rec.answered_questions)}
 
 
 # ── 컨설턴트 인터뷰 (CON-01~02) — 진단 대화로 아웃리치 가설 수립 ────

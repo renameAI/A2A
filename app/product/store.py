@@ -6,7 +6,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..schemas import CommentThread, PrivateState, Profile, ThreadComment, VisualEvidence
+from ..schemas import (CommentThread, DialogueTurn, PrivateState, Profile,
+                       QuestionPin, ThreadComment)
 
 
 @dataclass
@@ -17,9 +18,12 @@ class CompanyRecord:
     open_questions: list[str] = field(default_factory=list)
     evidence: Optional[dict] = None
     engine_mode: str = "mock"
-    # 근거 시각화 (bbox) — IR덱 페이지 위 근거 위치 + 댓글 스레드 (v1.2 확장)
-    visual_evidence: list[VisualEvidence] = field(default_factory=list)
+    # 질문 위치 탐지 (bbox) — 엑사원 질문을 IR덱 페이지에 핀 꽂기 + 댓글 스레드 (v1.2)
+    question_pins: list[QuestionPin] = field(default_factory=list)
     threads: dict[str, CommentThread] = field(default_factory=dict)
+    # 소통 루프 — 핀에 단 답변(질문↔답)을 재분석 입력(dialogue)으로 축적.
+    # 다음 온보딩(같은 company_id)에서 엑사원에게 그대로 전달돼 프로필이 개선된다.
+    answered_questions: list[DialogueTurn] = field(default_factory=list)
 
 
 class ProductStore:
@@ -58,14 +62,14 @@ class ProductStore:
     def list(self) -> list[CompanyRecord]:
         return list(self._companies.values())
 
-    # ── 근거 시각화 (bbox) — 온보딩마다 재생성, 댓글 스레드는 사람이 닫는다 ──
+    # ── 질문 위치 탐지 (bbox) — 온보딩마다 재생성, 댓글 스레드는 사람이 닫는다 ──
 
-    def set_visual_evidence(self, company_id: str, evidence: list[VisualEvidence],
-                            threads: list[CommentThread]) -> None:
+    def set_question_pins(self, company_id: str, pins: list[QuestionPin],
+                          threads: list[CommentThread]) -> None:
         rec = self._companies.get(company_id)
         if rec is None:
             return
-        rec.visual_evidence = evidence
+        rec.question_pins = pins
         rec.threads = {t.thread_id: t for t in threads}
 
     def open_thread_count(self, company_id: str) -> int:
@@ -76,16 +80,33 @@ class ProductStore:
 
     def reply_thread(self, company_id: str, thread_id: str, text: str,
                      ts: str) -> Optional[CommentThread]:
-        """사람의 답변을 스레드에 붙이고 resolved로 닫는다 (강제 응답 해제)."""
+        """사람의 답변을 스레드에 붙이고 resolved로 닫는다 (강제 응답 해제).
+
+        동시에 소통 루프를 완성한다 — 스레드 첫 댓글(엑사원 질문)과 이 답변을
+        (질문, 답) DialogueTurn으로 축적해, 다음 재분석 때 엑사원에게 전달한다.
+        같은 질문에 다시 답하면 최신 답으로 갱신한다 (중복 축적 방지)."""
         rec = self._companies.get(company_id)
         if rec is None:
             return None
         thread = rec.threads.get(thread_id)
         if thread is None:
             return None
+        question = thread.comments[0].text if thread.comments else ""
         thread.comments.append(ThreadComment(author="human", text=text, ts=ts))
         thread.status = "resolved"
+        if question:
+            existing = next((d for d in rec.answered_questions
+                             if d.q == question), None)
+            if existing is not None:
+                existing.a = text
+            else:
+                rec.answered_questions.append(DialogueTurn(q=question, a=text))
         return thread
+
+    def answered_dialogue(self, company_id: str) -> list[DialogueTurn]:
+        """재분석에 실어 보낼, 지금까지 핀에 답한 (질문, 답) 목록."""
+        rec = self._companies.get(company_id)
+        return list(rec.answered_questions) if rec else []
 
 
 store = ProductStore()

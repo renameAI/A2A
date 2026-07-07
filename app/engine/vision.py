@@ -27,17 +27,18 @@ class GeminiBBoxExtractor:
         self._url = (f"https://generativelanguage.googleapis.com/v1beta/"
                     f"models/{model}:generateContent")
 
-    def locate(self, image_png: bytes, target_fields: list[str],
+    def locate(self, image_png: bytes, questions: list[str],
               page: int) -> list[dict]:
-        """한 페이지 이미지 → 그 페이지에서 발견된 필드별 근거(list of dict).
+        """한 페이지 이미지 + 엑사원 질문들 → 그 페이지에서 찾은 질문 위치(list of dict).
 
-        각 dict: field/quote/box_2d([ymin,xmin,ymax,xmax])/confidence/unclear/unclear_reason.
-        호출 실패는 이 페이지만 건너뛰고 빈 리스트를 반환한다 — 근거 시각화는
+        각 dict: question_index/quote/box_2d([ymin,xmin,ymax,xmax]).
+        VLM은 위치만 찾는다 — 무엇이 불명확한지는 엑사원이 이미 질문으로 정했다.
+        호출 실패는 이 페이지만 건너뛰고 빈 리스트를 반환한다 — 질문 시각화는
         보조 기능이라 실패가 온보딩 전체를 막으면 안 된다.
         """
         payload = {
             "contents": [{"parts": [
-                {"text": BBOX_SYSTEM + "\n\n" + bbox_user(target_fields)},
+                {"text": BBOX_SYSTEM + "\n\n" + bbox_user(questions)},
                 {"inline_data": {"mime_type": "image/png",
                                 "data": base64.b64encode(image_png).decode()}},
             ]}],
@@ -61,13 +62,13 @@ class GeminiBBoxExtractor:
             data = resp.json()
             text = data["candidates"][0]["content"]["parts"][0]["text"]
             parsed = sanitize(json.loads(text))
-            evidences = parsed.get("evidences", [])
+            locations = parsed.get("locations", [])
         except (KeyError, IndexError, json.JSONDecodeError) as e:
             progress.log("비전", f"⚠ p.{page} 응답 파싱 실패 — 건너뜀 ({e})")
             return []
         progress.log("비전", f"p.{page} 완료 — {time.time() - t0:.1f}초 · "
-                            f"근거 {len(evidences)}건")
-        return evidences
+                            f"질문 위치 {len(locations)}건")
+        return locations
 
 
 def get_vision_extractor(settings: Settings) -> Optional[GeminiBBoxExtractor]:

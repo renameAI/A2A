@@ -428,17 +428,15 @@ class BBox(BaseModel):
     xmax: float
 
 
-class VisualEvidence(BaseModel):
-    """페이지 이미지 위의 근거 위치 하나 — 필드 하나의 '출처'."""
+class QuestionPin(BaseModel):
+    """페이지 이미지 위에 꽂힌 엑사원 질문 하나. 질문은 추론 모델이 만들고,
+    VLM은 이 질문을 페이지 어디에 붙일지 위치(box)만 찾는다 (역할 분리)."""
     evidence_id: str
-    field: str                       # 예: "problem_solved", "portrait.stage_narrative"
+    question: str                    # 엑사원이 던진 질문 원문 (VLM이 만든 게 아님)
     asset_index: int                 # 몇 번째 자산(IR덱)인지
     page: int                        # 1-base 페이지 번호
     box: BBox
-    quote: str                       # 페이지에서 이 박스가 감싸는 근거 텍스트
-    confidence: Optional[float] = None
-    unclear: bool = False            # 모델이 스스로 불확실하다고 표시
-    unclear_reason: Optional[str] = None
+    quote: str                       # 페이지에서 이 박스가 감싸는 텍스트 (위치 근거)
 
 
 class ThreadComment(BaseModel):
@@ -448,8 +446,8 @@ class ThreadComment(BaseModel):
 
 
 class CommentThread(BaseModel):
-    """시트 댓글처럼 bbox 하나에 매달리는 스레드. unclear 근거는 자동 생성되고,
-    사람이 답하기 전까지 open으로 남아 매칭 진행을 막는다 (강제 응답)."""
+    """시트 댓글처럼 질문 핀 하나에 매달리는 스레드. 엑사원 질문이 자동으로 첫 댓글이
+    되고, 사람이 답하기 전까지 open으로 남아 매칭 진행을 막는다 (강제 응답)."""
     thread_id: str
     evidence_id: str
     status: str = "open"             # "open" | "resolved"

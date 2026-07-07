@@ -399,7 +399,7 @@ async function onboard() {
     computeMinStatus(data.open_questions);
     if (data.open_questions.length) showQuestions(data.open_questions);
     renderMinProgress();
-    if (data.visual_evidence_count > 0) {
+    if (data.question_pin_count > 0) {
       $("#step-evidence").classList.remove("hidden");
       await loadEvidence();
     }
@@ -522,35 +522,42 @@ async function loadEvidence() {
 }
 
 function renderEvidencePages(data) {
-  const { evidence, threads } = data;
+  const { pins, threads } = data;
   const openCount = threads.filter((t) => t.status === "open").length;
+  const answered = data.answered_count || 0;
+  // 소통 루프 — 답한 게 있으면 재분석 유도(답변을 엑사원에 되먹임해 프로필 개선)
+  const reanalyze = answered > 0
+    ? ` · <button type="button" id="btn-evidence-reanalyze" class="link-btn">답변 ${answered}개 반영해서 재분석 →</button>`
+    : "";
   $("#evidence-summary").innerHTML =
-    `근거 <b>${evidence.length}</b>건 표시 중` +
+    `AI 질문 <b>${pins.length}</b>개가 원문 위에 표시됨` +
     (openCount > 0
-      ? ` · <span class="ev-warn">확인 필요 ${openCount}건 — 답하기 전엔 후보 발굴이 막혀요</span>`
-      : ` · <span class="ev-ok">전부 확인됨 — 후보 발굴 가능</span>`);
+      ? ` · <span class="ev-warn">미응답 ${openCount}개 — 답하기 전엔 후보 발굴이 막혀요</span>`
+      : ` · <span class="ev-ok">전부 답변됨 — 후보 발굴 가능</span>`) +
+    reanalyze;
+  const reBtn = $("#btn-evidence-reanalyze");
+  if (reBtn) reBtn.onclick = onboard;   // 같은 company_id 재온보딩 → 서버가 답변 병합
 
   const threadByEvidence = {};
   threads.forEach((t) => { threadByEvidence[t.evidence_id] = t; });
 
-  // asset_index·page별로 묶어 페이지 한 장에 박스 여러 개를 겹쳐 그린다
+  // asset_index·page별로 묶어 페이지 한 장에 질문 핀 여러 개를 겹쳐 그린다
   const byPage = {};
-  evidence.forEach((e) => {
-    const key = `${e.asset_index}:${e.page}`;
-    (byPage[key] = byPage[key] || []).push(e);
+  pins.forEach((p) => {
+    const key = `${p.asset_index}:${p.page}`;
+    (byPage[key] = byPage[key] || []).push(p);
   });
 
   $("#evidence-pages").innerHTML = Object.entries(byPage).map(([key, boxes]) => {
     const [assetIdx, page] = key.split(":");
-    const boxesHtml = boxes.map((e) => {
-      const thread = threadByEvidence[e.evidence_id];
-      const unresolved = thread && thread.status === "open";
-      const style = `left:${e.box.xmin / 10}%;top:${e.box.ymin / 10}%;` +
-        `width:${(e.box.xmax - e.box.xmin) / 10}%;height:${(e.box.ymax - e.box.ymin) / 10}%;`;
-      return `<div class="ev-box ${e.unclear ? "ev-unclear" : "ev-clear"} ${unresolved ? "" : "ev-resolved"}"
-        style="${style}" data-evidence-id="${esc(e.evidence_id)}"
-        data-thread-id="${thread ? esc(thread.thread_id) : ""}"
-        title="${esc(e.field)}: ${esc(e.quote)}">${e.unclear ? "?" : ""}</div>`;
+    const boxesHtml = boxes.map((p, idx) => {
+      const thread = threadByEvidence[p.evidence_id];
+      const resolved = thread && thread.status === "resolved";
+      const style = `left:${p.box.xmin / 10}%;top:${p.box.ymin / 10}%;` +
+        `width:${(p.box.xmax - p.box.xmin) / 10}%;height:${(p.box.ymax - p.box.ymin) / 10}%;`;
+      return `<div class="ev-box ${resolved ? "ev-resolved" : "ev-open"}"
+        style="${style}" data-evidence-id="${esc(p.evidence_id)}"
+        title="${esc(p.question)}">${resolved ? "✓" : "?"}</div>`;
     }).join("");
     return `<div class="ev-page" data-asset="${assetIdx}" data-page="${page}">
       <div class="ev-page-frame">
@@ -561,7 +568,7 @@ function renderEvidencePages(data) {
     </div>`;
   }).join("");
 
-  document.querySelectorAll(".ev-box.ev-unclear").forEach((box) => {
+  document.querySelectorAll(".ev-box").forEach((box) => {
     box.onclick = () => openThreadPanel(box, threadByEvidence);
   });
 }
@@ -575,10 +582,10 @@ function openThreadPanel(box, threadByEvidence) {
   panel.innerHTML =
     `<div class="ev-thread-comments">` +
     thread.comments.map((c) =>
-      `<div class="ev-comment ev-${c.author}"><b>${c.author === "ai" ? "AI" : "사람"}</b> ${esc(c.text)}</div>`
+      `<div class="ev-comment ev-${c.author}"><b>${c.author === "ai" ? "AI 질문" : "내 답변"}</b> ${esc(c.text)}</div>`
     ).join("") + `</div>` +
     (isResolved ? "" :
-      `<div class="ev-reply"><textarea rows="2" placeholder="이 부분에 대해 답변해 주세요"></textarea>
+      `<div class="ev-reply"><textarea rows="2" placeholder="이 질문에 답변해 주세요 — 답하면 재분석에 반영됩니다"></textarea>
        <button type="button" class="ev-reply-btn">답변 등록</button></div>`);
   panel.classList.remove("hidden");
   if (!isResolved) {
@@ -587,7 +594,7 @@ function openThreadPanel(box, threadByEvidence) {
       if (!text) return;
       await api(`/product/companies/${state.companyId}/threads/${thread.thread_id}/reply`,
         { method: "POST", body: JSON.stringify({ text }) });
-      await loadEvidence();   // 상태 갱신 — 박스 색·요약·매칭 게이트 전부 재렌더
+      await loadEvidence();   // 상태 갱신 — 핀 색·요약·매칭 게이트 전부 재렌더
     };
   }
 }
