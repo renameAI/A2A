@@ -276,11 +276,14 @@ def get_page_image(company_id: str, filename: str):
 
 @router.post("/companies/{company_id}/threads/{thread_id}/reply")
 def reply_thread(company_id: str, thread_id: str, req: ThreadReplyRequest):
-    rec = _require_company(company_id)
+    _require_company(company_id)
     thread = store.reply_thread(company_id, thread_id, req.text,
                                 datetime.now(timezone.utc).isoformat())
     if thread is None:
         raise EngineError(404, "not_found", f"스레드 {thread_id} 없음")
+    # 카운트는 mutation 이후 fresh 조회로 — 영속 store는 매 get이 새 스냅샷이라
+    # reply 이전 레코드를 그대로 쓰면 낡은 값이 나온다.
+    rec = store.get(company_id)
     return {"thread": thread.model_dump(mode="json"),
             "open_thread_count": sum(1 for t in rec.threads.values()
                                      if t.status == "open"),
