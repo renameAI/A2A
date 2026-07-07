@@ -24,6 +24,7 @@ from ..engine.judge import judge
 from ..engine.negotiate import negotiate
 from ..engine.represent import represent
 from ..engine.retrieve import retrieve
+from ..engine import vision as vision_module
 from ..engine.vision import get_vision_extractor
 from ..errors import EngineError
 from ..ingest.fetchers import fetch_pdf_bytes
@@ -83,6 +84,9 @@ async def upload(file: UploadFile):
 # 위치만 찾는다. GEMINI_API_KEY 없으면 아무 일도 안 함 — 텍스트 추출과 완전 독립.
 # 위치를 못 찾은 질문은 여기서 빠지고, 기존 텍스트 보강질문(clarify) 흐름이 담당한다.
 
+_PINS_PER_QUESTION = 2   # 질문당 상위 K개 핀 (결합 점수 s = r·g 내림차순)
+
+
 def _run_question_pinning(company_id: str, assets: list[Asset],
                           questions: list[str]
                           ) -> tuple[list[QuestionPin], list[CommentThread]]:
@@ -91,8 +95,10 @@ def _run_question_pinning(company_id: str, assets: list[Asset],
     if vision is None or not questions:
         return [], []
 
-    pins: list[QuestionPin] = []
-    threads: list[CommentThread] = []
+    # 후보 수집 → 계약 검증(기하·그라운딩·관련도) → (질문,페이지) 중복 제거 →
+    # 질문당 상위 K 선별. VLM 출력은 전부 '후보'일 뿐, 검증기를 통과해야 핀이 된다.
+    candidates: list[QuestionPin] = []
+    rejected = {"index": 0, "geometry": 0, "grounding": 0, "relevance": 0}
     with progress.node("vision.pinning", "질문 위치 탐지 (bbox)"):
         progress.log("비전", f"엑사원 질문 {len(questions)}건을 IR덱 페이지에서 찾는 중")
         for i, asset in enumerate(assets):
@@ -107,30 +113,69 @@ def _run_question_pinning(company_id: str, assets: list[Asset],
             progress.log("비전", f"a{i}:ir_deck — {len(pages)}페이지 렌더링 완료")
             asset_dir = _pages_dir() / company_id
             asset_dir.mkdir(parents=True, exist_ok=True)
-            for page_no, png in enumerate(pages, start=1):
+            for page_no, (png, page_text) in enumerate(pages, start=1):
                 (asset_dir / f"a{i}_p{page_no}.png").write_bytes(png)
                 for item in vision.locate(png, questions, page_no):
                     qi = item.get("question_index")
                     if not isinstance(qi, int) or not (0 <= qi < len(questions)):
-                        continue     # 모델이 범위 밖 인덱스를 주면 버린다
-                    box = item.get("box_2d") or [0, 0, 0, 0]
-                    question = questions[qi]
-                    pin = QuestionPin(
+                        rejected["index"] += 1
+                        continue
+                    box = item.get("box_2d")
+                    if not vision_module.validate_box(box):
+                        rejected["geometry"] += 1
+                        continue
+                    quote = item.get("quote", "")
+                    g = vision_module.grounding_score(quote, page_text)
+                    if g is not None and g < vision_module.GROUND_THRESHOLD:
+                        rejected["grounding"] += 1
+                        continue
+                    r = float(item.get("relevance") or 0.0)
+                    if r < vision_module.REL_THRESHOLD:
+                        rejected["relevance"] += 1
+                        continue
+                    candidates.append(QuestionPin(
                         evidence_id=f"ev-{uuid.uuid4().hex[:8]}",
-                        question=question, asset_index=i, page=page_no,
+                        question=questions[qi], asset_index=i, page=page_no,
                         box=BBox(ymin=box[0], xmin=box[1], ymax=box[2], xmax=box[3]),
-                        quote=item.get("quote", ""))
-                    pins.append(pin)
-                    threads.append(CommentThread(
-                        thread_id=f"th-{uuid.uuid4().hex[:8]}",
-                        evidence_id=pin.evidence_id,
-                        comments=[ThreadComment(
-                            author="ai", text=question,
-                            ts=datetime.now(timezone.utc).isoformat())]))
-        located = {t.comments[0].text for t in threads}
-        unlocated = [q for q in questions if q not in located]
-        progress.log("비전", f"완료 — 핀 {len(pins)}건 · "
-                            f"페이지에서 못 찾은 질문 {len(unlocated)}건(텍스트 보강질문으로 처리)")
+                        quote=quote, relevance=r, grounding=g))
+
+        # 중복 제거: 같은 (질문, 자산, 페이지)는 결합 점수 최대 1개만
+        best: dict[tuple, QuestionPin] = {}
+        for c in candidates:
+            key = (c.question, c.asset_index, c.page)
+            if key not in best or vision_module.pin_score(c.relevance, c.grounding) \
+                    > vision_module.pin_score(best[key].relevance, best[key].grounding):
+                best[key] = c
+        # 질문당 상위 K개 (여러 페이지에 흩어진 핀 중 점수 높은 것만)
+        by_question: dict[str, list[QuestionPin]] = {}
+        for c in best.values():
+            by_question.setdefault(c.question, []).append(c)
+        pins: list[QuestionPin] = []
+        for q, group in by_question.items():
+            group.sort(key=lambda c: vision_module.pin_score(c.relevance, c.grounding),
+                       reverse=True)
+            pins.extend(group[:_PINS_PER_QUESTION])
+        pins.sort(key=lambda p: (p.asset_index, p.page))
+
+        threads = [CommentThread(
+            thread_id=f"th-{uuid.uuid4().hex[:8]}",
+            evidence_id=p.evidence_id,
+            comments=[ThreadComment(author="ai", text=p.question,
+                                    ts=datetime.now(timezone.utc).isoformat())])
+            for p in pins]
+
+        # 정직한 집계 — 폐기를 숨기지 않는다 (측정과 자랑을 구분)
+        n_rej = sum(rejected.values())
+        n_dedup = len(candidates) - len(best)
+        n_capped = len(best) - len(pins)
+        unlocated = [q for q in questions if q not in by_question]
+        progress.log("비전",
+                     f"완료 — 후보 {len(candidates) + n_rej}건 중 핀 {len(pins)}건 채택 · "
+                     f"폐기 {n_rej}건(인덱스 {rejected['index']}/기하 {rejected['geometry']}"
+                     f"/인용대조 {rejected['grounding']}/저관련 {rejected['relevance']}) · "
+                     f"중복제거 {n_dedup}건 · 질문당 상위{_PINS_PER_QUESTION} 초과 {n_capped}건")
+        if unlocated:
+            progress.log("비전", f"위치 못 찾은 질문 {len(unlocated)}건 → 텍스트 보강질문으로 처리")
     return pins, threads
 
 

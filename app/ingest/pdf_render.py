@@ -10,18 +10,21 @@ MAX_PAGES = 12   # 비용 상한 — 표지·서머리에 근거가 몰리므로
 
 
 def render_pdf_pages(data: bytes, dpi: int = 150,
-                     max_pages: int = MAX_PAGES) -> list[bytes]:
-    """PDF 바이트 → 페이지별 PNG 바이트 리스트 (1-base 순서 유지)."""
+                     max_pages: int = MAX_PAGES) -> list[tuple[bytes, str]]:
+    """PDF 바이트 → 페이지별 (PNG 바이트, 텍스트 레이어) 리스트 (1-base 순서 유지).
+
+    텍스트 레이어는 VLM 인용(quote)의 그라운딩 검증에 쓴다 — 이미지로만 만들어진
+    PDF는 빈 문자열이 나오며, 그 경우 검증은 '불가'로 처리된다 (기각 아님)."""
     doc = fitz.open(stream=data, filetype="pdf")
     try:
         zoom = dpi / 72
         mat = fitz.Matrix(zoom, zoom)
-        images = []
+        pages = []
         for page in doc:
-            if len(images) >= max_pages:
+            if len(pages) >= max_pages:
                 break
             pix = page.get_pixmap(matrix=mat)
-            images.append(pix.tobytes("png"))
-        return images
+            pages.append((pix.tobytes("png"), page.get_text("text")))
+        return pages
     finally:
         doc.close()

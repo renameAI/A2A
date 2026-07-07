@@ -430,13 +430,16 @@ class BBox(BaseModel):
 
 class QuestionPin(BaseModel):
     """페이지 이미지 위에 꽂힌 엑사원 질문 하나. 질문은 추론 모델이 만들고,
-    VLM은 이 질문을 페이지 어디에 붙일지 위치(box)만 찾는다 (역할 분리)."""
+    VLM은 이 질문을 페이지 어디에 붙일지 위치(box)만 찾는다 (역할 분리).
+    핀은 검증기(vision.validate_box/grounding_score)를 통과한 것만 저장된다."""
     evidence_id: str
     question: str                    # 엑사원이 던진 질문 원문 (VLM이 만든 게 아님)
     asset_index: int                 # 몇 번째 자산(IR덱)인지
     page: int                        # 1-base 페이지 번호
     box: BBox
     quote: str                       # 페이지에서 이 박스가 감싸는 텍스트 (위치 근거)
+    relevance: float = 0.0           # VLM 자기채점 관련도 r∈[0,1] (임계 0.5 미만은 폐기됨)
+    grounding: Optional[float] = None  # 인용↔텍스트레이어 포함도 g∈[0,1]; None=검증불가(스캔 PDF)
 
 
 class ThreadComment(BaseModel):

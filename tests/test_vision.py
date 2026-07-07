@@ -3,7 +3,9 @@
 역할 분리: 엑사원(추론)이 질문을 만들고, VLM은 위치만 찾는다. 실제 Gemini
 호출은 FakeVisionExtractor로 대체하되, 엑사원 질문(open_questions)은 실제
 represent 파이프라인이 만든 것을 그대로 받는다. render_pdf_pages/이미지 저장/
-스레드 강제 응답 게이트는 전부 실제 코드 경로를 탄다.
+계약 검증기(기하·인용 그라운딩·관련도 임계)/스레드 강제 응답 게이트는 전부
+실제 코드 경로를 탄다 — 테스트 PDF에 텍스트 레이어를 실제로 넣어서
+quote 그라운딩 검증까지 진짜로 통과/실패시킨다.
 """
 import fitz
 import pytest
@@ -15,11 +17,15 @@ from tests.test_product import DIVEIN_TEXT, _run_job
 
 client = TestClient(app)
 
+# 테스트 PDF 텍스트 레이어 — quote 그라운딩 검증의 대조 원본
+PDF_LINES = ["DiveIn Group IR Deck", "매출 쉐어 구조로 협력합니다"]
+
 
 def _make_pdf(tmp_path) -> str:
     doc = fitz.open()
     page = doc.new_page()
-    page.insert_text((72, 72), "DiveIn Group IR Deck")
+    for k, line in enumerate(PDF_LINES):
+        page.insert_text((72, 72 + 24 * k), line, fontname="korea")
     path = tmp_path / "deck.pdf"
     doc.save(str(path))
     doc.close()
@@ -65,7 +71,7 @@ class TestQuestionPinning:
         DIVEIN은 의향 미기재라 open_question이 정확히 1개('협력 의향...')다."""
         fake = FakeVisionExtractor({1: [
             {"question_index": 0, "quote": "매출 쉐어 구조",
-             "box_2d": [300, 100, 400, 500]},
+             "box_2d": [300, 100, 400, 500], "relevance": 0.9},
         ]})
         result = _onboard_with_deck(tmp_path, fake, monkeypatch)
         company_id = result["company_id"]
@@ -94,7 +100,7 @@ class TestQuestionPinning:
     def test_out_of_range_index_dropped(self, tmp_path, monkeypatch):
         """모델이 범위 밖 question_index를 주면 그 위치는 버린다 (질문 1개뿐인데 5번)."""
         fake = FakeVisionExtractor({1: [
-            {"question_index": 5, "quote": "엉뚱", "box_2d": [0, 0, 10, 10]},
+            {"question_index": 5, "quote": "엉뚱", "box_2d": [0, 0, 10, 10], "relevance": 0.9},
         ]})
         result = _onboard_with_deck(tmp_path, fake, monkeypatch)
         assert result["question_pin_count"] == 0
@@ -104,7 +110,7 @@ class TestQuestionPinning:
         """강제 응답 — 미응답 스레드가 열려있으면 매칭이 막히고, 답하면 풀린다."""
         fake = FakeVisionExtractor({1: [
             {"question_index": 0, "quote": "매출 쉐어 구조",
-             "box_2d": [10, 10, 50, 200]},
+             "box_2d": [10, 10, 50, 200], "relevance": 0.8},
         ]})
         result = _onboard_with_deck(tmp_path, fake, monkeypatch)
         company_id = result["company_id"]
@@ -137,7 +143,7 @@ class TestQuestionPinning:
         그 질문이 open_questions에서 사라진다 (핀 자동 해소)."""
         fake = FakeVisionExtractor({1: [
             {"question_index": 0, "quote": "매출 쉐어 구조",
-             "box_2d": [10, 10, 50, 200]},
+             "box_2d": [10, 10, 50, 200], "relevance": 0.8},
         ]})
         result = _onboard_with_deck(tmp_path, fake, monkeypatch)
         company_id = result["company_id"]
@@ -180,3 +186,60 @@ class TestQuestionPinning:
 
         missing = client.get(f"/product/pages/{company_id}/a9_p9.png")
         assert missing.status_code == 404
+
+
+class TestPinContracts:
+    """계약 검증기 — VLM 출력은 후보일 뿐, 기하·인용·관련도 계약을 통과해야 핀이 된다.
+    프롬프트가 선언한 규칙을 코드가 실제로 집행하는지 확인한다."""
+
+    def test_geometry_contract_rejects_invalid_boxes(self, tmp_path, monkeypatch):
+        """기하 위반 4종 전부 폐기: 순서 역전 / 범위 밖 / 최소크기 미달 / 면적 50% 초과."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [400, 100, 300, 500], "relevance": 0.9},   # y_min > y_max
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [-10, 0, 100, 1200], "relevance": 0.9},    # 좌표 범위 밖
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [100, 100, 102, 500], "relevance": 0.9},   # 변 4 미만
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [0, 0, 1000, 999], "relevance": 0.9},      # 면적 > 50%
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 0
+
+    def test_grounding_contract_rejects_hallucinated_quote(self, tmp_path, monkeypatch):
+        """인용 계약 — PDF 텍스트 레이어에 없는 quote(환각)는 폐기된다."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "제주도 지사 설립 계획",   # PDF에 없음
+             "box_2d": [100, 100, 200, 500], "relevance": 0.95},
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 0
+
+    def test_relevance_contract_rejects_low_score(self, tmp_path, monkeypatch):
+        """관련도 계약 — r < 0.5(기권 임계)는 폐기. relevance 누락도 0으로 간주해 폐기."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [100, 100, 200, 500], "relevance": 0.3},
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [300, 100, 400, 500]},                     # relevance 누락
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 0
+
+    def test_dedup_keeps_best_per_page_and_pin_carries_scores(self, tmp_path, monkeypatch):
+        """같은 (질문, 페이지)에 후보 2개 → 결합 점수 s=r·g 높은 1개만 남고,
+        핀에 relevance·grounding 검증 결과가 실려 나온다."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [100, 100, 200, 500], "relevance": 0.6},
+            {"question_index": 0, "quote": "매출 쉐어 구조로 협력합니다",
+             "box_2d": [300, 100, 400, 500], "relevance": 0.95},
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 1
+        ev = client.get(f"/product/companies/{result['company_id']}/evidence").json()
+        pin = ev["pins"][0]
+        assert pin["relevance"] == 0.95                     # 점수 높은 후보가 생존
+        assert pin["box"]["ymin"] == 300
+        assert pin["grounding"] == 1.0                      # 정규화 부분문자열 → 완전 그라운딩
