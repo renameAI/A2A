@@ -33,17 +33,31 @@ def _make_pdf(tmp_path) -> str:
 
 
 class FakeVisionExtractor:
-    """엑사원 질문을 받아 위치를 돌려주는 VLM 대역. questions 인자로 실제 질문이
-    흘러오는지 검증할 수 있게 마지막 호출의 질문 목록을 기록한다."""
+    """엑사원 질문을 받아 위치를 돌려주는 VLM 대역 (배치 인터페이스).
+
+    responses: {page_no: [location dict, ...]} — location에 page 필드가 없으면
+    해당 page_no로 채워준다 (실제 VLM은 page를 직접 기입).
+    batch_calls에 배치별 페이지 번호 목록을 기록해 배치 구성을 검증할 수 있다."""
     def __init__(self, responses: dict):
         self.responses = responses
-        self.calls: list[int] = []
+        self.batch_calls: list[list[int]] = []
         self.seen_questions: list[str] = []
+        # 라우터가 비용 로그에 읽는 계측 필드 (실물 GeminiBBoxExtractor와 동일 계약)
+        self.calls = 0
+        self.tokens_used = 0
+        self.token_budget = 300_000
+        self.budget_exhausted = False
 
-    def locate(self, image_png, questions, page):
-        self.calls.append(page)
+    def locate_batch(self, pages, questions):
+        page_nos = [n for n, _, _ in pages]
+        self.batch_calls.append(page_nos)
+        self.calls += 1
         self.seen_questions = questions
-        return self.responses.get(page, [])
+        out = []
+        for n in page_nos:
+            for item in self.responses.get(n, []):
+                out.append({**item, "page": item.get("page", n)})
+        return out
 
 
 def _onboard_with_deck(tmp_path, fake=None, monkeypatch=None):
@@ -77,7 +91,7 @@ class TestQuestionPinning:
         company_id = result["company_id"]
         assert result["question_pin_count"] == 1
         assert result["open_thread_count"] == 1
-        assert fake.calls == [1]        # 1페이지 PDF → 1회 호출
+        assert fake.batch_calls == [[1]]   # 1페이지 PDF → 배치 1건(페이지 1 포함)
 
         # VLM이 받은 질문 = 엑사원이 만든 실제 open_question (VLM이 만든 게 아님)
         assert fake.seen_questions == result["open_questions"]
@@ -243,3 +257,60 @@ class TestPinContracts:
         assert pin["relevance"] == 0.95                     # 점수 높은 후보가 생존
         assert pin["box"]["ymin"] == 300
         assert pin["grounding"] == 1.0                      # 정규화 부분문자열 → 완전 그라운딩
+
+
+class TestTransportLayer:
+    """VLM 전송 계층 (A2A 차용) — 배치 구성 이중 상한, 배치 밖 페이지 폐기,
+    capability discovery(Agent Card), Task lifecycle(input-required) 매핑."""
+
+    def test_make_batches_respects_both_caps(self):
+        from app.engine.vision import make_batches
+        # 페이지 수 상한: 6페이지 · 상한 4장 → [4, 2]
+        pages = [(n, b"x" * 100, "image/png") for n in range(1, 7)]
+        assert [[p[0] for p in b] for b in make_batches(pages, 4, 10**9)] \
+            == [[1, 2, 3, 4], [5, 6]]
+        # 바이트 상한: 각 400B · 배치 1000B → 2장씩 [2, 2, 2] (3장째 1200B > 1000B)
+        pages = [(n, b"x" * 400, "image/png") for n in range(1, 7)]
+        assert [[p[0] for p in b] for b in make_batches(pages, 4, 1000)] \
+            == [[1, 2], [3, 4], [5, 6]]
+        # 단일 페이지가 상한 초과여도 혼자 한 배치로는 나간다
+        pages = [(1, b"x" * 5000, "image/png")]
+        assert len(make_batches(pages, 4, 1000)) == 1
+
+    def test_location_claiming_foreign_page_dropped(self, tmp_path, monkeypatch):
+        """VLM이 배치에 없는 페이지 번호를 주장하면 폐기된다 (배치 계약)."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "page": 7,   # 1페이지 PDF인데 7페이지 주장
+             "quote": "매출 쉐어 구조", "box_2d": [100, 100, 200, 500],
+             "relevance": 0.9},
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 0
+
+    def test_agent_card_served(self):
+        """A2A capability discovery — /.well-known/agent.json이 스킬을 광고한다."""
+        card = client.get("/.well-known/agent.json")
+        assert card.status_code == 200
+        body = card.json()
+        skill_ids = {s["id"] for s in body["skills"]}
+        assert {"represent", "judge", "question-pinning"} <= skill_ids
+        assert body["capabilities"]["stateTransitionHistory"] is True
+
+    def test_a2a_state_input_required_when_pins_open(self, tmp_path, monkeypatch):
+        """A2A Task lifecycle — 미응답 핀이 있으면 job이 input-required로 매핑된다."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [100, 100, 200, 500], "relevance": 0.9},
+        ]})
+        monkeypatch.setattr(router_module, "get_vision_extractor", lambda s: fake)
+        pdf_path = _make_pdf(tmp_path)
+        res = client.post("/product/onboard", json={
+            "assets": [{"type": "ir_deck", "content": "", "url": pdf_path},
+                       {"type": "text", "content": DIVEIN_TEXT}]})
+        job_id = res.json()["job_id"]
+        for _ in range(50):
+            job = client.get(f"/product/jobs/{job_id}").json()
+            if job["status"] in ("done", "error"):
+                break
+        assert job["status"] == "done"
+        assert job["a2a_state"] == "input-required"   # 핀에 답해야 다음 진행 가능

@@ -57,12 +57,32 @@ def _submit(background: BackgroundTasks, fn: Callable[[], dict]) -> dict:
     return {"job_id": job.job_id}
 
 
+def _a2a_state(status: str, result, error) -> str:
+    """job 상태 → A2A Task lifecycle 상태 매핑 (submitted/working/input-required/
+    completed/failed). 사람의 입력을 기다리는 두 경우 — 최소 프로필 미달(보강 질문),
+    미응답 질문 핀 — 는 A2A의 input-required와 정확히 같은 개념이다."""
+    if status == "queued":
+        return "submitted"
+    if status == "running":
+        return "working"
+    if status == "error":
+        code = (error or {}).get("code")
+        if code in ("profile_below_minimum", "unclear_evidence_unresolved"):
+            return "input-required"
+        return "failed"
+    if status == "done" and isinstance(result, dict) \
+            and result.get("open_thread_count", 0) > 0:
+        return "input-required"     # 완료됐지만 질문 핀에 답해야 다음 단계 진행 가능
+    return "completed"
+
+
 @router.get("/jobs/{job_id}")
 def product_job(job_id: str):
     job = job_store.get(job_id)
     if job is None:
         raise EngineError(404, "not_found", f"job {job_id} 없음")
     return {"job_id": job.job_id, "status": job.status.value,
+            "a2a_state": _a2a_state(job.status.value, job.result, job.error),
             "result": job.result, "error": job.error,
             "logs": job.log.entries, "elapsed": job.log.elapsed}
 
@@ -95,10 +115,11 @@ def _run_question_pinning(company_id: str, assets: list[Asset],
     if vision is None or not questions:
         return [], []
 
-    # 후보 수집 → 계약 검증(기하·그라운딩·관련도) → (질문,페이지) 중복 제거 →
+    # 후보 수집 → 계약 검증(인덱스·페이지·기하·그라운딩·관련도) → 중복 제거 →
     # 질문당 상위 K 선별. VLM 출력은 전부 '후보'일 뿐, 검증기를 통과해야 핀이 된다.
+    # 전송은 배치 단위 — 페이지 수·바이트 이중 상한(make_batches), 토큰은 실측 누적.
     candidates: list[QuestionPin] = []
-    rejected = {"index": 0, "geometry": 0, "grounding": 0, "relevance": 0}
+    rejected = {"index": 0, "page": 0, "geometry": 0, "grounding": 0, "relevance": 0}
     with progress.node("vision.pinning", "질문 위치 탐지 (bbox)"):
         progress.log("비전", f"엑사원 질문 {len(questions)}건을 IR덱 페이지에서 찾는 중")
         for i, asset in enumerate(assets):
@@ -106,26 +127,40 @@ def _run_question_pinning(company_id: str, assets: list[Asset],
                 continue
             try:
                 data = fetch_pdf_bytes(asset.url, settings)
-                pages = render_pdf_pages(data)
+                pages = render_pdf_pages(data, jpeg_quality=settings.vision_jpeg_quality)
             except Exception as e:
                 progress.log("비전", f"⚠ a{i}:ir_deck 렌더링 실패 — 건너뜀 ({e})")
                 continue
-            progress.log("비전", f"a{i}:ir_deck — {len(pages)}페이지 렌더링 완료")
             asset_dir = _pages_dir() / company_id
             asset_dir.mkdir(parents=True, exist_ok=True)
-            for page_no, (png, page_text) in enumerate(pages, start=1):
-                (asset_dir / f"a{i}_p{page_no}.png").write_bytes(png)
-                for item in vision.locate(png, questions, page_no):
+            page_text = {}
+            api_pages = []
+            for p in pages:
+                (asset_dir / f"a{i}_p{p.page_no}.png").write_bytes(p.png)
+                page_text[p.page_no] = p.text
+                api_pages.append((p.page_no, p.api_image, p.api_mime))
+            batches = vision_module.make_batches(
+                api_pages, settings.vision_pages_per_call, settings.vision_batch_bytes)
+            progress.log("비전", f"a{i}:ir_deck — {len(pages)}페이지 → 배치 {len(batches)}건 "
+                                f"(호출당 ≤{settings.vision_pages_per_call}장·"
+                                f"≤{settings.vision_batch_bytes // 1024}KB)")
+            for batch in batches:
+                batch_page_nos = {n for n, _, _ in batch}
+                for item in vision.locate_batch(batch, questions):
                     qi = item.get("question_index")
                     if not isinstance(qi, int) or not (0 <= qi < len(questions)):
                         rejected["index"] += 1
+                        continue
+                    page_no = item.get("page")
+                    if page_no not in batch_page_nos:   # 배치 밖 페이지 주장 = 폐기
+                        rejected["page"] += 1
                         continue
                     box = item.get("box_2d")
                     if not vision_module.validate_box(box):
                         rejected["geometry"] += 1
                         continue
                     quote = item.get("quote", "")
-                    g = vision_module.grounding_score(quote, page_text)
+                    g = vision_module.grounding_score(quote, page_text[page_no])
                     if g is not None and g < vision_module.GROUND_THRESHOLD:
                         rejected["grounding"] += 1
                         continue
@@ -164,16 +199,20 @@ def _run_question_pinning(company_id: str, assets: list[Asset],
                                     ts=datetime.now(timezone.utc).isoformat())])
             for p in pins]
 
-        # 정직한 집계 — 폐기를 숨기지 않는다 (측정과 자랑을 구분)
+        # 정직한 집계 — 폐기·비용을 숨기지 않는다 (측정과 자랑을 구분)
         n_rej = sum(rejected.values())
         n_dedup = len(candidates) - len(best)
         n_capped = len(best) - len(pins)
         unlocated = [q for q in questions if q not in by_question]
         progress.log("비전",
                      f"완료 — 후보 {len(candidates) + n_rej}건 중 핀 {len(pins)}건 채택 · "
-                     f"폐기 {n_rej}건(인덱스 {rejected['index']}/기하 {rejected['geometry']}"
-                     f"/인용대조 {rejected['grounding']}/저관련 {rejected['relevance']}) · "
-                     f"중복제거 {n_dedup}건 · 질문당 상위{_PINS_PER_QUESTION} 초과 {n_capped}건")
+                     f"폐기 {n_rej}건(인덱스 {rejected['index']}/페이지 {rejected['page']}"
+                     f"/기하 {rejected['geometry']}/인용대조 {rejected['grounding']}"
+                     f"/저관련 {rejected['relevance']}) · 중복제거 {n_dedup}건 · "
+                     f"질문당 상위{_PINS_PER_QUESTION} 초과 {n_capped}건")
+        progress.log("비전", f"비용 — API 호출 {vision.calls}회 · "
+                            f"토큰 {vision.tokens_used:,}/{vision.token_budget:,} 사용"
+                            + (" ⚠ 예산 소진으로 일부 배치 생략" if vision.budget_exhausted else ""))
         if unlocated:
             progress.log("비전", f"위치 못 찾은 질문 {len(unlocated)}건 → 텍스트 보강질문으로 처리")
     return pins, threads

@@ -80,6 +80,49 @@ def post_compose(req: ComposeRequest):
     return compose(req)
 
 
+# ── A2A capability discovery — Agent Card (/.well-known/agent.json) ─
+# Google A2A 프로토콜 규약: 에이전트는 자기 능력을 JSON 카드로 광고하고,
+# 클라이언트 에이전트는 카드를 읽어 어떤 태스크를 맡길 수 있는지 발견한다.
+
+@app.get("/.well-known/agent.json")
+def agent_card(request: Request):
+    base = str(request.base_url).rstrip("/")
+    return {
+        "name": "a2a-matching-engine",
+        "description": "B2B 매칭엔진 — 기업 자료로 회사의 상(像)을 세우고, "
+                       "보완성 기반 후보 발굴·판단·초안·협상 시뮬레이션까지 수행하는 에이전트",
+        "url": base,
+        "version": app.version,
+        "provider": {"organization": "MYSC"},
+        "capabilities": {
+            "streaming": False,             # 폴링(GET /v1/jobs/{id})으로 상태 동기화
+            "pushNotifications": False,
+            "stateTransitionHistory": True, # job.logs에 노드 이벤트 전체 보존
+        },
+        "defaultInputModes": ["application/json", "application/pdf", "text/plain"],
+        "defaultOutputModes": ["application/json", "image/png"],
+        "skills": [
+            {"id": "represent", "name": "프로필 구축",
+             "description": "기업 자료(IR덱·웹·기사) → 5층 다층 독해로 프로필+회사의 상 추출. "
+                            "최소 프로필 미달 시 input-required(보강 질문)로 전환",
+             "tags": ["extraction", "profile"]},
+            {"id": "retrieve", "name": "후보 발굴",
+             "description": "보완성 기반 상대 후보 검색 (유사도 아님)", "tags": ["matching"]},
+            {"id": "judge", "name": "판단",
+             "description": "양측 상 재구성 → 진행/보류 판단 (장기 실행 태스크)",
+             "tags": ["reasoning"]},
+            {"id": "compose", "name": "초안 생성",
+             "description": "아웃리치 초안 — 발송 결정은 항상 사람(CMP-06)", "tags": ["draft"]},
+            {"id": "negotiate", "name": "협상 시뮬레이션",
+             "description": "두 렌즈 분기 협상 (장기 실행 태스크)", "tags": ["simulation"]},
+            {"id": "question-pinning", "name": "질문 위치 탐지",
+             "description": "추론 모델의 질문을 VLM이 원문 좌표(bbox)에 핀 — 사람이 답하기 "
+                            "전까지 input-required로 매칭을 막는다 (강제 응답)",
+             "tags": ["vision", "human-in-the-loop"]},
+        ],
+    }
+
+
 # ── 제품 레이어 (stateful) + 프론트엔드 ─────────────────────────────
 # v0는 한 프로세스에 함께 띄운다. 분리 배포 시 product만 떼어내면 된다.
 from .product.router import router as product_router   # noqa: E402

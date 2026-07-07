@@ -79,59 +79,136 @@ def pin_score(relevance: float, grounding: Optional[float]) -> float:
     return relevance * (0.75 if grounding is None else grounding)
 
 
+_RETRYABLE = {429, 500, 502, 503}
+_MAX_ATTEMPTS = 3
+
+
 class GeminiBBoxExtractor:
-    def __init__(self, api_key: str, model: str, timeout: float = 60.0):
+    """VLM 전송 어댑터 — 배치·재시도·토큰 계측을 이 층에서 전담한다.
+
+    설계 원칙 (A2A 프로토콜 차용):
+    - 배치 전송: 한 요청에 [질문 텍스트 part] + [PAGE n 라벨 part + 이미지 part]×k.
+      프롬프트(질문 목록)가 요청마다 중복되므로, 페이지를 묶을수록 토큰이 절약된다.
+    - 토큰 계측: 응답 usageMetadata를 읽어 누적한다. 추정이 아니라 실측.
+    - 토큰 예산: 누적 totalTokens가 예산을 넘으면 남은 배치를 포기하고 사유를 로그.
+    - 재시도: 429/5xx는 지수 백오프(1→2→4초, Retry-After 우선)로 최대 3회.
+    """
+
+    def __init__(self, api_key: str, model: str, timeout: float = 60.0,
+                 token_budget: int = 300_000):
         self._api_key = api_key
         self._model = model
         self._timeout = timeout
         self._url = (f"https://generativelanguage.googleapis.com/v1beta/"
                     f"models/{model}:generateContent")
+        self.token_budget = token_budget
+        self.tokens_used = 0          # usageMetadata.totalTokenCount 누적 (실측)
+        self.calls = 0
 
-    def locate(self, image_png: bytes, questions: list[str],
-              page: int) -> list[dict]:
-        """한 페이지 이미지 + 엑사원 질문들 → 그 페이지에서 찾은 질문 위치(list of dict).
+    @property
+    def budget_exhausted(self) -> bool:
+        return self.tokens_used >= self.token_budget
 
-        각 dict: question_index/quote/box_2d([ymin,xmin,ymax,xmax]).
-        VLM은 위치만 찾는다 — 무엇이 불명확한지는 엑사원이 이미 질문으로 정했다.
-        호출 실패는 이 페이지만 건너뛰고 빈 리스트를 반환한다 — 질문 시각화는
-        보조 기능이라 실패가 온보딩 전체를 막으면 안 된다.
+    def _post_with_retry(self, payload: dict, label: str) -> Optional[httpx.Response]:
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                resp = httpx.post(self._url, params={"key": self._api_key},
+                                  json=payload, timeout=self._timeout)
+            except httpx.HTTPError as e:
+                if attempt == _MAX_ATTEMPTS:
+                    progress.log("비전", f"⚠ {label} 네트워크 실패 {attempt}회 — 포기 ({e})")
+                    return None
+                time.sleep(2 ** (attempt - 1))
+                continue
+            if resp.status_code in _RETRYABLE and attempt < _MAX_ATTEMPTS:
+                retry_after = resp.headers.get("retry-after")
+                wait = float(retry_after) if (retry_after or "").replace(".", "", 1).isdigit() \
+                    else 2 ** (attempt - 1)
+                progress.log("비전", f"{label} {resp.status_code} — {wait:.0f}초 후 재시도 "
+                                    f"({attempt}/{_MAX_ATTEMPTS})")
+                time.sleep(min(wait, 30))
+                continue
+            return resp
+        return None
+
+    def locate_batch(self, pages: list[tuple[int, bytes, str]],
+                     questions: list[str]) -> list[dict]:
+        """페이지 배치 [(page_no, image_bytes, mime), ...] + 질문 → 위치 목록.
+
+        각 dict: question_index/page/quote/box_2d/relevance. 실패는 이 배치만
+        건너뛰고 빈 리스트 — 질문 시각화는 보조 기능이라 온보딩을 막지 않는다.
         """
+        if self.budget_exhausted:
+            progress.log("비전", f"⚠ 토큰 예산 소진({self.tokens_used:,}/"
+                                f"{self.token_budget:,}) — 배치 건너뜀")
+            return []
+        page_nos = [n for n, _, _ in pages]
+        parts: list[dict] = [
+            {"text": BBOX_SYSTEM + "\n\n" + bbox_user(questions, page_nos)}]
+        img_bytes = 0
+        for n, img, mime in pages:
+            parts.append({"text": f"[PAGE {n}]"})
+            parts.append({"inline_data": {"mime_type": mime,
+                                          "data": base64.b64encode(img).decode()}})
+            img_bytes += len(img)
         payload = {
-            "contents": [{"parts": [
-                {"text": BBOX_SYSTEM + "\n\n" + bbox_user(questions)},
-                {"inline_data": {"mime_type": "image/png",
-                                "data": base64.b64encode(image_png).decode()}},
-            ]}],
+            "contents": [{"parts": parts}],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": BBOX_SCHEMA,
             },
         }
+        label = f"배치 p.{page_nos[0]}~{page_nos[-1]}"
         t0 = time.time()
-        try:
-            resp = httpx.post(self._url, params={"key": self._api_key},
-                              json=payload, timeout=self._timeout)
-        except httpx.HTTPError as e:
-            progress.log("비전", f"⚠ p.{page} 호출 실패 — 건너뜀 ({e})")
+        resp = self._post_with_retry(payload, label)
+        if resp is None:
             return []
         if resp.status_code >= 400:
-            progress.log("비전", f"⚠ p.{page} 호출 실패({resp.status_code}) — 건너뜀: "
+            progress.log("비전", f"⚠ {label} 실패({resp.status_code}) — 건너뜀: "
                                 f"{resp.text[:200]}")
             return []
         try:
             data = resp.json()
+            usage = data.get("usageMetadata", {})
+            self.tokens_used += int(usage.get("totalTokenCount") or 0)
+            self.calls += 1
             text = data["candidates"][0]["content"]["parts"][0]["text"]
-            parsed = sanitize(json.loads(text))
-            locations = parsed.get("locations", [])
-        except (KeyError, IndexError, json.JSONDecodeError) as e:
-            progress.log("비전", f"⚠ p.{page} 응답 파싱 실패 — 건너뜀 ({e})")
+            locations = sanitize(json.loads(text)).get("locations", [])
+        except (KeyError, IndexError, json.JSONDecodeError, ValueError) as e:
+            progress.log("비전", f"⚠ {label} 응답 파싱 실패 — 건너뜀 ({e})")
             return []
-        progress.log("비전", f"p.{page} 완료 — {time.time() - t0:.1f}초 · "
-                            f"질문 위치 {len(locations)}건")
+        progress.log("비전",
+                     f"{label} 완료 — {time.time() - t0:.1f}초 · 페이지 {len(pages)}장"
+                     f"({img_bytes / 1024:.0f}KB) · 위치 {len(locations)}건 · "
+                     f"토큰 {usage.get('promptTokenCount', '?')}+"
+                     f"{usage.get('candidatesTokenCount', '?')} "
+                     f"(누적 {self.tokens_used:,}/{self.token_budget:,})")
         return locations
+
+
+def make_batches(pages, max_pages: int, max_bytes: int) -> list[list]:
+    """전송 배치 구성 — 페이지 수(max_pages)와 이미지 총량(max_bytes) 이중 상한.
+
+    pages: (page_no, image_bytes, mime) 리스트. 단일 페이지가 max_bytes를 넘어도
+    혼자서 한 배치는 된다 (아예 못 보내는 것보다 낫다).
+    """
+    batches: list[list] = []
+    cur: list = []
+    cur_bytes = 0
+    for p in pages:
+        size = len(p[1])
+        if cur and (len(cur) >= max_pages or cur_bytes + size > max_bytes):
+            batches.append(cur)
+            cur, cur_bytes = [], 0
+        cur.append(p)
+        cur_bytes += size
+    if cur:
+        batches.append(cur)
+    return batches
 
 
 def get_vision_extractor(settings: Settings) -> Optional[GeminiBBoxExtractor]:
     if not settings.vision_enabled:
         return None
-    return GeminiBBoxExtractor(settings.gemini_api_key, settings.gemini_model)
+    return GeminiBBoxExtractor(settings.gemini_api_key, settings.gemini_model,
+                               token_budget=settings.vision_token_budget)

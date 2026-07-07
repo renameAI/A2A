@@ -43,6 +43,12 @@ class Settings:
         # 텍스트 추출(LLM_PROVIDER)과는 독립 — 키만 넣으면 켜진다.
         self.gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
         self.gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        # VLM 전송 계층 예산 — 배치 크기·페이로드 바이트·토큰을 전부 상한으로 관리
+        self.vision_pages_per_call = int(os.environ.get("VISION_PAGES_PER_CALL", "4"))
+        self.vision_batch_bytes = int(os.environ.get(
+            "VISION_BATCH_BYTES", str(3 * 1024 * 1024)))    # 배치당 이미지 총량 3MB
+        self.vision_token_budget = int(os.environ.get("VISION_TOKEN_BUDGET", "300000"))
+        self.vision_jpeg_quality = int(os.environ.get("VISION_JPEG_QUALITY", "80"))
 
     @property
     def llm_enabled(self) -> bool:
