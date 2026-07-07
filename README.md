@@ -113,6 +113,34 @@ LLM_PROVIDER=mock .venv/bin/uvicorn app.main:app --port 8425
 - **테스트**: `.venv/bin/python -m pytest tests/test_consultant.py -v` (5건, 전부 Mock 경로 —
   오프라인·비용 0으로 계약 검증)
 
+## 근거 시각화 (bbox) — IR덱 원문 위 AI가 본 위치 + 댓글 강제
+
+Simsa(cts_screening 검토 SaaS)의 box_2d 패턴을 재사용한 선택 기능. IR덱 PDF 페이지 이미지
+위에 AI가 프로필을 뽑아낼 때 실제로 본 위치를 빨간 박스로 표시하고, AI가 스스로 확신하지
+못한 부분은 점선 박스 + 사람에게 되묻는 댓글 스레드로 남는다 — **답하기 전엔 매칭(`/product/match`)
+으로 못 넘어간다** (강제 응답, 409 `unclear_evidence_unresolved`).
+
+```bash
+cp .env.example .env    # GEMINI_API_KEY 입력 (텍스트 추출 LLM_PROVIDER와 완전히 독립)
+.venv/bin/uvicorn app.main:app --port 8423
+# 웹 UI → ① IR덱 PDF 자산으로 온보딩 → "②++ 근거 시각화" 섹션 자동 표시
+```
+
+- 키가 없으면 기능 자체가 조용히 꺼진다 (다른 온보딩 흐름엔 영향 없음) — `GEMINI_API_KEY`만
+  넣으면 켜진다.
+- 텍스트 추출(K-EXAONE 등)과 **완전히 독립된 비전(vision) 경로**다 — [engine/vision.py](app/engine/vision.py)
+  `GeminiBBoxExtractor`가 PDF 페이지를 PNG로 렌더링([ingest/pdf_render.py](app/ingest/pdf_render.py),
+  PyMuPDF)한 뒤 Gemini에 넘겨 `box_2d`([ymin,xmin,ymax,xmax], 0~1000 정규화) + 근거 인용문 +
+  `unclear`(불확실) 플래그를 직접 받는다.
+- 프롬프트는 [engine/prompts.py](app/engine/prompts.py) `BBOX_SYSTEM`에 중앙화 — 이 페이지에
+  실제로 없는 내용은 절대 채우지 말라는 사실 고정 규칙 + "애매하면 무조건 unclear로 표시" 규칙.
+- **댓글 스레드**: `unclear=true` 근거마다 AI가 첫 댓글로 질문을 남기고 스레드가 `open`으로
+  생성된다. `POST /product/companies/{id}/threads/{id}/reply`로 사람이 답하면 `resolved`로
+  닫히고, 그제서야 매칭이 풀린다 (시트 댓글처럼 스레드가 쌓이는 구조 — `app/schemas.py`
+  `CommentThread`/`ThreadComment`).
+- **테스트**: `.venv/bin/python -m pytest tests/test_vision.py -v` (5건, Fake 비전 추출기로
+  오프라인 — 실제 Gemini 호출 없이 강제 응답 게이트·좌표 보존·페이지 이미지 서빙 전부 검증)
+
 ## 엔드포인트 (API_계약서 v1.0)
 
 | 엔드포인트 | 방식 | 역할 |
@@ -170,6 +198,11 @@ LLM_PROVIDER=mock .venv/bin/uvicorn app.main:app --port 8425
     종료 + 최종 아웃리치 가설 산출
   - `POST /product/consult` (비동기 job) · UI ②+ 섹션(선택지 칩·복수선택·자유입력·
     가설→의도 반영) · 인터뷰 전 과정 감사 로그 축적(대표 인터뷰 = CoT 데이터 자산)
+- [x] **근거 시각화 (bbox)** — Simsa 검토 SaaS 패턴 재사용, Gemini vision 선택 기능
+  - IR덱 페이지 이미지 위 근거 위치를 빨간 박스로 표시([engine/vision.py](app/engine/vision.py),
+    [ingest/pdf_render.py](app/ingest/pdf_render.py)) · 불확실 근거는 점선 + 댓글 스레드로
+    사람에게 되묻고, 답하기 전엔 매칭 진행 불가(강제 응답, `app/schemas.py` `CommentThread`)
+  - `GEMINI_API_KEY`만 있으면 켜짐 — 텍스트 추출(`LLM_PROVIDER`)과 완전히 독립
 - [ ] **Phase 4 — CoT 데이터 파이프라인**: JSONL 검증기·커버리지 매트릭스·held-out 봉인 (DAT-01~05)
 - [ ] **Phase 5 — 학습·평가**: EXAONE LoRA SFT·베이스라인 비교 (EVL-01~05, 박사 협업)
 - [ ] **Phase 6 — 운영화**: 상태 영속화(PostgreSQL/Redis)·감사 로그(SYS-04)·Next.js 데모 UX

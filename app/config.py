@@ -39,6 +39,10 @@ class Settings:
         self.fetch_timeout = float(os.environ.get("INGEST_FETCH_TIMEOUT", "15"))
         self.crawl_max_pages = int(os.environ.get("CRAWL_MAX_PAGES", "5"))
         self.llm_timeout = float(os.environ.get("LLM_TIMEOUT", "300"))  # reasoning 모델 대비
+        # 근거 시각화 (bbox) — IR덱 PDF 페이지에서 근거 위치를 찾는 비전 모델.
+        # 텍스트 추출(LLM_PROVIDER)과는 독립 — 키만 넣으면 켜진다.
+        self.gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
+        self.gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
 
     @property
     def llm_enabled(self) -> bool:
@@ -49,6 +53,10 @@ class Settings:
         if self.llm_provider == "anthropic":
             return bool(self.anthropic_api_key)
         return False
+
+    @property
+    def vision_enabled(self) -> bool:
+        return bool(self.gemini_api_key)
 
 
 def get_settings() -> Settings:

@@ -399,6 +399,10 @@ async function onboard() {
     computeMinStatus(data.open_questions);
     if (data.open_questions.length) showQuestions(data.open_questions);
     renderMinProgress();
+    if (data.visual_evidence_count > 0) {
+      $("#step-evidence").classList.remove("hidden");
+      await loadEvidence();
+    }
   } catch (err) {
     if (err.code === "profile_below_minimum") {
       computeMinStatus(err.details.open_questions);
@@ -505,6 +509,89 @@ function renderMinProgress() {
   box.classList.remove("hidden");
 }
 
+/* ── ②++ 근거 시각화 (bbox) — IR덱 원문 위 AI가 본 위치 + 댓글 강제 ─── */
+
+async function loadEvidence() {
+  hideError("#evidence-error");
+  try {
+    const data = await api(`/product/companies/${state.companyId}/evidence`);
+    renderEvidencePages(data);
+  } catch (err) {
+    showError("#evidence-error", `${err.code || ""} ${err.message}`);
+  }
+}
+
+function renderEvidencePages(data) {
+  const { evidence, threads } = data;
+  const openCount = threads.filter((t) => t.status === "open").length;
+  $("#evidence-summary").innerHTML =
+    `근거 <b>${evidence.length}</b>건 표시 중` +
+    (openCount > 0
+      ? ` · <span class="ev-warn">확인 필요 ${openCount}건 — 답하기 전엔 후보 발굴이 막혀요</span>`
+      : ` · <span class="ev-ok">전부 확인됨 — 후보 발굴 가능</span>`);
+
+  const threadByEvidence = {};
+  threads.forEach((t) => { threadByEvidence[t.evidence_id] = t; });
+
+  // asset_index·page별로 묶어 페이지 한 장에 박스 여러 개를 겹쳐 그린다
+  const byPage = {};
+  evidence.forEach((e) => {
+    const key = `${e.asset_index}:${e.page}`;
+    (byPage[key] = byPage[key] || []).push(e);
+  });
+
+  $("#evidence-pages").innerHTML = Object.entries(byPage).map(([key, boxes]) => {
+    const [assetIdx, page] = key.split(":");
+    const boxesHtml = boxes.map((e) => {
+      const thread = threadByEvidence[e.evidence_id];
+      const unresolved = thread && thread.status === "open";
+      const style = `left:${e.box.xmin / 10}%;top:${e.box.ymin / 10}%;` +
+        `width:${(e.box.xmax - e.box.xmin) / 10}%;height:${(e.box.ymax - e.box.ymin) / 10}%;`;
+      return `<div class="ev-box ${e.unclear ? "ev-unclear" : "ev-clear"} ${unresolved ? "" : "ev-resolved"}"
+        style="${style}" data-evidence-id="${esc(e.evidence_id)}"
+        data-thread-id="${thread ? esc(thread.thread_id) : ""}"
+        title="${esc(e.field)}: ${esc(e.quote)}">${e.unclear ? "?" : ""}</div>`;
+    }).join("");
+    return `<div class="ev-page" data-asset="${assetIdx}" data-page="${page}">
+      <div class="ev-page-frame">
+        <img src="/product/pages/${state.companyId}/a${assetIdx}_p${page}.png">
+        ${boxesHtml}
+      </div>
+      <div class="ev-thread hidden"></div>
+    </div>`;
+  }).join("");
+
+  document.querySelectorAll(".ev-box.ev-unclear").forEach((box) => {
+    box.onclick = () => openThreadPanel(box, threadByEvidence);
+  });
+}
+
+function openThreadPanel(box, threadByEvidence) {
+  const evidenceId = box.dataset.evidenceId;
+  const thread = threadByEvidence[evidenceId];
+  if (!thread) return;
+  const panel = box.closest(".ev-page").querySelector(".ev-thread");
+  const isResolved = thread.status === "resolved";
+  panel.innerHTML =
+    `<div class="ev-thread-comments">` +
+    thread.comments.map((c) =>
+      `<div class="ev-comment ev-${c.author}"><b>${c.author === "ai" ? "AI" : "사람"}</b> ${esc(c.text)}</div>`
+    ).join("") + `</div>` +
+    (isResolved ? "" :
+      `<div class="ev-reply"><textarea rows="2" placeholder="이 부분에 대해 답변해 주세요"></textarea>
+       <button type="button" class="ev-reply-btn">답변 등록</button></div>`);
+  panel.classList.remove("hidden");
+  if (!isResolved) {
+    panel.querySelector(".ev-reply-btn").onclick = async () => {
+      const text = panel.querySelector("textarea").value.trim();
+      if (!text) return;
+      await api(`/product/companies/${state.companyId}/threads/${thread.thread_id}/reply`,
+        { method: "POST", body: JSON.stringify({ text }) });
+      await loadEvidence();   // 상태 갱신 — 박스 색·요약·매칭 게이트 전부 재렌더
+    };
+  }
+}
+
 /* ── ② 프로필 렌더 ───────────────────────────────────────────── */
 
 function provBadge(field) {
@@ -572,6 +659,8 @@ $("#btn-match").onclick = async () => {
   } catch (err) {
     showError("#match-error", err.code === "no_strong_candidate"
       ? "강한 후보 없음 — 엔진이 약한 후보를 억지로 채우지 않았어요. 의도(지역·가치제안)를 바꿔보세요."
+      : err.code === "unclear_evidence_unresolved"
+      ? "근거 시각화에 확인 필요한 항목이 남아있어요 — 위 '②++ 근거 시각화' 섹션에서 답변해 주세요."
       : `${err.code || ""} ${err.message}`);
     $("#candidates").innerHTML = "";
   } finally { btn.disabled = false; }

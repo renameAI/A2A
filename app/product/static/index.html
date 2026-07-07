@@ -89,6 +89,17 @@
       <div id="consult-error" class="error hidden"></div>
     </section>
 
+    <!-- ═══ ②++ 근거 시각화 (IR덱 원문 대조, 선택) ═══ -->
+    <section id="step-evidence" class="step hidden">
+      <h2><span class="num">②++</span> 근거 시각화 <small>(선택 — IR덱 원문 위 AI가 본 위치)</small></h2>
+      <p class="consult-hint">AI가 프로필을 뽑아낼 때 실제로 어디를 보고 있었는지 원문 위에
+      빨간 박스로 표시해요. 점선 박스는 AI가 확신하지 못한 부분 — 클릭해서 맞는지 확인해 주세요.
+      <b>확인 전까지는 후보 발굴로 넘어갈 수 없어요.</b></p>
+      <div id="evidence-summary" class="slot-progress"></div>
+      <div id="evidence-pages"></div>
+      <div id="evidence-error" class="error hidden"></div>
+    </section>
+
     <!-- ═══ ③ 의도 · 후보 발굴 ═══ -->
     <section id="step3" class="step hidden">
       <h2><span class="num">③</span> 의도 설정 → 후보 발굴 <small>(보완성 검색 — 유사도 아님)</small></h2>
@@ -114,6 +125,6 @@
 </div>
 
 <footer>엔진은 초안까지만 — <b>발송·미팅 결정은 항상 사람</b>이 합니다 (CMP-06)</footer>
-<script src="/app.js?v=7"></script>
+<script src="/app.js?v=8"></script>
 </body>
 </html>

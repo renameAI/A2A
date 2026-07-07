@@ -18,3 +18,4 @@ import tempfile
 _tmp = tempfile.mkdtemp(prefix="a2a-test-")
 os.environ.setdefault("A2A_CACHE_DIR", os.path.join(_tmp, "cache"))
 os.environ.setdefault("A2A_AUDIT_DIR", os.path.join(_tmp, "audit"))
+os.environ.setdefault("A2A_PAGES_DIR", os.path.join(_tmp, "pages"))

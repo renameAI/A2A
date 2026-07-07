@@ -235,3 +235,24 @@ details pre { white-space: pre-wrap; background: #f7f5f0; padding: 10px; border-
 .pe-active { stroke: #d9a441; stroke-dasharray: 7 5;
   animation: edge-flow .8s linear infinite; }
 @keyframes edge-flow { to { stroke-dashoffset: -12; } }
+
+/* 근거 시각화 (bbox) — IR덱 원문 위 AI가 본 위치 */
+.ev-warn { color: #b23b3b; font-weight: 700; }
+.ev-ok { color: #1b6b2e; font-weight: 700; }
+.ev-page { margin-bottom: 24px; }
+.ev-page-frame { position: relative; display: inline-block; max-width: 100%; }
+.ev-page-frame img { display: block; max-width: 100%; height: auto; border: 1px solid #d5d0c4; }
+.ev-box { position: absolute; border: 2px solid #c0392b; box-sizing: border-box;
+  display: flex; align-items: flex-start; justify-content: flex-end;
+  color: #c0392b; font-size: 11px; font-weight: 700; cursor: default; }
+.ev-box.ev-unclear { border-style: dashed; cursor: pointer; background: rgba(192,57,43,.08); }
+.ev-box.ev-unclear:hover { background: rgba(192,57,43,.18); }
+.ev-box.ev-resolved { border-color: #4c9a52; color: #4c9a52; }
+.ev-thread { margin-top: 8px; padding: 10px 12px; background: #fdf6e3;
+  border: 1px solid #e8d49a; border-radius: 8px; font-size: 13px; }
+.ev-thread-comments { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.ev-comment b { margin-right: 6px; }
+.ev-comment.ev-ai b { color: #9a6b00; }
+.ev-comment.ev-human b { color: #1e2430; }
+.ev-reply { display: flex; gap: 8px; align-items: flex-start; }
+.ev-reply textarea { flex: 1; }

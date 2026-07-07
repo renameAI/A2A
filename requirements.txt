@@ -3,6 +3,7 @@ beautifulsoup4==4.15.0
 fastapi==0.139.0
 httpx==0.28.1
 pydantic==2.13.4
+pymupdf==1.28.0
 pypdf==6.14.2
 pytest==9.1.1
 python-multipart==0.0.32

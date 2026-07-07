@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..schemas import PrivateState, Profile
+from ..schemas import CommentThread, PrivateState, Profile, ThreadComment, VisualEvidence
 
 
 @dataclass
@@ -17,6 +17,9 @@ class CompanyRecord:
     open_questions: list[str] = field(default_factory=list)
     evidence: Optional[dict] = None
     engine_mode: str = "mock"
+    # 근거 시각화 (bbox) — IR덱 페이지 위 근거 위치 + 댓글 스레드 (v1.2 확장)
+    visual_evidence: list[VisualEvidence] = field(default_factory=list)
+    threads: dict[str, CommentThread] = field(default_factory=dict)
 
 
 class ProductStore:
@@ -54,6 +57,35 @@ class ProductStore:
 
     def list(self) -> list[CompanyRecord]:
         return list(self._companies.values())
+
+    # ── 근거 시각화 (bbox) — 온보딩마다 재생성, 댓글 스레드는 사람이 닫는다 ──
+
+    def set_visual_evidence(self, company_id: str, evidence: list[VisualEvidence],
+                            threads: list[CommentThread]) -> None:
+        rec = self._companies.get(company_id)
+        if rec is None:
+            return
+        rec.visual_evidence = evidence
+        rec.threads = {t.thread_id: t for t in threads}
+
+    def open_thread_count(self, company_id: str) -> int:
+        rec = self._companies.get(company_id)
+        if rec is None:
+            return 0
+        return sum(1 for t in rec.threads.values() if t.status == "open")
+
+    def reply_thread(self, company_id: str, thread_id: str, text: str,
+                     ts: str) -> Optional[CommentThread]:
+        """사람의 답변을 스레드에 붙이고 resolved로 닫는다 (강제 응답 해제)."""
+        rec = self._companies.get(company_id)
+        if rec is None:
+            return None
+        thread = rec.threads.get(thread_id)
+        if thread is None:
+            return None
+        thread.comments.append(ThreadComment(author="human", text=text, ts=ts))
+        thread.status = "resolved"
+        return thread
 
 
 store = ProductStore()

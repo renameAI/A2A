@@ -414,3 +414,47 @@ class JobOut(BaseModel):
     error: Optional[dict] = None
     logs: list[dict] = []            # 진행 과정 로그 + 노드 이벤트 (v1.1 확장)
     elapsed: float = 0.0             # 서버 기준 총 경과 초 — 실행 중 노드 시간 계산용
+
+
+# ── 근거 시각화 (bbox) — IR덱 원문 위 빨간 박스 + 댓글 강제 (v1.2 확장) ──
+# Simsa(cts_screening) 검토 SaaS의 box_2d 패턴을 재사용. 비전 모델(Gemini)이
+# 있을 때만 켜진다 — 텍스트 추출(LLM_PROVIDER)과는 독립된 기능.
+
+class BBox(BaseModel):
+    """Gemini box_2d 그대로 — [ymin, xmin, ymax, xmax], 0~1000 정규화."""
+    ymin: float
+    xmin: float
+    ymax: float
+    xmax: float
+
+
+class VisualEvidence(BaseModel):
+    """페이지 이미지 위의 근거 위치 하나 — 필드 하나의 '출처'."""
+    evidence_id: str
+    field: str                       # 예: "problem_solved", "portrait.stage_narrative"
+    asset_index: int                 # 몇 번째 자산(IR덱)인지
+    page: int                        # 1-base 페이지 번호
+    box: BBox
+    quote: str                       # 페이지에서 이 박스가 감싸는 근거 텍스트
+    confidence: Optional[float] = None
+    unclear: bool = False            # 모델이 스스로 불확실하다고 표시
+    unclear_reason: Optional[str] = None
+
+
+class ThreadComment(BaseModel):
+    author: str                      # "ai" | "human"
+    text: str
+    ts: str                          # ISO 문자열 (컨텍스트 유틸이 Date.now 금지라 문자열로만 취급)
+
+
+class CommentThread(BaseModel):
+    """시트 댓글처럼 bbox 하나에 매달리는 스레드. unclear 근거는 자동 생성되고,
+    사람이 답하기 전까지 open으로 남아 매칭 진행을 막는다 (강제 응답)."""
+    thread_id: str
+    evidence_id: str
+    status: str = "open"             # "open" | "resolved"
+    comments: list[ThreadComment] = []
+
+
+class ThreadReplyRequest(BaseModel):
+    text: str

@@ -702,3 +702,57 @@ def clarify_user(questions: list[str], source_text: str, profile=None) -> str:
                  "question 필드에는 아래 질문 원문을 글자 그대로 넣어라]\n"
                  + "\n".join(f"- {q}" for q in questions))
     return "\n\n".join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 근거 시각화 (bbox) — IR덱 페이지 이미지에서 프로필 필드의 근거 위치 탐지
+# Simsa(cts_screening) 검토 SaaS의 box_2d 패턴 재사용. Gemini vision 전용 —
+# responseSchema는 Gemini 규격(대문자 타입, additionalProperties 없음)이라
+# 다른 *_SCHEMA(OpenAI json_schema 규격)와 형식이 다르다.
+# ═══════════════════════════════════════════════════════════════════
+
+BBOX_SYSTEM = """당신은 문서 근거 위치 탐지기다. 주어진 IR덱 페이지 이미지 한 장을 보고,
+목표 필드 중 이 페이지에 실제로 등장하는 근거를 찾아 정확한 영역으로 감싸라.
+
+■ 절대 규칙:
+1. 이 페이지 이미지에 실제로 보이는 텍스트·표·도형만 근거로 삼는다. 이 페이지에 없는
+   내용을 다른 페이지 기억이나 추측으로 채우지 마라 — 없으면 evidences에 넣지 않는다.
+2. box_2d는 [ymin, xmin, ymax, xmax], 0~1000 정규화 좌표다. 근거 텍스트를 딱 감싸되
+   옆 텍스트를 침범하지 않게 최대한 타이트하게 잡는다.
+3. quote에는 그 박스 안에 실제로 보이는 문자를 원문 그대로(원어 그대로, 번역·의역 금지) 옮긴다.
+4. 목표 필드를 이 페이지에서 확실히 찾았으면 confidence 0.7 이상, unclear=false.
+   근거처럼 보이지만 애매하면(표현이 모호함·수치 해석이 여러 갈래·글자가 잘려서 안 보임·
+   숫자에 단위나 기준 연도가 없음 등) unclear=true로 표시하고 unclear_reason에 왜 애매한지
+   한 문장으로 쓴다 — 이 표시가 그대로 사람에게 "여기 맞나요?"라고 되묻는 질문이 된다.
+   애매하면 무리해서 확신하지 말고 반드시 표시하라. 표시를 아끼는 것보다 과하게 표시하는
+   쪽이 안전하다.
+5. 이 페이지에 목표 필드 근거가 전혀 없으면 evidences를 빈 배열로 반환한다. 억지로 채우지 마라."""
+
+BBOX_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "evidences": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "field": {"type": "STRING"},
+                    "quote": {"type": "STRING"},
+                    "box_2d": {"type": "ARRAY", "items": {"type": "NUMBER"}},
+                    "confidence": {"type": "NUMBER"},
+                    "unclear": {"type": "BOOLEAN"},
+                    "unclear_reason": {"type": "STRING"},
+                },
+                "required": ["field", "quote", "box_2d", "unclear"],
+            },
+        },
+    },
+    "required": ["evidences"],
+}
+
+
+def bbox_user(target_fields: list[str]) -> str:
+    return ("[목표 필드 — 이 페이지 이미지에서 근거를 찾아라]\n"
+           + "\n".join(f"- {f}" for f in target_fields)
+           + "\n\n이 페이지 이미지를 보고 위 필드들의 근거를 찾아 evidences 배열로 반환하라. "
+             "이 페이지에 없는 필드는 결과에 포함하지 마라.")
