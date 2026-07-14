@@ -304,6 +304,10 @@ class JudgeResult(BaseModel):
     match_summary: MatchSummary
     deal_structure: Optional[str] = None
     confidence_band: Optional[ConfidenceBand] = None
+    # 자기일관성 투표 (L2/L3) — k-표본 다수결 일치율과, 저합의 시 사람 라우팅 플래그.
+    # judge_samples=1이면 sample_agreement=1.0, needs_human=False (단일 표본, 기존 동작).
+    sample_agreement: Optional[float] = None
+    needs_human: bool = False
 
 
 # ── /v1/compose (API §4) ────────────────────────────────────────────

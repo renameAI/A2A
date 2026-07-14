@@ -252,6 +252,65 @@ def _clarify_questions(extractor, profile: Profile,
         return _mock_clarify(open_questions)
 
 
+# ── open_questions 5공리 코드 집행 (FORMALIZATION.md L1) ───────────────
+# 5공리는 EXTRACT_SYSTEM 프롬프트에만 있고 집행기가 없었다(= 미집행 제약집합).
+# 여기서 provenance를 근거로 결정적으로 집행한다 — 양 경로(mock/LLM)에 균일 적용.
+
+_QUESTION_PRIORITY = {"problem": 0, "solution": 1, "target": 2,
+                      "value_prop": 3, "willingness": 4}
+_MAX_QUESTIONS = 5   # 공리 ⑤ 예산
+
+
+def _field_underdetermined(field_type: str, profile: Profile) -> bool:
+    """공리 ②판정가능성·③비중복성 — 이 질문의 대상 필드가 아직 미결정인가.
+    미결정 = provenance ask, 또는 inferred이며 confidence<0.6, 또는 (VP·의향) 미충족."""
+    def _prov(f) -> bool:
+        if f.provenance == Provenance.stated:
+            return False
+        if f.provenance == Provenance.inferred and (f.confidence or 0) >= 0.6:
+            return False
+        return True   # ask, 또는 저확신 inferred
+    if field_type == "problem":
+        return _prov(profile.problem_solved)
+    if field_type == "solution":
+        return _prov(profile.solution)
+    if field_type == "target":
+        return _prov(profile.target_customer)
+    if field_type == "value_prop":
+        return not (profile.sell_value_props or profile.purchase_value_props)
+    if field_type == "willingness":
+        return profile.willingness_sell is None and profile.willingness_purchase is None
+    return True   # 분류 불가 질문은 보존 (판단 유보)
+
+
+def enforce_question_axioms(open_questions: list[str], profile: Profile
+                            ) -> tuple[list[str], dict]:
+    """open_questions에 5공리를 결정적으로 집행. (정제된 질문, 폐기 집계) 반환.
+
+    ①원자성: 대상 필드별 1개(중복 필드 질문 제거)  ②판정가능성·③비중복성: 이미 결정된
+    필드 질문 폐기  ④정보가치 정렬: 최소프로필 필드 우선  ⑤예산: ≤5.
+    """
+    rejected = {"redundant": 0, "duplicate_field": 0, "over_budget": 0}
+    seen_fields: set[str] = set()
+    kept: list[tuple[int, str]] = []   # (우선순위, 질문)
+    for q in open_questions:
+        ftype = _question_field(q)
+        if not _field_underdetermined(ftype, profile):   # ②③ 이미 결정됨
+            rejected["redundant"] += 1
+            continue
+        if ftype in seen_fields:                          # ① 같은 필드 중복
+            rejected["duplicate_field"] += 1
+            continue
+        seen_fields.add(ftype)
+        kept.append((_QUESTION_PRIORITY.get(ftype, 9), q))
+    kept.sort(key=lambda x: x[0])                         # ④ 정보가치(최소프로필 우선)
+    result = [q for _, q in kept]
+    if len(result) > _MAX_QUESTIONS:                      # ⑤ 예산
+        rejected["over_budget"] = len(result) - _MAX_QUESTIONS
+        result = result[:_MAX_QUESTIONS]
+    return result, rejected
+
+
 # ── 공통 게이트·출력 ────────────────────────────────────────────────
 
 def _check_minimum(profile: Profile, open_questions: list[str],
@@ -289,6 +348,13 @@ def represent(req: RepresentRequest, settings: Settings | None = None
             profile, open_questions = _mock_extract(full_text)
         evidence = None
         engine_mode = "mock"
+
+    with progress.node("axioms", "질문 공리 집행 (L1)"):
+        n_before = len(open_questions)
+        open_questions, rej = enforce_question_axioms(open_questions, profile)
+        progress.log("공리", f"보강 질문 {n_before} → {len(open_questions)}건 "
+                             f"(폐기: 이미결정 {rej['redundant']}·필드중복 "
+                             f"{rej['duplicate_field']}·예산초과 {rej['over_budget']})")
 
     with progress.node("gate", "최소 프로필 게이트 (REP-06)"):
         _check_minimum(profile, open_questions, extractor, full_text)

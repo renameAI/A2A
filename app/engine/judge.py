@@ -180,6 +180,62 @@ def _reasoning_moves(req: JudgeRequest, dims: list[CategoryJudgment],
     return moves
 
 
+_SOFT_YES = {DecisionType.recommend, DecisionType.conditional}
+
+
+def _apply_consistency_gate(result: JudgeResult, agreement: "float | None",
+                            settings) -> None:
+    """소프트 판단 → 하드 코드 게이트 이전 (L3). in-place로 result를 조인다.
+
+    두 이전:
+    (a) confidence_band를 일치율에서 결정적으로 도출 — LLM 자가보고 신뢰도(미보정)를
+        코드 규칙으로 대체. high≥0.8 / medium≥임계 / low<임계.
+    (b) 일치율 < 임계 → needs_human=True + 자동 '추천'을 hold로 캡. 저합의 추천이 사람
+        검토 없이 나가는 것을 결정적으로 차단(deal-breaker 게이트와 같은 하드 성격)."""
+    if agreement is None:      # 미계측(단일 표본) — 신호 없으면 게이트 발동 안 함
+        return
+    tau = settings.judge_agreement_threshold
+    result.confidence_band = (
+        ConfidenceBand.high if agreement >= 0.8
+        else ConfidenceBand.medium if agreement >= tau
+        else ConfidenceBand.low)
+    if agreement < tau:
+        result.needs_human = True
+        if result.decision in _SOFT_YES:
+            result.decision = DecisionType.hold
+            result.decision_rationale = (
+                f"자기일관성 일치율 {agreement:.2f} < 임계 {tau:.2f} — "
+                f"저합의 자동추천 차단, 사람 검토로 보류 (L3 게이트). "
+                f"원 판정 근거: {result.decision_rationale}")
+        progress.log("Judge", f"⚠ L3 게이트 — 일치율 {agreement:.2f}<{tau:.2f}: "
+                              f"needs_human=True, decision→{result.decision.value}")
+
+
+def _vote_llm_judge(req: JudgeRequest, extractor, deep: bool, samples: int
+                    ) -> tuple[JudgeResult, "float | None"]:
+    """자기일관성 투표 (L2) — LLM 판단을 k회 표집해 범주형 decision을 다수결.
+
+    범주형 결정의 재현성은 σ²/n이 아니라 지수적 집중이 기대되는 축이라(FORMALIZATION.md §4.3),
+    평균이 아니라 '다수결 + 일치율'을 쓴다. k=1이면 투표 없음 — 일치율은 None(미계측)이며,
+    L3 게이트도 신호가 없으면 발동하지 않는다(측정 없는 확신을 만들지 않는다)."""
+    from ..eval.variance import mode
+    if samples <= 1:
+        return _llm_judge(req, extractor, deep=deep), None
+
+    results: list[JudgeResult] = []
+    for i in range(samples):
+        progress.log("Judge", f"자기일관성 표본 {i + 1}/{samples}")
+        results.append(_llm_judge(req, extractor, deep=deep))
+    decisions = [r.decision for r in results]
+    winner, count = mode(decisions)
+    agreement = count / len(decisions)
+    # 승리 결정을 낸 대표 표본을 채택 (그 근거·차원판정이 다수와 정합)
+    chosen = next(r for r in results if r.decision == winner)
+    progress.log("Judge", f"다수결 결정: {winner.value} · 일치율 "
+                          f"{agreement:.2f} ({count}/{samples})")
+    return chosen, agreement
+
+
 def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     """LLM 판단 경로 — 프롬프트가 판단 구조를, 스키마가 출력 계약을 강제한다.
     출력 계약은 규칙 경로와 동일하므로 API·테스트 구조는 그대로다."""
@@ -232,9 +288,13 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         check_deal_breakers(req.self_profile, req.counterpart_profile)
         progress.log("게이트", "deal-breaker 없음 — 판단 진행")
 
-    extractor = get_extractor(get_settings())
+    settings = get_settings()
+    extractor = get_extractor(settings)
     if extractor is not None:
-        result = _llm_judge(req, extractor, deep=deep)
+        result, agreement = _vote_llm_judge(
+            req, extractor, deep, settings.judge_samples)   # L2 자기일관성 투표
+        result.sample_agreement = agreement
+        _apply_consistency_gate(result, agreement, settings)   # L3 하드 게이트
         with progress.node("audit", "감사 로그 (SYS-04)"):
             _audit_judge(req, result)
         return result
