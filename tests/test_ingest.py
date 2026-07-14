@@ -127,7 +127,9 @@ class FakeExtractor:
 
 class TestExtractor:
     def test_extract_profile_with_provenance_and_evidence(self):
-        chunks = chunk_text("다이브인그룹은 노후 객실을 전환한다", "a1:website")
+        # R2 인용 계약: 인용되는 청크는 실존해야 한다 — 인스타 청크도 실제 제공
+        chunks = (chunk_text("다이브인그룹은 노후 객실을 전환한다", "a1:website")
+                  + chunk_text("성수동 호텔 전환 사례 소개", "a2:instagram"))
         fake = FakeExtractor()
         profile, open_qs, evidence = extract_profile(chunks, fake)
         assert profile.problem_solved.provenance.value == "inferred"

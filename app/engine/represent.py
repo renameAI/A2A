@@ -5,6 +5,7 @@
 - Mock 경로 (키 없음): 구조화 텍스트("키: 값" 라인) 파서 — CI·로컬 개발용 (ING-05)
 출력 계약(3형 출력 + 최소 프로필 게이트)은 두 경로 동일.
 """
+from .. import progress
 from ..config import Settings, get_settings
 from ..errors import ProfileBelowMinimum
 from ..ingest.chunking import Chunk, chunk_text, pdf_to_text
@@ -252,6 +253,62 @@ def _clarify_questions(extractor, profile: Profile,
         return _mock_clarify(open_questions)
 
 
+# ── 프로필 계약 집행 (FORMALIZATION.md R1·R3) ──────────────────────────
+# R1: stated 그라운딩 강등 — provenance=stated인데 원문에 근거가 없으면(환각 신호)
+#     inferred(conf 0.5)로 강등한다. 값은 표준 한국어로 패러프레이즈되므로 임계는
+#     보수적으로 잡는다(명백한 환각만): 3-gram 포함도 < 0.15.
+# R3: 정규화 사영 — 국가·산업 표기를 결정적으로 정규화. industry_adjacent가
+#     문자열 일치 기반이라 "SaaS" vs "saas" 표기 요동이 인접성 판정을 조용히 깨뜨린다.
+
+_GROUND_DEMOTE_THRESHOLD = 0.15   # R1 — 이 미만이면 원문 근거 없음으로 판정
+
+_COUNTRY_CANON = {
+    "대한민국": "한국", "korea": "한국", "south korea": "한국", "republic of korea": "한국",
+    "일본": "일본", "japan": "일본", "베트남": "베트남", "vietnam": "베트남",
+    "미국": "미국", "usa": "미국", "united states": "미국", "us": "미국",
+}
+
+
+def _canon_country(value: str) -> str:
+    return _COUNTRY_CANON.get((value or "").strip().lower(), (value or "").strip())
+
+
+def _canon_industry(value: str) -> str:
+    return (value or "").strip().lower().replace(" ", "_")
+
+
+def ground_profile(profile: Profile, full_text: str) -> dict:
+    """프로필 계약 집행 (in-place). 반환: 정직 집계 {demoted, canonicalized}.
+
+    R1은 stated 필드에만 적용한다 — inferred/ask는 이미 불확실 선언이 있다.
+    강등은 폐기가 아니다: 값은 남기되 라벨을 정직하게 만든다(자료 근거 없음 = 추론).
+    """
+    from .vision import grounding_score   # bbox와 동일한 3-gram 포함도 재사용
+    tally = {"demoted": 0, "canonicalized": 0}
+
+    for name in ("problem_solved", "solution", "target_customer"):
+        f = getattr(profile, name)
+        if f.provenance != Provenance.stated or not f.value:
+            continue
+        g = grounding_score(f.value, full_text)
+        if g is not None and g < _GROUND_DEMOTE_THRESHOLD:
+            f.provenance = Provenance.inferred
+            f.confidence = 0.5
+            tally["demoted"] += 1
+            progress.log("검증", f"⚠ R1 강등 — {name}='{f.value[:30]}…'가 stated로 "
+                                 f"보고됐지만 원문 근거 없음(g={g:.2f}) → inferred(0.5)")
+
+    canon_c = _canon_country(profile.basic.country)
+    if canon_c != profile.basic.country:
+        profile.basic.country = canon_c
+        tally["canonicalized"] += 1
+    canon_i = _canon_industry(profile.basic.industry)
+    if canon_i != profile.basic.industry:
+        profile.basic.industry = canon_i
+        tally["canonicalized"] += 1
+    return tally
+
+
 # ── open_questions 5공리 코드 집행 (FORMALIZATION.md L1) ───────────────
 # 5공리는 EXTRACT_SYSTEM 프롬프트에만 있고 집행기가 없었다(= 미집행 제약집합).
 # 여기서 provenance를 근거로 결정적으로 집행한다 — 양 경로(mock/LLM)에 균일 적용.
@@ -348,6 +405,11 @@ def represent(req: RepresentRequest, settings: Settings | None = None
             profile, open_questions = _mock_extract(full_text)
         evidence = None
         engine_mode = "mock"
+
+    with progress.node("contract", "프로필 계약 집행 (R1·R3)"):
+        tally = ground_profile(profile, full_text)
+        progress.log("계약", f"stated 그라운딩 강등 {tally['demoted']}건 · "
+                             f"국가/산업 정규화 {tally['canonicalized']}건")
 
     with progress.node("axioms", "질문 공리 집행 (L1)"):
         n_before = len(open_questions)

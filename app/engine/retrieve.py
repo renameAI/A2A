@@ -5,6 +5,11 @@
 
 v0: 합성 = 템플릿, 검색 = bigram overlap + 온톨로지 보정.
 Phase 2: 합성 = LLM 1회(저렴·캐시), 검색 = 벡터DB(OpenSearch) + 온톨로지 융합.
+
+분산 제어 (FORMALIZATION.md R4): LLM 합성문은 확률적 단일표본인데 그 문자열이
+전 후보의 검색 점수에 곱해진다 — 상류 한 표본이 랭킹 전체를 흔드는 구조.
+결정적 앵커 혼합(base의 절반을 프로필 직접 도출 템플릿에 고정)으로 그 분산을
+1/4로 감쇠하고, 동점 후보는 company_id 전순서로 재현 가능하게 정렬한다.
 """
 from ..errors import NoStrongCandidate
 from ..schemas import (CandidateOut, PoolChoice, RetrieveDirection,
@@ -13,11 +18,29 @@ from .common import industry_adjacent, infer_stage, overlap, profile_pain_text
 from .pool import CandidateRecord, get_pool
 
 _STRONG_THRESHOLD = 0.12   # 이하이면 "강한 후보 없음" (RET-06)
+_MARGIN_BAND = 0.03        # 임계 근처 |s-τ| — 재실행 시 뒤집힐 위험이 큰 경계 후보
+
+
+def template_counterpart(req: RetrieveRequest) -> str:
+    """결정적 상대상 템플릿 — 프로필 필드에서 직접 도출되는 앵커 (R4).
+
+    LLM 합성문과 별개로 항상 계산된다. 검색 base에 앵커를 절반 혼합하면
+    (base = ½·overlap(synth,·) + ½·overlap(anchor,·)) LLM 요동이 base에 미치는
+    분산이 1/4로 감쇠한다: Var[(X+c)/2] = Var[X]/4 (c=상수 앵커 성분)."""
+    p = req.requester_profile
+    region = req.intent.target_region or "글로벌"
+    if req.direction == RetrieveDirection.sell_outreach:
+        # 판매 요청 → 이상적 '구매자'의 상: 내 솔루션이 푸는 문제를 겪는 상대
+        return (f"{region}에서 {p.problem_solved.value} 문제를 겪고 있어 "
+                f"{p.solution.value} 같은 해법이 필요한 {p.target_customer.value}")
+    # 구매 요청 → 이상적 '판매자'의 상
+    return (f"{region}에서 {p.problem_solved.value}를 해결해 줄 솔루션을 "
+            f"보유·공급하는 기업")
 
 
 def synthesize_counterpart(req: RetrieveRequest) -> str:
     """1단 — 이상적 상대상 합성. Strategy Input은 하드 필터가 아니라 씨앗 (RET-07).
-    LLM이 켜져 있으면 실제 합성, 아니면 템플릿."""
+    LLM이 켜져 있으면 실제 합성, 아니면 결정적 템플릿."""
     from ..config import get_settings
     from .llm import get_extractor
     from .prompts import SYNTH_SYSTEM, synth_user
@@ -33,15 +56,7 @@ def synthesize_counterpart(req: RetrieveRequest) -> str:
                        f"유형 {req.intent.proposal_type or '미지정'}")
         return extractor.complete_text(
             SYNTH_SYSTEM, synth_user(profile_text, intent_text, req.direction.value))
-
-    region = req.intent.target_region or "글로벌"
-    if req.direction == RetrieveDirection.sell_outreach:
-        # 판매 요청 → 이상적 '구매자'의 상: 내 솔루션이 푸는 문제를 겪는 상대
-        return (f"{region}에서 {p.problem_solved.value} 문제를 겪고 있어 "
-                f"{p.solution.value} 같은 해법이 필요한 {p.target_customer.value}")
-    # 구매 요청 → 이상적 '판매자'의 상
-    return (f"{region}에서 {p.problem_solved.value}를 해결해 줄 솔루션을 "
-            f"보유·공급하는 기업")
+    return template_counterpart(req)
 
 
 def _search_text(rec: CandidateRecord, direction: RetrieveDirection) -> str:
@@ -51,8 +66,12 @@ def _search_text(rec: CandidateRecord, direction: RetrieveDirection) -> str:
     return f"{rec.profile.solution.value} {rec.profile.description}"
 
 
-def _score(req: RetrieveRequest, synth: str, rec: CandidateRecord) -> float:
-    base = overlap(synth, _search_text(rec, req.direction))
+def _score(req: RetrieveRequest, synth: str, anchor: str,
+           rec: CandidateRecord) -> float:
+    target = _search_text(rec, req.direction)
+    # R4 결정적 앵커 혼합 — synth(확률적)와 anchor(결정적)를 절반씩.
+    # synth==anchor(mock 경로)면 base는 기존과 동일하다.
+    base = 0.5 * overlap(synth, target) + 0.5 * overlap(anchor, target)
     score = 0.7 * base
 
     # 온톨로지 보정 (6.2-b): 벡터가 흐릿한 곳을 구조로 잡는다.
@@ -88,8 +107,11 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
     from .. import progress
     with progress.node("synth", "이상적 상대상 합성 (1단)"):
         progress.log("합성", "1단 — 이상적 상대상 합성 시작 (보완성 검색의 검색어)")
+        anchor = template_counterpart(req)   # 결정적 앵커 — 항상 계산 (R4)
         synth = synthesize_counterpart(req)
         progress.log("합성", f"합성 완료 — \"{synth[:80]}...\"")
+        if synth != anchor:
+            progress.log("합성", "결정적 앵커 혼합 활성 — LLM 합성 요동의 점수 분산 1/4 감쇠")
     with progress.node("search", "하이브리드 검색 (2단)"):
         records = [r for r in get_pool()
                    if req.pool == PoolChoice.both or r.pool.value == req.pool.value]
@@ -97,11 +119,17 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
         records = [r for r in records
                    if r.profile.basic.name != req.requester_profile.basic.name]
 
-        scored = sorted(((r, _score(req, synth, r)) for r in records),
-                        key=lambda x: x[1], reverse=True)
+        # R4 전순서 정렬 — 동점 후보를 company_id로 고정해 풀 순서와 무관하게 재현.
+        scored = sorted(((r, _score(req, synth, anchor, r)) for r in records),
+                        key=lambda x: (-x[1], x[0].company_id))
         strong = [(r, s) for r, s in scored if s >= _STRONG_THRESHOLD]
+        # 경계 후보 가시화 — |s-τ|가 작으면 재실행에서 뒤집힐 위험이 크다 (정직 계측)
+        border = sum(1 for _, s in scored
+                     if abs(s - _STRONG_THRESHOLD) < _MARGIN_BAND)
         progress.log("검색", f"2단 — 하이브리드 검색 완료: {len(records)}건 중 "
-                             f"강한 후보 {len(strong)}건 (경쟁사·무관 후보 강등)")
+                             f"강한 후보 {len(strong)}건 (경쟁사·무관 후보 강등)"
+                             + (f" · 임계 경계 ±{_MARGIN_BAND} 이내 {border}건 — "
+                                f"재실행 시 뒤집힘 위험" if border else ""))
         if not strong:
             raise NoStrongCandidate()   # 재현율 우선이되, 정직성 (RET-06)
 
