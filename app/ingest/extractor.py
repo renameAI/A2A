@@ -33,7 +33,8 @@ def extract_profile(chunks: list[Chunk], extractor: Extractor
                     ) -> tuple[Profile, list[str], dict[str, list[str]]]:
     """청크들 → (Profile, open_questions, evidence). evidence = 필드 → 근거 청크 ID."""
     user = extract_user(chunks)
-    # deep=True — 상(像)은 다층 독해(추론)에서 나온다. 속도보다 상의 품질 우선.
+    progress.log("추론", f"다층 독해 입력 — 청크 {len(chunks)}개 · {len(user):,}자")
+    # deep=True — 상(像)은 다층 독해(추론)에서 나온다. 프롬프트를 줄이지 않는다.
     data = extractor.extract_json(EXTRACT_SYSTEM, user, EXTRACT_SCHEMA, deep=True)
 
     profile = Profile(

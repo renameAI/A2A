@@ -6,8 +6,10 @@
 """
 import json
 import re
+import threading
 import time
 from typing import Optional, Protocol
+from urllib.parse import urlparse
 
 import httpx
 
@@ -128,14 +130,65 @@ class _OpenAICompatExtractor:
             raise EngineError(502, "llm_unreachable",
                               f"{self._label} 서버에 연결할 수 없습니다 ({self._url}). "
                               f"오프라인 로컬 모델이면 서버(예: Ollama)가 실행 중인지 확인하세요.")
+        except httpx.TimeoutException as e:
+            kind = type(e).__name__
+            progress.log(self._label, f"타임아웃 — {kind} · 제한 {self._timeout:.0f}초")
+            raise EngineError(504, "llm_timeout",
+                              f"{self._label} 타임아웃({kind}) — 제한 {self._timeout:.0f}초")
         except httpx.HTTPError as e:
             raise EngineError(502, "llm_error", f"{self._label} 연결 실패: {e}")
 
+    def _post_with_heartbeat(self, payload: dict, *, t0: float,
+                             phases: list[str]) -> httpx.Response:
+        run = progress.current()
+        node = run.current_node() if run else None
+        stop = threading.Event()
+
+        def beat() -> None:
+            while not stop.wait(20):
+                elapsed = int(time.time() - t0)
+                phase = phases[min(elapsed // 40, len(phases) - 1)]
+                if run is not None:
+                    run.add(self._label,
+                            f"모델 응답 대기 — {elapsed}s · {phase}",
+                            node=node)
+
+        thread = threading.Thread(target=beat, daemon=True)
+        thread.start()
+        try:
+            return self._post(payload)
+        finally:
+            stop.set()
+
+    @staticmethod
+    def _phases(thinking: bool, schema: Optional[dict]) -> list[str]:
+        if thinking:
+            return [
+                "1층 표면 독해: 자료에 명시된 제품·서비스·주체 분리",
+                "2층 기능 독해: 고객의 결핍과 돈 내는 이유 추론",
+                "3층 경제 독해: 수익 구조·선투자·반복 매출 신호 확인",
+                "4층 전략 독해: 현재 단계와 절실한 것 역추론",
+                "5층 양면 독해: 파는 쪽과 사는 쪽의 자산·결핍 정리",
+                "상(像) 정리: identity·edge·gaps·risk_signals 압축",
+            ]
+        if schema:
+            return [
+                "스키마 구조화: 필드별 값과 provenance 배치",
+                "근거 매핑: evidence_chunk_ids 연결",
+                "질문 선별: open_questions 원자성·중복성 점검",
+            ]
+        return ["텍스트 생성 대기"]
+
     def _chat(self, system: str, user: str, *, schema: Optional[dict] = None,
               thinking: bool = False, max_tokens: int = 8192) -> str:
+        host = urlparse(self._url).netloc or self._url
         progress.log(self._label,
                      f"호출 시작 — reasoning {'ON(깊은 추론)' if thinking else 'OFF'}"
-                     f"{' · 스키마 강제' if schema else ''} · 입력 {len(system) + len(user):,}자")
+                     f"{' · 스키마 강제' if schema else ''} · 입력 {len(system) + len(user):,}자"
+                     f" · max_tokens {max_tokens:,} · timeout {self._timeout:.0f}s"
+                     f" · endpoint {host} · model {self._model}")
+        for phase in self._phases(thinking, schema):
+            progress.log("추론 계획", phase)
         t0 = time.time()
         payload = {
             "model": self._model,
@@ -149,7 +202,8 @@ class _OpenAICompatExtractor:
             payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {"name": "output", "schema": schema}}
-        resp = self._post(payload)
+        resp = self._post_with_heartbeat(
+            payload, t0=t0, phases=self._phases(thinking, schema))
 
         # 구조화 출력 미지원 폴백 — 프롬프트로 JSON 강제
         if resp.status_code in (400, 422) and schema is not None:
@@ -158,7 +212,9 @@ class _OpenAICompatExtractor:
                 "\n\n[출력 형식 — 반드시 준수] 아래 JSON 스키마에 맞는 JSON 객체 "
                 "하나만 출력한다. 스키마 외 텍스트·설명·마크다운·코드펜스 금지.\n"
                 + json.dumps(schema, ensure_ascii=False))
-            resp = self._post(payload)
+            progress.log(self._label, "response_format 미지원 가능성 — JSON 강제 프롬프트로 재호출")
+            resp = self._post_with_heartbeat(
+                payload, t0=time.time(), phases=self._phases(False, schema))
 
         if resp.status_code == 401:
             raise EngineError(502, "llm_error", f"{self._label} 인증 실패 — 토큰 확인")

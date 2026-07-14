@@ -9,7 +9,7 @@
 <body>
 <header>
   <h1>A2A B2B 매칭엔진 <span class="ver">v0</span></h1>
-  <nav class="topnav"><a href="/" class="active">매칭</a><a href="/a2a.html">A2A 흐름</a><a href="/db.html">DB 저장소</a></nav>
+  <nav class="topnav"><a href="/" class="active">매칭</a><a href="#a2a-loop">A2A 루프</a><a href="/db.html">DB 저장소</a></nav>
   <span id="engine-mode" class="badge mode-mock" title="ANTHROPIC_API_KEY 설정 시 llm으로 전환">engine: -</span>
 </header>
 
@@ -70,6 +70,25 @@
       </div>
     </section>
 
+    <!-- ═══ A2A 소통 루프 (메인 작업과 같은 화면에서 상태 추적) ═══ -->
+    <section id="a2a-loop" class="step hidden">
+      <h2><span class="num">↔</span> A2A 소통 루프 <small>현재 매칭 플로우의 task lifecycle</small></h2>
+      <div class="loop-head">
+        <span id="loop-current" class="badge">idle</span>
+        <a href="/a2a.html" target="_blank" rel="noreferrer">프로토콜 샘플 DAG 열기</a>
+      </div>
+      <div id="loop-lifecycle" class="loop-life">
+        <span data-st="submitted">submitted</span>
+        <i></i>
+        <span data-st="working">working</span>
+        <i></i>
+        <span data-st="input-required">input-required</span>
+        <i></i>
+        <span data-st="completed">completed</span>
+      </div>
+      <div id="loop-events" class="loop-events"></div>
+    </section>
+
     <!-- ═══ ② 프로필 확인 ═══ -->
     <section id="step2" class="step hidden">
       <h2><span class="num">②</span> 추출된 프로필 <small>(provenance: <span class="prov stated">확인됨</span> <span class="prov inferred">추론됨</span> <span class="prov ask">질문필요</span>)</small></h2>
@@ -126,6 +145,6 @@
 </div>
 
 <footer>엔진은 초안까지만 — <b>발송·미팅 결정은 항상 사람</b>이 합니다 (CMP-06)</footer>
-<script src="/app.js?v=9"></script>
+<script src="/app.js?v=12"></script>
 </body>
 </html>

@@ -266,6 +266,34 @@ details pre { white-space: pre-wrap; background: #f7f5f0; padding: 10px; border-
 .topnav a:hover { background: #2c3547; color: #f3f1ec; }
 .topnav a.active { background: #d9a441; color: #1e2430; font-weight: 700; }
 
+/* ── 메인 루프 안의 A2A 상태 ── */
+.loop-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px; }
+.loop-head a { color: #2f6fb0; font-size: 13px; font-weight: 700; }
+.loop-life { display: grid; grid-template-columns: max-content 1fr max-content 1fr max-content 1fr max-content;
+  align-items: center; gap: 8px; margin: 10px 0 12px; }
+.loop-life span { border: 1px solid #d5d0c4; border-radius: 8px; padding: 7px 10px;
+  background: #fdfcfa; color: #8a8f99; font-size: 12px; font-weight: 700; text-align: center; }
+.loop-life span.on { border-color: #d9a441; color: #1e2430; background: #fdf6e3; }
+.loop-life i { height: 2px; background: #d5d0c4; }
+.loop-events { display: grid; gap: 6px; }
+.loop-event { display: grid; grid-template-columns: minmax(120px, 1fr) max-content minmax(180px, 2fr);
+  gap: 10px; align-items: center; border: 1px solid #e2ddd2; border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; background: #fdfcfa; }
+.loop-event b { font-size: 13px; }
+.loop-event span { font-weight: 700; }
+.loop-event small { color: #6b7280; text-align: right; }
+.loop-working span, .loop-submitted span { color: #9a6b00; }
+.loop-completed span { color: #2e7d32; }
+.loop-input-required span { color: #b26a00; }
+.loop-failed span, .loop-error span { color: #b3261e; }
+@media (max-width: 760px) {
+  .loop-life { grid-template-columns: 1fr; }
+  .loop-life i { display: none; }
+  .loop-event { grid-template-columns: 1fr; }
+  .loop-event small { text-align: left; }
+}
+
 /* 단일 페이지 (인스펙터·A2A) 레이아웃 */
 .page { max-width: 1080px; margin: 0 auto; padding: 20px 24px; }
 .page > h2 { margin: 4px 0 8px; }

@@ -2,7 +2,8 @@
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
-const state = { assets: [], dialogue: [], companyId: null, intent: null, judged: {} };
+const state = { assets: [], dialogue: [], companyId: null, intent: null, judged: {},
+  loopEvents: [] };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -43,7 +44,7 @@ const PIPELINES = {
       { id: "fetch",       col: 0, row: 0, icon: "📥", label: "자료 수집·청킹",   desc: "URL 크롤(robots·캐시)·PDF·SNS → 출처 라벨 청크" },
       { id: "llm.reason",  col: 1, row: 0, icon: "🧠", label: "다층 독해 (추론)", desc: "reasoning ON — 5층 독해로 회사의 상(像) 구축" },
       { id: "llm.format",  col: 2, row: 0, icon: "🧩", label: "구조화",           desc: "스키마 강제 + sanitize 정화 + grounding 검증" },
-      { id: "mock.parse",  col: 1, row: 1, icon: "📋", label: "Mock 파서",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
+      { id: "mock.parse",  col: 1, row: 2, icon: "📋", label: "Mock 파서",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
       { id: "gate",        col: 3, row: 0, icon: "🚧", label: "최소 프로필 게이트", desc: "REP-06 — 문제·솔루션·타겟·VP 미달 시 409" },
       { id: "audit",       col: 4, row: 0, icon: "🗂", label: "감사 로그",        desc: "SYS-04 — audit/*.jsonl 축적" },
     ],
@@ -289,6 +290,7 @@ async function runJob(path, body, logBox, kind) {
   const { job_id } = await api(path, { method: "POST", body: JSON.stringify(body) });
   while (true) {
     const job = await api(`/product/jobs/${job_id}`);
+    renderA2ALoop(kind || path, job);
     if (pipe) renderPipeline(pipe, kind, job);
     renderLogs(logBox, job.logs, job.status);
     if (job.status === "done") return job.result;
@@ -297,6 +299,54 @@ async function runJob(path, body, logBox, kind) {
     }
     await new Promise((r) => setTimeout(r, 1200));
   }
+}
+
+/* ── A2A 소통 루프 — product job을 A2A Task lifecycle로 같은 화면에 표시 ── */
+
+const A2A_STAGE = {
+  onboard: "profile/represent",
+  consult: "consult",
+  match: "retrieve",
+  judge: "judge",
+  compose: "compose",
+  negotiate: "negotiate",
+};
+
+function renderA2ALoop(kind, job) {
+  const box = $("#a2a-loop");
+  if (!box) return;
+  box.classList.remove("hidden");
+  const stateName = job.a2a_state || (job.status === "done" ? "completed" : job.status);
+  const label = A2A_STAGE[kind] || kind;
+  $("#loop-current").textContent = `${label}: ${stateName}`;
+  $("#loop-current").className = `badge loop-${stateName}`;
+
+  document.querySelectorAll("#loop-lifecycle span").forEach((el) => {
+    const st = el.dataset.st;
+    el.classList.toggle("on", st === stateName ||
+      (st === "working" && ["submitted", "working"].includes(stateName)) ||
+      (st === "completed" && stateName === "completed"));
+  });
+
+  const last = state.loopEvents[state.loopEvents.length - 1];
+  const sig = `${job.job_id}:${stateName}:${job.logs.length}`;
+  if (!last || last.sig !== sig) {
+    state.loopEvents.push({
+      sig,
+      t: new Date().toLocaleTimeString(),
+      jobId: job.job_id,
+      label,
+      state: stateName,
+      logs: job.logs.length,
+    });
+    state.loopEvents = state.loopEvents.slice(-12);
+  }
+
+  $("#loop-events").innerHTML = state.loopEvents.map((e) =>
+    `<div class="loop-event loop-${esc(e.state)}">
+      <b>${esc(e.label)}</b><span>${esc(e.state)}</span>
+      <small>${esc(e.t)} · job ${esc(e.jobId)} · logs ${e.logs}</small>
+    </div>`).join("");
 }
 
 /* ── ① 자료 입력 ─────────────────────────────────────────────── */

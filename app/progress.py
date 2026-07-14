@@ -9,6 +9,7 @@
 contextvar 기반 — job이 없으면 전부 no-op (엔진 순수성 유지).
 """
 import contextvars
+import threading
 import time
 from contextlib import contextmanager
 
@@ -20,6 +21,7 @@ class RunLog:
         self.entries: list[dict] = []
         self._t0 = time.time()
         self._node_stack: list[str] = []
+        self._lock = threading.Lock()
 
     @property
     def elapsed(self) -> float:
@@ -28,20 +30,25 @@ class RunLog:
 
     def add(self, stage: str, message: str, *, type: str = "log",
             node: str | None = None, status: str | None = None) -> None:
-        entry = {
-            "t": round(time.time() - self._t0, 1),
-            "type": type,
-            "stage": stage,
-            "message": message,
-        }
-        current_node = node or (self._node_stack[-1] if self._node_stack else None)
-        if current_node:
-            entry["node"] = current_node
-        if type in ("node_start", "node_end"):
-            entry["depth"] = max(len(self._node_stack), 1)   # 중첩 시각화용
-        if status:
-            entry["status"] = status
-        self.entries.append(entry)
+        with self._lock:
+            entry = {
+                "t": round(time.time() - self._t0, 1),
+                "type": type,
+                "stage": stage,
+                "message": message,
+            }
+            current_node = node or (self._node_stack[-1] if self._node_stack else None)
+            if current_node:
+                entry["node"] = current_node
+            if type in ("node_start", "node_end"):
+                entry["depth"] = max(len(self._node_stack), 1)   # 중첩 시각화용
+            if status:
+                entry["status"] = status
+            self.entries.append(entry)
+
+    def current_node(self) -> str | None:
+        with self._lock:
+            return self._node_stack[-1] if self._node_stack else None
 
 
 def bind() -> RunLog:
@@ -55,6 +62,10 @@ def log(stage: str, message: str) -> None:
     run = _current.get()
     if run is not None:
         run.add(stage, message)
+
+
+def current() -> RunLog | None:
+    return _current.get()
 
 
 @contextmanager
