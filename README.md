@@ -5,12 +5,71 @@
 + 제품 백엔드 + 웹 UI. 모든 LLM 작업은 비동기 job으로 돌며 **엔진의 사고 과정이
 실시간 로그로 UI에 표시**된다.
 
+> 📐 **프롬프트 파이프라인의 수학적 형식화**: 출력 예측불가를 조건부 분산 이분산성으로 진단하고,
+> 계약 검증기·게이트를 연산자로 형식화한 문서 → [docs/FORMALIZATION.md](docs/FORMALIZATION.md)
+
 ## 로컬 실행 (3줄)
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 의존성 (버전 고정)
 cp .env.example .env   # FRIENDLI_TOKEN·FRIENDLI_ENDPOINT_ID 입력 (없으면 Mock 모드)
 .venv/bin/uvicorn app.main:app --port 8423   # → http://localhost:8423 (웹 UI)
+```
+
+## 로컬 테스트 빠른 설정 (A2A/DAG + DB 저장소)
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env   # 필요 시만 키 입력
+mkdir -p data uploads pages
+LLM_PROVIDER=mock .venv/bin/uvicorn app.main:app --port 8425 --reload
+```
+
+- UI 확인
+  - 매칭: `http://localhost:8425/`
+  - A2A 흐름: `http://localhost:8425/a2a.html`
+  - SQLite 저장소: `http://localhost:8425/db.html`
+- DB 저장소 점검
+```bash
+curl -s http://localhost:8425/product/db/inspect
+```
+- A2A 스트림 스모크 (`message/stream`, `/a2a.html` 실행 전/후 동일 응답)
+```bash
+cat >/tmp/a2a-smoke.json <<'JSON'
+{
+  "jsonrpc": "2.0",
+  "id": "smoke",
+  "method": "message/stream",
+  "params": {
+    "message": {
+      "role": "user",
+      "kind": "message",
+      "messageId": "m",
+      "parts": [
+        {
+          "kind": "data",
+          "data": {
+            "skill": "represent",
+            "input": {
+              "assets": [
+                {
+                  "type": "text",
+                  "content": "이름: 다이브인그룹\n국가: 한국\n산업: hospitality\n설명: 노후 호텔 전환\n문제: 노후 객실 매출 정체\n솔루션: 저자본 예술 전환\n타겟: 중소 호텔 오너\n판매가치: 매출"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+JSON
+
+curl -N -X POST http://localhost:8425/a2a \
+  -H 'Content-Type: application/json' \
+  --data-binary @/tmp/a2a-smoke.json
 ```
 
 - 웹 UI: `http://localhost:8423/` · 엔진 API 문서: `/docs`
