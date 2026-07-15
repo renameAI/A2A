@@ -52,18 +52,25 @@ def _norm_chars(s: str) -> str:
     return re.sub(r"[\s\W_]+", "", s or "", flags=re.UNICODE).lower()
 
 
+MIN_QUOTE_CHARS = 6   # 정규화 후 이 미만이면 인용 검증 자체가 무의미 (우연 매칭)
+
+
 def grounding_score(quote: str, page_text: str) -> Optional[float]:
     """인용 계약: quote가 실제로 그 페이지에 있는가.
 
     포함도(containment) = |3-gram(quote) ∩ 3-gram(page)| / |3-gram(quote)| ∈ [0,1].
     비대칭 척도를 쓰는 이유: quote는 페이지의 부분집합이어야 하므로 Jaccard가 아니라
     quote 기준 포함도가 맞다. 정규화 부분문자열이면 1.0 조기 반환.
-    페이지에 텍스트 레이어가 없으면(스캔·이미지 PDF) None = '검증 불가' — 기각하지
-    않는다 (검증 불가와 검증 실패는 다르다).
+    None = '검증 불가' 2경우 — 기각하지 않는다 (검증 불가 ≠ 검증 실패):
+    (a) 페이지 텍스트 레이어 없음(스캔 PDF), (b) 정규화 후 quote가 6자 미만 —
+        적대적 검토 확정(VIS-01): '40%'→'40' 같은 초단문 인용은 페이지 어디든
+        우연히 등장해 g=1.0을 받아 인용 감사가 무력화됐다.
     """
     q, p = _norm_chars(quote), _norm_chars(page_text)
     if not q:
         return 0.0
+    if len(q) < MIN_QUOTE_CHARS:
+        return None
     if not p:
         return None
     if q in p:
@@ -75,8 +82,10 @@ def grounding_score(quote: str, page_text: str) -> Optional[float]:
 
 def pin_score(relevance: float, grounding: Optional[float]) -> float:
     """핀 결합 점수 s = r · g — 질문당 상위 K개 선별에 쓴다.
-    검증 불가(g=None)는 g=0.75로 간주: 검증 실패(폐기)보다 높고 완전 검증(1.0)보다 낮게."""
-    return relevance * (0.75 if grounding is None else grounding)
+    검증 불가(g=None)는 통과 하한(GROUND_THRESHOLD=0.6)으로 간주 — 적대적 검토
+    확정(VIS-02): 예전 0.75는 실측 g∈[0.6,0.75) '검증 통과' 핀보다 '검증 불가'
+    핀을 우대하는 랭킹 역전을 만들었다. 검증됨 ≥ 검증 불가 순서를 보장한다."""
+    return relevance * (GROUND_THRESHOLD if grounding is None else grounding)
 
 
 _RETRYABLE = {429, 500, 502, 503}

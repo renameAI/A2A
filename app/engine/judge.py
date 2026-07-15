@@ -222,6 +222,7 @@ def _vote_llm_judge(req: JudgeRequest, extractor, deep: bool, samples: int
     if samples <= 1:
         return _llm_judge(req, extractor, deep=deep), None
 
+    from collections import Counter
     results: list[JudgeResult] = []
     for i in range(samples):
         progress.log("Judge", f"자기일관성 표본 {i + 1}/{samples}")
@@ -229,6 +230,25 @@ def _vote_llm_judge(req: JudgeRequest, extractor, deep: bool, samples: int
     decisions = [r.decision for r in results]
     winner, count = mode(decisions)
     agreement = count / len(decisions)
+
+    # 동점 = 합의 실패 (적대적 검토 확정 F2) — 예전엔 표본 도착 순서가 승자를 정해
+    # {hold×2, terminate×2}가 순서에 따라 '보류'/'매칭 종료'로 갈렸고, terminate는
+    # L3 캡 대상도 아니었다. 동점이면 결정을 유보(hold)하고 사람에게 강제 라우팅한다:
+    # recommend(행동)도 terminate(포기)도 코인플립으로 확정할 결정이 아니다.
+    tie = sum(1 for c in Counter(decisions).values() if c == count) > 1
+    if tie:
+        chosen = next((r for r in results if r.decision == DecisionType.hold), results[0])
+        if chosen.decision != DecisionType.hold:
+            chosen.decision = DecisionType.hold
+        chosen.needs_human = True
+        chosen.decision_rationale = (
+            f"자기일관성 동점({count}/{samples}) — 합의 실패로 결정 유보, 사람 검토 필요. "
+            f"표본 분포: {dict(Counter(d.value for d in decisions))}. "
+            f"원 근거: {chosen.decision_rationale}")
+        progress.log("Judge", f"⚠ 다수결 동점 — hold로 유보 + 사람 라우팅 "
+                              f"(분포 {dict(Counter(d.value for d in decisions))})")
+        return chosen, agreement
+
     # 승리 결정을 낸 대표 표본을 채택 (그 근거·차원판정이 다수와 정합)
     chosen = next(r for r in results if r.decision == winner)
     progress.log("Judge", f"다수결 결정: {winner.value} · 일치율 "
@@ -266,8 +286,13 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     return result
 
 
-def _audit_judge(req: JudgeRequest, result: JudgeResult) -> None:
-    """감사 가능 로그 (SYS-04) — 입력·추론 궤적·결정 저장 (HITL 검토·재학습용)."""
+def _audit_judge(req: JudgeRequest, result: JudgeResult,
+                 pre_gate_decision: "str | None" = None) -> None:
+    """감사 가능 로그 (SYS-04) — 입력·추론 궤적·결정 저장 (HITL 검토·재학습용).
+
+    적대적 검토 확정(F3): L3 게이트가 decision을 덮어쓴 뒤 감사가 기록돼 LLM의
+    원 결정이 소실됐다 — 재학습 라벨·HITL 검토에 필요한 값이라 pre-gate 결정과
+    투표 신호를 함께 남긴다."""
     from .. import audit
     audit.record("judge", {
         "self": req.self_profile.basic.name,
@@ -275,6 +300,10 @@ def _audit_judge(req: JudgeRequest, result: JudgeResult) -> None:
         "vantage": req.vantage.value, "objective": req.objective.value,
         "intent": req.intent.model_dump(mode="json"),
         "decision": result.decision.value,
+        "decision_pre_gate": pre_gate_decision or result.decision.value,
+        "decision_rationale": result.decision_rationale,
+        "sample_agreement": result.sample_agreement,
+        "needs_human": result.needs_human,
         "verdicts": {d.dimension.value: d.verdict.value
                      for d in result.category_judgments},
         "risks": [f"{r.type.value}: {r.description}" for r in result.risks],
@@ -294,9 +323,10 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         result, agreement = _vote_llm_judge(
             req, extractor, deep, settings.judge_samples)   # L2 자기일관성 투표
         result.sample_agreement = agreement
+        pre_gate = result.decision.value                    # 감사용 원 결정 보존 (F3)
         _apply_consistency_gate(result, agreement, settings)   # L3 하드 게이트
         with progress.node("audit", "감사 로그 (SYS-04)"):
-            _audit_judge(req, result)
+            _audit_judge(req, result, pre_gate_decision=pre_gate)
         return result
 
     with progress.node("rules.judge", "규칙 기반 판단 (Mock)"):

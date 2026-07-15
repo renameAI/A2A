@@ -101,9 +101,14 @@ def _classify(values: list[Any]) -> str:
     if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in non_null):
         return "scalar"
     if all(isinstance(v, str) for v in non_null):
-        # 짧고 저카디널리티면 범주형(enum), 아니면 자유문자열
+        # 짧고·공백 없고·실제 저카디널리티면 범주형(enum), 아니면 자유문자열.
+        # 적대적 검토 확정(F4): 예전 조건 len(uniq)<=max(2,len(non_null))은
+        # uniq⊆non_null이라 항진 — 모든 짧은 문자열이 categorical로 오분류됐다.
         uniq = set(non_null)
-        if all(len(v) <= 40 for v in non_null) and len(uniq) <= max(2, len(non_null)):
+        low_cardinality = len(uniq) <= max(2, len(non_null) // 2 + 1)
+        if all(len(v) <= 40 for v in non_null) \
+                and not any(re.search(r"\s", v) for v in non_null) \
+                and low_cardinality:
             return "categorical"
         return "text"
     return "categorical"
@@ -152,7 +157,17 @@ def variance_report(outputs: list[dict]) -> dict:
         # 일부 실행에서 경로가 누락되면(구조 변동) None으로 채워 길이 정렬
         if len(values) < len(outputs):
             values = values + [None] * (len(outputs) - len(values))
-        fields[path] = _field_metric(values, _classify(values))
+        metric = _field_metric(values, _classify(values))
+        # 등장률 반영 (적대적 검토 확정 F5): 예전엔 None이 전 지표에서 걸러져
+        # 5회 중 1회만 등장한 필드가 stability 1.0으로 보고됐다 — 구조 변동
+        # 자체가 분산이므로 stability에 등장률을 곱한다. 전부 None(항상 null)은
+        # 일관된 상태라 감점하지 않는다.
+        n_present = sum(1 for v in values if v is not None)
+        presence = n_present / len(values)
+        metric["presence"] = round(presence, 4)
+        if 0 < presence < 1:
+            metric["stability"] = round(metric["stability"] * presence, 4)
+        fields[path] = metric
 
     stabs = [f["stability"] for f in fields.values()]
     overall = round(statistics.mean(stabs), 4) if stabs else 1.0

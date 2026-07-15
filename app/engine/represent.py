@@ -205,8 +205,13 @@ _MOCK_CLARIFY_OPTIONS = {
 }
 
 
-def _question_field(q: str) -> str:
-    """질문 원문 → 선지 유형 (구체 키워드부터 — value_prop 질문에 '문제'가 들어있음)."""
+def _question_field(q: str) -> "str | None":
+    """질문 원문 → 선지 유형. 키워드 미적중이면 None(분류 불가).
+
+    적대적 검토 확정(H1): 예전엔 미적중을 'problem'으로 폴백해, LLM 컨설턴트형
+    자유 질문(EXTRACT_SYSTEM이 명시적으로 지시하는 형식)이 전부 problem으로
+    오분류됐다 — problem이 결정돼 있으면 전량 redundant 폐기, 아니면 필드중복으로
+    1개만 생존(질문 학살). 분류 불가는 None으로 정직하게 반환한다."""
     if "가치" in q:
         return "value_prop"
     if "의향" in q:
@@ -215,13 +220,16 @@ def _question_field(q: str) -> str:
         return "solution"
     if "팔고" in q or "타겟" in q:
         return "target"
-    return "problem"
+    if "문제" in q or "해결하는" in q:
+        return "problem"
+    return None
 
 
 def _mock_clarify(open_questions: list[str]) -> list[dict]:
+    # 분류 불가 질문은 problem 선지를 폴백으로 (Mock 경로 질문은 전부 정준형이라 실사용 무영향)
     return [{"question": q,
              "why": "자료에서 이 항목을 확인하지 못했습니다.",
-             "options": _MOCK_CLARIFY_OPTIONS[_question_field(q)]}
+             "options": _MOCK_CLARIFY_OPTIONS[_question_field(q) or "problem"]}
             for q in open_questions]
 
 
@@ -277,19 +285,48 @@ def _canon_industry(value: str) -> str:
     return (value or "").strip().lower().replace(" ", "_")
 
 
+import re as _re
+
+_HANGUL = _re.compile(r"[가-힣]")
+
+
+def _hangul_ratio(s: str) -> float:
+    chars = [c for c in s if not c.isspace()]
+    if not chars:
+        return 0.0
+    return sum(1 for c in chars if _HANGUL.match(c)) / len(chars)
+
+
+def _script_verifiable(value: str, full_text: str) -> bool:
+    """교차언어 방어 (적대적 검토 확정 H2) — 값과 원문의 문자 체계가 다르면
+    3-gram 포함도는 정당한 stated도 0이 된다 (EXTRACT_SYSTEM이 '모든 값을
+    한국어로 정규화'를 지시하므로 영어 원문 → 한국어 값이 정상 경로다).
+    한글 위주 값 + 한글이 거의 없는 원문(또는 그 반대)이면 검증 불가로 판정."""
+    v, s = _hangul_ratio(value), _hangul_ratio(full_text)
+    if v >= 0.5 and s < 0.05:    # 한국어 값 ↔ 비한국어 원문
+        return False
+    if v < 0.05 and s >= 0.5:    # 반대 방향
+        return False
+    return True
+
+
 def ground_profile(profile: Profile, full_text: str) -> dict:
-    """프로필 계약 집행 (in-place). 반환: 정직 집계 {demoted, canonicalized}.
+    """프로필 계약 집행 (in-place). 반환: 정직 집계 {demoted, canonicalized, unverifiable}.
 
     R1은 stated 필드에만 적용한다 — inferred/ask는 이미 불확실 선언이 있다.
     강등은 폐기가 아니다: 값은 남기되 라벨을 정직하게 만든다(자료 근거 없음 = 추론).
+    검증 불가(교차언어)와 검증 실패(환각)는 다르다 — 전자는 강등하지 않는다.
     """
     from .vision import grounding_score   # bbox와 동일한 3-gram 포함도 재사용
-    tally = {"demoted": 0, "canonicalized": 0}
+    tally = {"demoted": 0, "canonicalized": 0, "unverifiable": 0}
 
     for name in ("problem_solved", "solution", "target_customer"):
         f = getattr(profile, name)
         if f.provenance != Provenance.stated or not f.value:
             continue
+        if not _script_verifiable(f.value, full_text):
+            tally["unverifiable"] += 1
+            continue   # 검증 불가 ≠ 검증 실패 — 라벨 유지
         g = grounding_score(f.value, full_text)
         if g is not None and g < _GROUND_DEMOTE_THRESHOLD:
             f.provenance = Provenance.inferred
@@ -352,6 +389,11 @@ def enforce_question_axioms(open_questions: list[str], profile: Profile
     kept: list[tuple[int, str]] = []   # (우선순위, 질문)
     for q in open_questions:
         ftype = _question_field(q)
+        if ftype is None:
+            # 분류 불가(컨설턴트형 자유 질문 등) — ②③·① 판정 없이 보존 (H1 수정).
+            # 어느 필드를 겨냥하는지 코드가 모르면 폐기 근거도 없다. 예산(⑤)만 적용.
+            kept.append((9, q))
+            continue
         if not _field_underdetermined(ftype, profile):   # ②③ 이미 결정됨
             rejected["redundant"] += 1
             continue
@@ -409,6 +451,7 @@ def represent(req: RepresentRequest, settings: Settings | None = None
     with progress.node("contract", "프로필 계약 집행 (R1·R3)"):
         tally = ground_profile(profile, full_text)
         progress.log("계약", f"stated 그라운딩 강등 {tally['demoted']}건 · "
+                             f"교차언어 검증불가 {tally['unverifiable']}건(라벨 유지) · "
                              f"국가/산업 정규화 {tally['canonicalized']}건")
 
     with progress.node("axioms", "질문 공리 집행 (L1)"):

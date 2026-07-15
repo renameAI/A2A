@@ -55,6 +55,13 @@ class JobStore:
             job.log.add("오류", f"internal: {e}")
             job.error = {"code": "internal", "message": str(e), "details": None}
             job.status = JobStatus.error
+        finally:
+            # BaseException(SystemExit 등)이 위 핸들러를 건너뛰어도 running으로
+            # 고착시키지 않는다 — running 고착은 A2A SSE 스트림 무한 루프가 된다.
+            if job.status == JobStatus.running:
+                job.error = {"code": "internal",
+                             "message": "작업 스레드 비정상 종료", "details": None}
+                job.status = JobStatus.error
 
 
 store = JobStore()

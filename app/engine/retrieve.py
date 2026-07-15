@@ -71,13 +71,17 @@ def _score(req: RetrieveRequest, synth: str, anchor: str,
     target = _search_text(rec, req.direction)
     # R4 결정적 앵커 혼합 — synth(확률적)와 anchor(결정적)를 절반씩.
     # synth==anchor(mock 경로)면 base는 기존과 동일하다.
-    base = 0.5 * overlap(synth, target) + 0.5 * overlap(anchor, target)
+    ov_synth, ov_anchor = overlap(synth, target), overlap(anchor, target)
+    base = 0.5 * ov_synth + 0.5 * ov_anchor
     score = 0.7 * base
 
     # 온톨로지 보정 (6.2-b): 벡터가 흐릿한 곳을 구조로 잡는다.
-    # 단 보완성 신호(base)가 있을 때만 보정한다 — 보너스가 신호를 만들어내면
+    # 단 보완성 신호가 있을 때만 보정한다 — 보너스가 신호를 만들어내면
     # "신축 럭셔리 호텔"(노후 문제 없음)이 지역·산업만으로 올라온다.
-    if base >= 0.10:
+    # 게이트는 혼합 base가 아니라 두 신호의 max로 판정한다 (적대적 검토 RET-01):
+    # 혼합이 base를 희석해 어느 한쪽 단독으로는 충분했던 보너스(±0.25)를 불연속으로
+    # 꺼버리는 절벽을 막는다 — 신호 실재 판정과 신호 크기 혼합은 별개 문제다.
+    if max(ov_synth, ov_anchor) >= 0.10:
         if req.intent.target_region and req.intent.target_region in rec.profile.basic.country:
             score += 0.15
         if industry_adjacent(req.requester_profile.basic.industry, rec.profile.basic.industry):
@@ -97,14 +101,26 @@ def _score(req: RetrieveRequest, synth: str, anchor: str,
     return round(max(score, 0.0), 4)
 
 
-def _match_points(synth: str, rec: CandidateRecord) -> list[str]:
-    """합성 상과의 보완성 근거 (RET-03)."""
-    points = [t for t in rec.tags if overlap(t, synth) > 0.3]
+def _match_points(synth: str, anchor: str, rec: CandidateRecord) -> list[str]:
+    """합성 상과의 보완성 근거 (RET-03). 점수의 절반이 앵커에서 오므로(R4 혼합)
+    근거 태그도 synth·anchor 양쪽과 대조한다 (적대적 검토 RET-02) — 앵커가 점수를
+    전담한 후보의 근거가 무관한 폴백 태그로 채워지는 불일치를 막는다."""
+    points = [t for t in rec.tags
+              if overlap(t, synth) > 0.3 or overlap(t, anchor) > 0.3]
     return points or rec.tags[:1] or ["프로필 유사 신호"]
 
 
 def retrieve(req: RetrieveRequest) -> RetrieveResponse:
     from .. import progress
+    from ..errors import EngineError
+    # 최소 신호 게이트 (적대적 검토 RET-03) — product 경로는 REP-06이 막지만
+    # 엔진 API /v1/retrieve는 무게이트였다. 핵심 3필드가 전부 비면 앵커가 순수
+    # 보일러플레이트가 되어 R4 혼합이 전 후보 점수를 노이즈로 절반 희석한다.
+    p = req.requester_profile
+    if not (p.problem_solved.value or p.solution.value or p.target_customer.value):
+        raise EngineError(400, "invalid_input",
+                          "프로필 핵심 필드(문제·솔루션·타겟)가 전부 비어 있음 — "
+                          "represent로 최소 프로필을 먼저 채우세요 (REP-06)")
     with progress.node("synth", "이상적 상대상 합성 (1단)"):
         progress.log("합성", "1단 — 이상적 상대상 합성 시작 (보완성 검색의 검색어)")
         anchor = template_counterpart(req)   # 결정적 앵커 — 항상 계산 (R4)
@@ -138,7 +154,7 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
                 company_id=r.company_id,
                 profile_ref=r.company_id,
                 pool=r.pool,
-                match_points=_match_points(synth, r),
+                match_points=_match_points(synth, anchor, r),
                 retrieval_score=s,
             )
             for r, s in strong[: req.k]

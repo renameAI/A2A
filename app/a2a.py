@@ -180,10 +180,32 @@ def _skill_fn(skill: str, raw_input: dict) -> Callable[[], dict]:
     return lambda: engine_fn(req).model_dump(mode="json")
 
 
+_META_CAP = 500   # 전역 dict 무한 성장 방어 (A2A-5) — 초과 시 종료 Task부터 회수
+
+
+def _evict_terminal_meta() -> None:
+    if len(_task_meta) <= _META_CAP:
+        return
+    for jid in list(_task_meta):
+        job = job_store.get(jid)
+        if job is not None and job.status in _TERMINAL:
+            _task_meta.pop(jid, None)
+            _canceled.discard(jid)
+        if len(_task_meta) <= _META_CAP:
+            break
+
+
 def _start_job(skill: str, raw_input: dict, message: dict) -> Job:
-    """스킬을 job으로 만들어 background 스레드에서 실행 (Task 비동기 모델)."""
+    """스킬을 job으로 만들어 background 스레드에서 실행 (Task 비동기 모델).
+
+    멱등성 (적대적 검토 확정 A2A-2): 스킬 input의 client_request_id를 REST 경로와
+    동일하게 job 멱등 키로 사용한다 — 재시도가 중복 Task·중복 엔진 실행을 만들지 않는다."""
     fn = _skill_fn(skill, raw_input)   # 검증 실패는 여기서 RpcError로 즉시 던진다
-    job, _ = job_store.create()
+    crid = raw_input.get("client_request_id") if isinstance(raw_input, dict) else None
+    job, existed = job_store.create(crid)
+    if existed:
+        return job                      # 기존 Task 반환 — 새 스레드 없음
+    _evict_terminal_meta()
     _task_meta[job.job_id] = {
         "skill": skill,
         "contextId": message.get("contextId") or job.job_id,
@@ -247,19 +269,34 @@ def _stream_task(req_id, skill: str, raw_input: dict, message: dict):
 
 # ── 메서드 디스패치 ────────────────────────────────────────────────
 
-def _handle_tasks_get(params: dict, req_id):
+def _task_id_from(params, req_id) -> str:
+    """params 타입 방어 (적대적 검토 확정 A2A-1) — 예전엔 배열 params가
+    list.get AttributeError → -32603 내부오류 + 파이썬 내부 문자열 누출."""
+    if params is not None and not isinstance(params, dict):
+        raise RpcError(INVALID_PARAMS, "params는 객체여야 합니다")
     task_id = (params or {}).get("id")
-    job = job_store.get(task_id) if task_id else None
+    if not isinstance(task_id, str) or not task_id:
+        raise RpcError(INVALID_PARAMS, "params.id(문자열)가 필요합니다")
+    return task_id
+
+
+def _handle_tasks_get(params, req_id):
+    task_id = _task_id_from(params, req_id)
+    job = job_store.get(task_id)
     if job is None:
         raise RpcError(TASK_NOT_FOUND, f"Task {task_id} 없음")
     return _ok(req_id, task_from_job(job))
 
 
-def _handle_tasks_cancel(params: dict, req_id):
-    task_id = (params or {}).get("id")
-    job = job_store.get(task_id) if task_id else None
+def _handle_tasks_cancel(params, req_id):
+    task_id = _task_id_from(params, req_id)
+    job = job_store.get(task_id)
     if job is None:
         raise RpcError(TASK_NOT_FOUND, f"Task {task_id} 없음")
+    # 이미 취소 마킹된 Task의 재취소는 멱등 (A2A-3) — 표시상태 canceled와
+    # raw status(done)가 모순된 -32002를 내지 않는다.
+    if job.job_id in _canceled:
+        return _ok(req_id, task_from_job(job))
     if job.status in _TERMINAL:
         raise RpcError(TASK_NOT_CANCELABLE,
                        "이미 종료된 Task는 취소할 수 없습니다")
