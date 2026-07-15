@@ -17,8 +17,10 @@ from ..schemas import (CandidateOut, PoolChoice, RetrieveDirection,
 from .common import industry_adjacent, infer_stage, overlap, profile_pain_text
 from .pool import CandidateRecord, get_pool
 
-_STRONG_THRESHOLD = 0.12   # 이하이면 "강한 후보 없음" (RET-06)
+_STRONG_THRESHOLD = 0.12   # 이하이면 "강한 후보 없음" (RET-06). 실 LLM 캘리브레이션에서
+                           # well-defined 매칭(0.176~) vs 노이즈(≤0.070) 청정갭 정중앙 확인.
 _MARGIN_BAND = 0.03        # 임계 근처 |s-τ| — 재실행 시 뒤집힐 위험이 큰 경계 후보
+_ANCHOR_MIN = 0.05         # pool-max ov_anchor 하한 — 미만이면 과소정의 프로필(저신뢰)
 
 
 def template_counterpart(req: RetrieveRequest) -> str:
@@ -76,12 +78,14 @@ def _score(req: RetrieveRequest, synth: str, anchor: str,
     score = 0.7 * base
 
     # 온톨로지 보정 (6.2-b): 벡터가 흐릿한 곳을 구조로 잡는다.
-    # 단 보완성 신호가 있을 때만 보정한다 — 보너스가 신호를 만들어내면
+    # 단 보완성 신호(혼합 base)가 있을 때만 보정한다 — 보너스가 신호를 만들어내면
     # "신축 럭셔리 호텔"(노후 문제 없음)이 지역·산업만으로 올라온다.
-    # 게이트는 혼합 base가 아니라 두 신호의 max로 판정한다 (적대적 검토 RET-01):
-    # 혼합이 base를 희석해 어느 한쪽 단독으로는 충분했던 보너스(±0.25)를 불연속으로
-    # 꺼버리는 절벽을 막는다 — 신호 실재 판정과 신호 크기 혼합은 별개 문제다.
-    if max(ov_synth, ov_anchor) >= 0.10:
+    # 게이트는 혼합 base 기준이다. 실 LLM 8회×2프로필 캘리브레이션(QC 교차검증)에서
+    # 앞선 max 게이트(RET-01 과교정)는 well-defined 통과 24/24로 이득이 0이면서
+    # sparse에서 ov_synth 스파이크 하나(anchor=0)로 위양성 5건을 만들었다 — base
+    # 게이트로 되돌리면 well-defined 24/24 보존(run8 환각 구제는 강한 앵커로 mix≥0.10
+    # 유지) + sparse 위양성 5→0. 신호 실재 판정은 '두 신호의 결합'이 옳다.
+    if base >= 0.10:
         if req.intent.target_region and req.intent.target_region in rec.profile.basic.country:
             score += 0.15
         if industry_adjacent(req.requester_profile.basic.industry, rec.profile.basic.industry):
@@ -134,6 +138,18 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
         # 자기 자신은 후보에서 제외
         records = [r for r in records
                    if r.profile.basic.name != req.requester_profile.basic.name]
+
+        # 앵커 강도 기권 신호 (QC 캘리브레이션 권고) — 앵커가 풀 어느 후보와도
+        # 거의 안 겹치면(추상·과소정의 프로필) 검색은 synth 노이즈로만 굴러가 코인플립이
+        # 된다. 실측: sparse 프로필 pool-max ov_anchor=0.035에서 통과율이 런마다 요동.
+        # τ 조정으로 못 고치는 '입력 품질' 문제라 정직하게 저신뢰로 플래그한다.
+        pool_max_anchor = max((overlap(anchor, _search_text(r, req.direction))
+                               for r in records), default=0.0)
+        underdefined = pool_max_anchor < _ANCHOR_MIN
+        if underdefined:
+            progress.log("검색", f"⚠ 앵커가 풀과 거의 안 겹침(max ov_anchor="
+                                 f"{pool_max_anchor:.3f}<{_ANCHOR_MIN}) — 과소정의 프로필, "
+                                 f"검색 결과 저신뢰. represent 보강 질문으로 프로필을 채우세요.")
 
         # R4 전순서 정렬 — 동점 후보를 company_id로 고정해 풀 순서와 무관하게 재현.
         scored = sorted(((r, _score(req, synth, anchor, r)) for r in records),

@@ -1,0 +1,15 @@
+{
+  "requester_profile": {
+    "basic": {"name": "제네릭테크", "country": "한국", "industry": "hospitality_renovation"},
+    "description": "B2B 솔루션 제공.",
+    "problem_solved": {"value": "고객의 비효율", "provenance": "inferred", "confidence": 0.4},
+    "solution": {"value": "플랫폼 서비스", "provenance": "inferred", "confidence": 0.4},
+    "target_customer": {"value": "중소기업", "provenance": "inferred", "confidence": 0.4},
+    "references": [],
+    "sell_value_props": ["cost_reduction"]
+  },
+  "intent": {"value_props": ["cost_reduction"], "target_region": "베트남"},
+  "direction": "sell_outreach",
+  "pool": "external",
+  "k": 5
+}

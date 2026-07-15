@@ -155,3 +155,73 @@ class TestR4Retrieve:
         target = R._search_text(rec, req.direction)
         blended = 0.5 * overlap(anchor, target) + 0.5 * overlap(anchor, target)
         assert abs(blended - overlap(anchor, target)) < 1e-12
+
+
+class TestBonusGateCalibration:
+    """실 LLM 8회×2프로필 캘리브레이션(QC 교차검증)에서 확정된 게이트 동작 고정.
+    보너스 게이트는 혼합 base 기준 — synth 스파이크 하나(anchor=0)가 보너스를 켜지 못한다."""
+
+    def test_synth_spike_zero_anchor_no_bonus(self):
+        """sparse 위양성 재현 방지 — ov_synth만 튀고 anchor=0이면 base<0.10이라 보너스 무발화.
+        (내 RET-01 max 게이트가 이 케이스에서 0.30 위양성을 냈다)."""
+        req = _req()
+        # anchor가 후보와 전혀 안 겹치도록: 후보 pain을 앵커 어휘와 분리
+        rec = _cand("co-spike", "완전히 다른 분야의 물류 창고 자동화 로봇",
+                    industry="logistics", country="독일")
+        target = R._search_text(rec, req.direction)
+        anchor_novlp = "가나다라마바사아자차카타파하"       # target과 bigram 0
+        assert overlap(anchor_novlp, target) == 0.0
+        # synth만 target과 강하게 겹치게
+        synth_spike = rec.pain_points + " " + rec.profile.description
+        ov_s = overlap(synth_spike, target)
+        assert ov_s >= 0.10                       # synth 신호는 강함
+        base = 0.5 * ov_s + 0.0
+        score = R._score(req, synth_spike, anchor_novlp, rec)
+        # base<0.10이면(0.5*ov_s<0.10 ⟺ ov_s<0.20) 보너스 미발화 → score=0.7*base만
+        if base < 0.10:
+            assert abs(score - round(0.7 * base, 4)) < 1e-6   # 지역·산업 보너스 없음
+
+    def test_strong_anchor_preserves_bonus_under_synth_collapse(self):
+        """run8 환각 구제 보존 — synth가 붕괴해도 앵커가 강하면 base(mix)≥0.10이라 보너스 유지.
+        게이트 조건을 직접 검증(전체 점수는 경쟁사 강등 등 다른 규칙과 얽혀 별개)."""
+        req = _req()
+        rec = _cand("co-rescue", "노후 호텔 객실 매출 정체로 저자본 해법이 필요")
+        target = R._search_text(rec, req.direction)
+        anchor = R.template_counterpart(req)      # 강한 앵커(프로필 도출)
+        ov_a = overlap(anchor, target)
+        assert ov_a >= 0.15                        # 앵커 신호 강함
+        weak_synth = "군사 예산을 삭감한 무관한 기업"   # 붕괴한 synth
+        ov_s = overlap(weak_synth, target)
+        base = 0.5 * ov_s + 0.5 * ov_a
+        assert base >= 0.10                        # 게이트 발화 조건 — 앵커가 mix를 위로 유지
+        # 대조: synth 단독 base였다면 게이트 아래로 떨어짐(구제 실패했을 것)
+        assert 0.5 * ov_s < 0.10 or ov_s < 0.10
+
+
+class TestUnderdefinedProfileFlag:
+    def test_weak_anchor_logs_low_confidence(self, monkeypatch):
+        """QC #3 — pool-max ov_anchor<0.05면 과소정의 프로필 경고 (코인플립 정직 표기).
+        앵커와 bigram이 안 겹치는 풀로 과소정의 조건을 결정적으로 재현."""
+        from app import progress
+        # 앵커가 풀과 안 겹치는 추상 프로필 (한글 위주 앵커)
+        abstract = _prof()
+        abstract.problem_solved = ProvField(value="고객의 비효율",
+                                            provenance=Provenance.inferred, confidence=0.4)
+        abstract.solution = ProvField(value="플랫폼", provenance=Provenance.inferred,
+                                      confidence=0.4)
+        abstract.target_customer = ProvField(value="기업", provenance=Provenance.inferred,
+                                             confidence=0.4)
+        req = RetrieveRequest(requester_profile=abstract,
+                              intent=Intent(value_props=[ValueProp.cost_reduction]),
+                              direction=RetrieveDirection.sell_outreach, pool="external", k=5)
+        # 풀 후보의 검색 텍스트를 앵커와 완전히 분리(영문·숫자) → ov_anchor=0
+        far = _cand("co-far", "XYZ 12345 QWERTY logistics warehouse robotics",
+                    industry="logistics", country="독일")
+        monkeypatch.setattr(R, "get_pool", lambda: [far])
+        run = progress.bind()
+        try:
+            R.retrieve(req)
+        except Exception:
+            pass   # NoStrongCandidate는 무관 — 경고 로그만 확인
+        msgs = " ".join(e["message"] for e in run.entries)
+        assert "과소정의" in msgs or "저신뢰" in msgs

@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.errors import EngineError              # noqa: E402
 from app.eval.variance import variance_report   # noqa: E402
 from app.schemas import (ComposeRequest, JudgeRequest, RepresentRequest,  # noqa: E402
                          RetrieveRequest)
@@ -44,9 +45,23 @@ def main():
     req = model_cls(**json.loads(Path(args.input).read_text()))
 
     outputs = []
+    gate_hits = 0
     for i in range(args.m):
         print(f"  run {i + 1}/{args.m} …", file=sys.stderr)
-        outputs.append(engine_fn(req).model_dump(mode="json"))
+        try:
+            outputs.append(engine_fn(req).model_dump(mode="json"))
+        except EngineError as e:
+            # 게이트 미달(ProfileBelowMinimum 등)은 크래시가 아니라 하나의 결과 —
+            # 무료 API 호출을 낭비하지 않도록 잡아서 집계한다.
+            gate_hits += 1
+            print(f"    gate: {e.code} — {e.message}", file=sys.stderr)
+    if not outputs:
+        print(f"모든 실행이 게이트에 걸림({gate_hits}/{args.m}) — 분산 계측 불가. "
+              f"입력이 최소 프로필을 넘도록 보강하세요.", file=sys.stderr)
+        return
+    if gate_hits:
+        print(f"⚠ {gate_hits}/{args.m} 실행이 게이트 미달 — 나머지 {len(outputs)}건으로 계측",
+              file=sys.stderr)
 
     report = variance_report(outputs)
     print(json.dumps(report, ensure_ascii=False, indent=2))
