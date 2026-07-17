@@ -41,12 +41,12 @@ const PIPELINES = {
   onboard: {
     title: "Represent — 자료 → 프로필 + 상(像)",
     nodes: [
-      { id: "fetch",       col: 0, row: 0, icon: "📥", label: "자료 수집·청킹",   desc: "URL 크롤(robots·캐시)·PDF·SNS → 출처 라벨 청크" },
-      { id: "llm.reason",  col: 1, row: 0, icon: "🧠", label: "다층 독해 (추론)", desc: "reasoning ON — 5층 독해로 회사의 상(像) 구축" },
-      { id: "llm.format",  col: 2, row: 0, icon: "🧩", label: "구조화",           desc: "스키마 강제 + sanitize 정화 + grounding 검증" },
-      { id: "mock.parse",  col: 1, row: 2, icon: "📋", label: "Mock 파서",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
-      { id: "gate",        col: 3, row: 0, icon: "🚧", label: "최소 프로필 게이트", desc: "REP-06 — 문제·솔루션·타겟·VP 미달 시 409" },
-      { id: "audit",       col: 4, row: 0, icon: "🗂", label: "감사 로그",        desc: "SYS-04 — audit/*.jsonl 축적" },
+      { id: "fetch",       col: 0, row: 0, label: "자료 수집·청킹",   desc: "URL 크롤(robots·캐시)·PDF·SNS → 출처 라벨 청크" },
+      { id: "llm.reason",  col: 1, row: 0, label: "다층 독해 (추론)", desc: "reasoning ON — 5층 독해로 회사의 상(像) 구축" },
+      { id: "llm.format",  col: 2, row: 0, label: "구조화",           desc: "스키마 강제 + sanitize 정화 + grounding 검증" },
+      { id: "mock.parse",  col: 1, row: 2, label: "Mock 파서",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
+      { id: "gate",        col: 3, row: 0, label: "최소 프로필 게이트", desc: "REP-06 — 문제·솔루션·타겟·VP 미달 시 409" },
+      { id: "audit",       col: 4, row: 0, label: "감사 로그",        desc: "SYS-04 — audit/*.jsonl 축적" },
     ],
     edges: [["fetch", "llm.reason"], ["llm.reason", "llm.format"], ["llm.format", "gate"],
             ["fetch", "mock.parse"], ["mock.parse", "gate"], ["gate", "audit"]],
@@ -54,20 +54,20 @@ const PIPELINES = {
   match: {
     title: "Retrieve — 보완성 검색 (유사도 아님)",
     nodes: [
-      { id: "synth",  col: 0, row: 0, icon: "🎯", label: "이상적 상대상 합성", desc: "1단 — 내 솔루션이 푸는 문제를 '겪는' 상대의 상" },
-      { id: "search", col: 1, row: 0, icon: "🔍", label: "하이브리드 검색",   desc: "2단 — 벡터 유사 + 온톨로지 보정 + 경쟁사 강등" },
+      { id: "synth",  col: 0, row: 0, label: "이상적 상대상 합성", desc: "1단 — 내 솔루션이 푸는 문제를 '겪는' 상대의 상" },
+      { id: "search", col: 1, row: 0, label: "하이브리드 검색",   desc: "2단 — 벡터 유사 + 온톨로지 보정 + 경쟁사 강등" },
     ],
     edges: [["synth", "search"]],
   },
   judge: {
     title: "Judge — 점수가 아닌 구조화 판단",
     nodes: [
-      { id: "gate.dealbreaker", col: 0, row: 0, icon: "🚫", label: "결격 게이트",   desc: "JDG-04 — deal-breaker 하드 차단 (항상 규칙)" },
-      { id: "llm.reason",       col: 1, row: 0, icon: "🧠", label: "깊은 추론",     desc: "reasoning ON — 상 재구성 → 차원 판정 → 딜 구조" },
-      { id: "llm.format",       col: 2, row: 0, icon: "🧩", label: "구조화",        desc: "스키마 강제 — 판단을 JudgeResult 계약으로" },
-      { id: "rules.judge",      col: 1, row: 1, icon: "📐", label: "규칙 판단",     desc: "Mock — bigram 보완성 + 온톨로지 규칙" },
-      { id: "validate",         col: 3, row: 0, icon: "✅", label: "차원 계약 검증", desc: "JDG-02 — sell 5차원 / buy 7차원 누락 검사" },
-      { id: "audit",            col: 4, row: 0, icon: "🗂", label: "감사 로그",     desc: "SYS-04 — 입력·궤적·결정 저장 (재학습용)" },
+      { id: "gate.dealbreaker", col: 0, row: 0, label: "결격 게이트",   desc: "JDG-04 — deal-breaker 하드 차단 (항상 규칙)" },
+      { id: "llm.reason",       col: 1, row: 0, label: "깊은 추론",     desc: "reasoning ON — 상 재구성 → 차원 판정 → 딜 구조" },
+      { id: "llm.format",       col: 2, row: 0, label: "구조화",        desc: "스키마 강제 — 판단을 JudgeResult 계약으로" },
+      { id: "rules.judge",      col: 1, row: 1, label: "규칙 판단",     desc: "Mock — bigram 보완성 + 온톨로지 규칙" },
+      { id: "validate",         col: 3, row: 0, label: "차원 계약 검증", desc: "JDG-02 — sell 5차원 / buy 7차원 누락 검사" },
+      { id: "audit",            col: 4, row: 0, label: "감사 로그",     desc: "SYS-04 — 입력·궤적·결정 저장 (재학습용)" },
     ],
     edges: [["gate.dealbreaker", "llm.reason"], ["llm.reason", "llm.format"],
             ["llm.format", "validate"], ["validate", "audit"],
@@ -76,10 +76,10 @@ const PIPELINES = {
   compose: {
     title: "Compose — 수신자가 사는 가치의 언어로",
     nodes: [
-      { id: "compose.llm",      col: 0, row: 0, icon: "✍️", label: "생성 (LLM)",    desc: "fit_reasons에서만 주장 — claim_trace 추적" },
-      { id: "llm.format",       col: 1, row: 0, icon: "🧩", label: "구조화",        desc: "스키마 강제 — 변형 A/B + 근거 매핑" },
-      { id: "compose.template", col: 0, row: 1, icon: "📋", label: "생성 (템플릿)", desc: "Mock — Judge 근거 기반 템플릿" },
-      { id: "sendgate",         col: 2, row: 0, icon: "🔒", label: "사람 승인 게이트", desc: "CMP-06 — send_blocked, 발송은 항상 사람" },
+      { id: "compose.llm",      col: 0, row: 0, label: "생성 (LLM)",    desc: "fit_reasons에서만 주장 — claim_trace 추적" },
+      { id: "llm.format",       col: 1, row: 0, label: "구조화",        desc: "스키마 강제 — 변형 A/B + 근거 매핑" },
+      { id: "compose.template", col: 0, row: 1, label: "생성 (템플릿)", desc: "Mock — Judge 근거 기반 템플릿" },
+      { id: "sendgate",         col: 2, row: 0, label: "사람 승인 게이트", desc: "CMP-06 — send_blocked, 발송은 항상 사람" },
     ],
     edges: [["compose.llm", "llm.format"], ["llm.format", "sendgate"],
             ["compose.template", "sendgate"]],
@@ -88,8 +88,8 @@ const PIPELINES = {
   consult: {
     title: "Consultant — 진단 인터뷰 (기획서 9장)",
     nodes: [
-      { id: "consult",    col: 0, row: 0, icon: "🎙", label: "인터뷰 턴",  desc: "슬롯 공백 분석 → 질문·선택지 설계 (회사의 상에서 도출)" },
-      { id: "llm.format", col: 1, row: 0, icon: "🧩", label: "구조화",     desc: "질문·선택지·슬롯을 스키마로 강제" },
+      { id: "consult",    col: 0, row: 0, label: "인터뷰 턴",  desc: "슬롯 공백 분석 → 질문·선택지 설계 (회사의 상에서 도출)" },
+      { id: "llm.format", col: 1, row: 0, label: "구조화",     desc: "질문·선택지·슬롯을 스키마로 강제" },
     ],
     edges: [["consult", "llm.format"]],
   },
@@ -140,7 +140,7 @@ function svgNode(x, y, node, inst, job) {
   return `<g class="pnode pn-${status}" data-node="${esc(node.id)}" transform="translate(${x},${y})">
     <title>${esc(node.desc || node.label)}</title>
     <rect width="${NODE_W}" height="${NODE_H}" rx="10"></rect>
-    <text x="12" y="24" class="pn-label">${node.icon || "▫"} ${esc(node.label)}</text>
+    <text x="12" y="24" class="pn-label">${esc(node.label)}</text>
     <text x="12" y="46" class="pn-sub">${esc(sub)}</text>
     <circle class="pn-port" cx="0" cy="${NODE_H / 2}" r="3.5"></circle>
     <circle class="pn-port" cx="${NODE_W}" cy="${NODE_H / 2}" r="3.5"></circle>
@@ -181,7 +181,7 @@ function renderPipeline(pipeBox, kind, job) {
       if (inst.parent) rowCounter[col] = row + 1;
       const id = `i${i}`;
       if (inst.parent) parentOf[id] = instances.indexOf(inst.parent);
-      return { id, col, row, icon: inst.parent ? "└" : "🔁", label: inst.label, inst };
+      return { id, col, row, label: inst.label, inst };
     });
     edges = [];
     const roots = nodes.filter((n) => n.row === 0);
@@ -225,7 +225,7 @@ function renderPipeline(pipeBox, kind, job) {
   pipeBox.classList.remove("hidden");
   pipeBox.innerHTML = `
     <div class="pipe-head">
-      <span>⚙️ ${esc(def.title)}</span>
+      <span>${esc(def.title)}</span>
       <span class="pipe-total">총 ${totalTime}s · ${STATUS_KO[job.status === "queued" ? "pending" : job.status] || job.status}</span>
     </div>
     <div class="pipe-scroll"><svg width="${maxX + PAD}" height="${maxY + PAD}"
@@ -684,7 +684,7 @@ const PORTRAIT_KO = { identity: "정체성", business_model: "수익 구조", ed
 function renderPortrait(pt) {
   if (!pt) return "";   // mock 모드에서는 상이 생성되지 않는다
   return `<div class="panel info" style="margin-top:16px">
-    <h3 style="margin:0 0 8px">🔭 회사의 상(像) — 자료의 '결과'에서 역추론한 전략·처지 <small>(전체 추론됨 — 확인·교정해주세요)</small></h3>
+    <h3 style="margin:0 0 8px">회사의 상(像) — 자료의 '결과'에서 역추론한 전략·처지 <small>(전체 추론됨 — 확인·교정해주세요)</small></h3>
     <dl class="profile-grid">${Object.entries(PORTRAIT_KO).map(([k, label]) =>
       `<dt>${label}</dt><dd>${esc(pt[k])}</dd>`).join("")}
     </dl></div>`;
@@ -717,7 +717,7 @@ $("#btn-match").onclick = async () => {
     showError("#match-error", err.code === "no_strong_candidate"
       ? "강한 후보 없음 — 엔진이 약한 후보를 억지로 채우지 않았어요. 의도(지역·가치제안)를 바꿔보세요."
       : err.code === "unclear_evidence_unresolved"
-      ? "근거 시각화에 확인 필요한 항목이 남아있어요 — 위 '②++ 근거 시각화' 섹션에서 답변해 주세요."
+      ? "AI 질문에 아직 답하지 않은 항목이 있어요 — 위 'AI 질문 위치' 섹션에서 답변해 주세요."
       : `${err.code || ""} ${err.message}`);
     $("#candidates").innerHTML = "";
   } finally { btn.disabled = false; }
@@ -768,7 +768,7 @@ async function judgeCandidate(candidateId, btn) {
     area.querySelector(".n-btn").onclick = (e) => negotiateSim(candidateId, e.target);
   } catch (err) {
     const msg = err.code === "deal_breaker"
-      ? `🚫 deal-breaker 결렬 — ${esc(err.details?.reason || err.message)} (사람에게 비노출 처리되는 매칭입니다)`
+      ? `deal-breaker 결렬 — ${esc(err.details?.reason || err.message)} (사람에게 비노출 처리되는 매칭입니다)`
       : esc(`${err.code || ""} ${err.message}`);
     area.insertAdjacentHTML("beforeend", `<div class="error">${msg}</div>`);
   } finally { btn.disabled = false; btn.textContent = "판단 실행 (Judge)"; }
@@ -795,7 +795,7 @@ function renderJudgment(jr, candidateId) {
     ${jr.deal_structure ? `<p style="font-size:13px"><b>딜 구조:</b> ${esc(jr.deal_structure)}</p>` : ""}
     <details><summary>추론 궤적 (CoT)</summary><pre>${esc(jr.trajectory)}</pre></details>
     <div style="margin-top:12px">
-      <button class="c-btn primary">⑤ 콜드메일 초안 (Compose)</button>
+      <button class="c-btn primary">콜드메일 초안 (Compose)</button>
       <button class="n-btn">A2A 협상 시뮬레이션</button>
     </div>
     <div class="output-area"></div>`;
@@ -818,13 +818,13 @@ async function composeDraft(candidateId, btn) {
         <small>레퍼런스: ${esc(m.reference_used)} · 주장→근거 추적 ${m.claim_trace.length}건</small>
         <button onclick="navigator.clipboard.writeText(this.previousElementSibling.previousElementSibling.textContent)">복사</button>
       </div>`).join("") +
-      `<div class="send-blocked">🔒 send_blocked — 엔진은 초안까지만 생성합니다. 발송은 검토 후 사람이 직접.</div>`;
+      `<div class="send-blocked">send_blocked — 엔진은 초안까지만 생성합니다. 발송은 검토 후 사람이 직접.</div>`;
     if (logBox._pipe) area.prepend(logBox._pipe);
     area.prepend(logBox);
     logBox.classList.add("log-collapsed");
     logBox.onclick = () => logBox.classList.toggle("log-collapsed");
   } catch (err) { area.insertAdjacentHTML("beforeend", `<div class="error">${esc(err.message)}</div>`); }
-  finally { btn.disabled = false; btn.textContent = "⑤ 콜드메일 초안 (Compose)"; }
+  finally { btn.disabled = false; btn.textContent = "콜드메일 초안 (Compose)"; }
 }
 
 async function negotiateSim(candidateId, btn) {
@@ -836,7 +836,7 @@ async function negotiateSim(candidateId, btn) {
       { company_id: state.companyId, candidate_id: candidateId,
         intent: state.intent || collectIntent(), max_rounds: 3 }, logBox, "negotiate");
     const neg = data.negotiation;
-    const RESP_KO = { accept: "✅ 수락", reject: "🚫 거절", counter: "↩ 거절+사유 → 재제안" };
+    const RESP_KO = { accept: "수락", reject: "거절", counter: "거절+사유 → 재제안" };
     area.innerHTML = `
       <div class="draft">
         <h4>협상 결과 <span class="term t-${neg.termination}">${{ agreement: "합의", breakdown: "결렬", round_limit: "라운드 상한" }[neg.termination]}</span>
@@ -846,7 +846,7 @@ async function negotiateSim(candidateId, btn) {
             <span>${RESP_KO[r.response]}${r.rejection ? ` — 막힌 차원: <b>${DIM_KO[r.rejection.dimension]}</b> (${r.rejection.recoverable ? "풀리는 거절" : "못 푸는 거절"})` : ""}
             ${r.knobs_adjusted.length ? `<br><small>손잡이 조정: ${r.knobs_adjusted.map((k) => `${esc(k.knob)}→${esc(k.to)}`).join(" · ")}</small>` : ""}</span>
           </div>`).join("")}
-        ${data.buyer_simulated ? `<div class="sim-note">⚠ 구매자 사전정보는 시뮬레이션 가상 부여 [시뮬] — 실증은 파일럿에서 (정직 프레이밍)</div>` : ""}
+        ${data.buyer_simulated ? `<div class="sim-note">구매자 사전정보는 시뮬레이션 가상 부여 [시뮬] — 실증은 파일럿에서 (정직 프레이밍)</div>` : ""}
       </div>`;
     if (logBox._pipe) area.prepend(logBox._pipe);
     area.prepend(logBox);
@@ -894,7 +894,7 @@ function renderConsultTurn(data) {
                     "싱가포르", "인도", "중국", "독일", "프랑스", "영국", "MENA"]
       .find((r) => market.includes(r));
     $("#consult-result").innerHTML =
-      `<h3>🧭 최종 아웃리치 가설</h3><pre>${esc(data.hypothesis || "")}</pre>` +
+      `<h3>최종 아웃리치 가설</h3><pre>${esc(data.hypothesis || "")}</pre>` +
       (region ? `<button id="btn-apply-hypo" class="primary">이 가설로 의도 채우기 (지역: ${esc(region)})</button>` : "");
     const apply = $("#btn-apply-hypo");
     if (apply) apply.onclick = () => {
@@ -911,7 +911,7 @@ function renderConsultTurn(data) {
   qa.classList.remove("hidden");
   qa.innerHTML = `
     <h3>Q${consultState.history.length + 1}. ${esc(data.question)}</h3>
-    <div class="consult-why">💡 ${esc(data.why)}${data.allow_multi ? " (복수 선택 가능)" : ""}</div>
+    <div class="consult-why">${esc(data.why)}${data.allow_multi ? " (복수 선택 가능)" : ""}</div>
     <div class="consult-opts">${data.options.map((o, i) =>
       `<span class="opt-chip" data-i="${i}" data-label="${esc(o.label)}">${esc(o.label)}<small>${esc(o.hint)}</small></span>`).join("")}
     </div>
