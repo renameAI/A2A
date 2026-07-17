@@ -418,40 +418,100 @@ details pre {
 .consult-free input { flex: 1; }
 #consult-result pre { white-space: pre-wrap; font: inherit; margin: 10px 0; color: var(--t700); }
 
-/* ── 파이프라인 DAG (다크 캔버스) ──────────────────────────── */
-.pipebox { background: var(--ink); border-radius: var(--r-md); margin-top: 14px; overflow: hidden; }
+/* ── 파이프라인 DAG — 엔진 사고의 계기판 ────────────────────────
+   컨셉: 이 엔진 세계에서 가장 특징적인 건 '지연이 곧 사고의 증거'다.
+   K-EXAONE 깊은 추론은 수 분이 걸린다 — 다른 데모는 그걸 스피너로 숨기지만
+   우리는 보여준다. 그래서 이건 진행바가 아니라 기계 숙고의 계기판이다.
+
+   팔레트: 중성 검정+애시드 액센트(흔한 기본값)를 버리고 딥네이비 블루프린트로.
+   제품의 토스 블루와 같은 계열의 '심층부' — 기계실은 제품과 다른 세계가 아니다.
+   단색계 블루로 절제하고, 초록은 완료 신호에만 아껴 쓴다.
+   타입: 라벨=Pretendard(사람이 읽는 것) / 계기 수치=모노 tabular(기계가 보고하는 것).
+   시그니처: 생각이 배선을 타고 흐른다 — 활성 엣지의 전류 + 추론 노드의 느린 호흡
+   (스피너가 아니라 2.4s 숨결 = 조급함이 아닌 숙고). */
+.pipebox {
+  border-radius: var(--r-md); margin-top: 14px; overflow: hidden;
+  background-color: #0a1020;
+  background-image:
+    linear-gradient(rgba(49, 130, 246, .05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(49, 130, 246, .05) 1px, transparent 1px);
+  background-size: 22px 22px;
+  box-shadow: inset 0 0 60px rgba(2, 6, 16, .6);
+}
 .pipe-head {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 13px 16px; color: #e6e8ec; font-size: 13.5px; font-weight: 700;
-  background: var(--ink-2);
+  padding: 13px 16px; color: #dce6f5; font-size: 13.5px; font-weight: 700;
+  background: rgba(10, 16, 32, .75); border-bottom: 1px solid #16233c;
 }
-.pipe-total { color: #6ea8fe; font-size: 12.5px; font-weight: 600; }
-.pipe-scroll { overflow-x: auto; padding: 8px 4px; }
-.pipe-hint { padding: 8px 16px 12px; color: #6b7280; font-size: 11.5px; }
+.pipe-total {
+  color: #7dd3fc; font-size: 12px; font-weight: 500;
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums; letter-spacing: 0;
+}
+.pipe-scroll { overflow-x: auto; padding: 10px 6px; }
+.pipe-hint { padding: 8px 16px 12px; color: #46587a; font-size: 11.5px; }
 
 .pnode { cursor: pointer; }
-.pnode rect { fill: #262832; stroke: #363945; stroke-width: 1.5; }
-.pnode:hover rect { stroke: #6ea8fe; }
-.pn-label { fill: #e6e8ec; font-size: 13px; font-weight: 700; }
-.pn-sub { fill: #8b95a1; font-size: 11px; }
-.pn-port { fill: #4a4d5c; }
-.pn-pending rect { opacity: .7; }
-.pn-skipped rect { stroke-dasharray: 5 4; opacity: .4; }
-.pn-skipped .pn-label, .pn-skipped .pn-sub { opacity: .55; }
-.pn-running rect { stroke: #fbbf24; stroke-width: 2; animation: node-pulse 1.4s ease-in-out infinite; }
-.pn-running .pn-sub { fill: #fbbf24; }
-.pn-ok rect { stroke: #4ade80; }
-.pn-ok .pn-sub { fill: #4ade80; }
-.pn-ok .pn-port { fill: #4ade80; }
-.pn-error rect { stroke: #f87171; stroke-width: 2; fill: #2a1d20; }
-.pn-error .pn-sub { fill: #f87171; }
-@keyframes node-pulse { 50% { stroke-opacity: .35; } }
+.pnode rect {
+  fill: #0f1a2e; stroke: #1b2a44; stroke-width: 1.5;
+  transition: stroke .3s ease, fill .3s ease;
+}
+.pnode:hover rect { stroke: #3182f6; }
+.pn-label {
+  fill: #dce6f5; font-size: 13px; font-weight: 600; letter-spacing: -0.3px;
+}
+.pn-sub {
+  fill: #5b7196; font-size: 10.5px; letter-spacing: 0;
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;   /* 카운터가 떨지 않게 */
+}
+.pn-dot { fill: #2c405f; transition: fill .3s ease; }
 
-.pedge { fill: none; stroke-width: 2; }
-.pe-idle { stroke: #363945; }
-.pe-done { stroke: #2f7d4f; }
-.pe-active { stroke: #fbbf24; stroke-dasharray: 7 5; animation: edge-flow .8s linear infinite; }
-@keyframes edge-flow { to { stroke-dashoffset: -12; } }
+.pn-pending rect { opacity: .55; }
+.pn-pending .pn-label { fill: #7d90ad; }
+.pn-skipped rect { stroke-dasharray: 4 4; opacity: .3; }
+.pn-skipped .pn-label, .pn-skipped .pn-sub { opacity: .5; }
+
+/* 시그니처 — 추론 중인 노드는 느리게 호흡한다 (숙고의 리듬) */
+.pn-running rect {
+  stroke: #3182f6; stroke-width: 2; fill: #101f3a;
+  animation: dag-breathe 2.4s ease-in-out infinite;
+}
+.pn-running .pn-dot { fill: #7dd3fc; animation: dag-breathe 2.4s ease-in-out infinite; }
+.pn-running .pn-sub { fill: #7dd3fc; }
+.pn-running .pn-label { fill: #fff; }
+@keyframes dag-breathe {
+  0%, 100% { filter: drop-shadow(0 0 1px rgba(49, 130, 246, .45)); }
+  50%      { filter: drop-shadow(0 0 10px rgba(49, 130, 246, .8)); }
+}
+
+/* 완료는 조용히 물러난다 — 끝난 일은 역사다. 초록은 6px 점 하나에만 쓴다.
+   (모든 노드를 초록으로 칠하면 완주 화면이 통째로 초록이 되어, 정작 '지금 생각 중'인
+   블루가 묻힌다. 채도를 살아있는 것에만 남겨야 눈이 사고의 최전선으로 간다.) */
+.pn-ok rect { stroke: #23364f; }
+.pn-ok .pn-dot { fill: var(--green); }
+.pn-ok .pn-label { fill: #b9c8de; }
+.pn-ok .pn-sub { fill: #4a6183; }
+
+.pn-error rect { stroke: var(--red); stroke-width: 2; fill: #2a1220; }
+.pn-error .pn-dot { fill: var(--red); }
+.pn-error .pn-sub { fill: #f87f8a; }
+
+.pedge { fill: none; stroke-width: 2; transition: stroke .3s ease; }
+.pe-idle { stroke: #16233c; }
+.pe-done { stroke: #23364f; }   /* 지나간 배선도 조용히 — 전류는 활성 구간에만 */
+/* 시그니처 — 활성 배선에 전류가 흐른다 */
+.pe-active {
+  stroke: #3182f6; stroke-width: 2.5; stroke-dasharray: 9 13;
+  animation: dag-current .75s linear infinite;
+  filter: drop-shadow(0 0 3px rgba(49, 130, 246, .55));
+}
+@keyframes dag-current { to { stroke-dashoffset: -22; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pn-running rect, .pn-running .pn-dot, .pe-active { animation: none; }
+  .pe-active { stroke-dasharray: none; }
+}
 
 /* ── 질문 위치 탐지 (bbox) ─────────────────────────────────── */
 .ev-warn { color: var(--red); font-weight: 700; }

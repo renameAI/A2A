@@ -44,7 +44,7 @@ const PIPELINES = {
       { id: "fetch",       col: 0, row: 0, label: "자료 수집·청킹",   desc: "URL 크롤(robots·캐시)·PDF·SNS → 출처 라벨 청크" },
       { id: "llm.reason",  col: 1, row: 0, label: "다층 독해 (추론)", desc: "reasoning ON — 5층 독해로 회사의 상(像) 구축" },
       { id: "llm.format",  col: 2, row: 0, label: "구조화",           desc: "스키마 강제 + sanitize 정화 + grounding 검증" },
-      { id: "mock.parse",  col: 1, row: 2, label: "Mock 파서",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
+      { id: "mock.parse",  col: 1, row: 1, label: "Mock 파서",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
       { id: "gate",        col: 3, row: 0, label: "최소 프로필 게이트", desc: "REP-06 — 문제·솔루션·타겟·VP 미달 시 409" },
       { id: "audit",       col: 4, row: 0, label: "감사 로그",        desc: "SYS-04 — audit/*.jsonl 축적" },
     ],
@@ -95,7 +95,7 @@ const PIPELINES = {
   },
 };
 
-const NODE_W = 170, NODE_H = 64, GAP_X = 56, GAP_Y = 30, PAD = 14;
+const NODE_W = 158, NODE_H = 64, GAP_X = 44, GAP_Y = 26, PAD = 14;
 
 function nodeInstances(logs) {
   /* node_start/node_end 이벤트 → 인스턴스 목록. 같은 id 반복 실행 지원(협상 라운드) +
@@ -132,20 +132,27 @@ function fmtElapsed(inst, job) {
 const STATUS_KO = { pending: "대기", running: "실행 중", ok: "완료",
                     error: "실패", skipped: "건너뜀" };
 
-function svgNode(x, y, node, inst, job) {
-  const status = inst ? inst.status
+function nodeStatus(inst, job) {
+  return inst ? inst.status
     : (job.status === "running" || job.status === "queued") ? "pending" : "skipped";
+}
+function nodeSub(inst, job) {
+  const status = nodeStatus(inst, job);
   const elapsed = inst ? fmtElapsed(inst, job) : "";
-  const sub = `${STATUS_KO[status]}${elapsed ? " · " + elapsed : ""}`;
+  return `${STATUS_KO[status]}${elapsed ? " · " + elapsed : ""}`;
+}
+
+function svgNode(x, y, node, inst, job) {
+  /* 계기판 노드 — 상태 점 + 라벨(Pretendard, 사람이 읽는 것) + 계기 수치(모노 tabular,
+     기계가 보고하는 것). 포트 점은 제거했다: 노드당 4개 × 노드 수만큼의 장식 노이즈였고
+     베지어 엣지가 이미 노드에 정확히 닿는다. */
+  const status = nodeStatus(inst, job);
   return `<g class="pnode pn-${status}" data-node="${esc(node.id)}" transform="translate(${x},${y})">
     <title>${esc(node.desc || node.label)}</title>
-    <rect width="${NODE_W}" height="${NODE_H}" rx="10"></rect>
-    <text x="12" y="24" class="pn-label">${esc(node.label)}</text>
-    <text x="12" y="46" class="pn-sub">${esc(sub)}</text>
-    <circle class="pn-port" cx="0" cy="${NODE_H / 2}" r="3.5"></circle>
-    <circle class="pn-port" cx="${NODE_W}" cy="${NODE_H / 2}" r="3.5"></circle>
-    <circle class="pn-port" cx="${NODE_W / 2}" cy="0" r="3.5"></circle>
-    <circle class="pn-port" cx="${NODE_W / 2}" cy="${NODE_H}" r="3.5"></circle>
+    <rect width="${NODE_W}" height="${NODE_H}" rx="12"></rect>
+    <circle class="pn-dot" cx="16" cy="21" r="3.5"></circle>
+    <text x="28" y="26" class="pn-label">${esc(node.label)}</text>
+    <text x="16" y="47" class="pn-sub">${esc(nodeSub(inst, job))}</text>
   </g>`;
 }
 
@@ -206,13 +213,15 @@ function renderPipeline(pipeBox, kind, job) {
   }
 
   const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+  const edgeCls = [];   // 제자리 갱신에서 엣지 순서대로 클래스를 다시 입히기 위해 보관
   const edgeSvg = edges.map(([a, b, vertical]) => {
     const A = pos[a], B = pos[b];
-    if (!A || !B) return "";
+    if (!A || !B) return "";   // path 미생성 → edgeCls에도 넣지 않아야 인덱스가 정렬된다
     const sa = byId[a].inst?.status, sb = byId[b].inst?.status;
     const cls = (sa === "ok" && (sb === "ok" || sb === "error")) ? "pe-done"
       : (sa === "ok" || sa === "running") && sb === "running" ? "pe-active"
       : sa === "ok" && !sb && (job.status === "running") ? "pe-active" : "pe-idle";
+    edgeCls.push(cls);
     return vertical
       ? svgEdge(A.x + NODE_W / 2, A.y + NODE_H, B.x + NODE_W / 2, B.y, cls, true)
       : svgEdge(A.x + NODE_W, A.y + NODE_H / 2, B.x, B.y + NODE_H / 2, cls);
@@ -221,29 +230,57 @@ function renderPipeline(pipeBox, kind, job) {
   const nodeSvg = nodes.map((n) => svgNode(pos[n.id].x, pos[n.id].y, n, n.inst, job)).join("");
   const totalTime = job.status === "done" || job.status === "error"
     ? (job.logs.length ? job.logs[job.logs.length - 1].t.toFixed(1) : "0") : job.elapsed.toFixed(1);
+  const totalTxt = `총 ${totalTime}s · ${STATUS_KO[job.status === "queued" ? "pending" : job.status] || job.status}`;
 
   pipeBox.classList.remove("hidden");
-  pipeBox.innerHTML = `
-    <div class="pipe-head">
-      <span>${esc(def.title)}</span>
-      <span class="pipe-total">총 ${totalTime}s · ${STATUS_KO[job.status === "queued" ? "pending" : job.status] || job.status}</span>
-    </div>
-    <div class="pipe-scroll"><svg width="${maxX + PAD}" height="${maxY + PAD}"
-      viewBox="0 0 ${maxX + PAD} ${maxY + PAD}">${edgeSvg}${nodeSvg}</svg></div>
-    <div class="pipe-hint">노드를 클릭하면 해당 구간의 로그만 필터됩니다 · 점선 = 이번 실행에서 건너뜀</div>`;
 
-  /* 노드 클릭 → 로그 필터 */
-  const logBox = pipeBox._logBox;
-  pipeBox.querySelectorAll(".pnode").forEach((g) => {
-    g.addEventListener("click", () => {
-      const nodeId = def.dynamic
-        ? (nodes.find((n) => n.id === g.dataset.node)?.inst || {}).id
-        : g.dataset.node;
-      if (!logBox) return;
-      logBox._filter = logBox._filter === nodeId ? null : nodeId;
-      renderLogs(logBox, logBox._logs || [], logBox._status || "done");
+  /* 구조(노드·엣지 집합)가 그대로면 innerHTML을 갈아끼우지 않고 제자리 갱신한다.
+     폴링마다 재구성하면 CSS 애니메이션(전류 흐름·노드 호흡)이 매번 리셋돼 끊긴다 —
+     피치 영상에서 바로 티가 나는 부분. 구조가 바뀔 때(협상 라운드 추가 등)만 재구성. */
+  const sig = `${kind}|${nodes.map((n) => n.id).join(",")}|${edges.map((e) => e.join(">")).join(",")}`;
+  if (pipeBox._sig !== sig) {
+    pipeBox.innerHTML = `
+      <div class="pipe-head">
+        <span>${esc(def.title)}</span>
+        <span class="pipe-total">${esc(totalTxt)}</span>
+      </div>
+      <div class="pipe-scroll"><svg width="${maxX + PAD}" height="${maxY + PAD}"
+        viewBox="0 0 ${maxX + PAD} ${maxY + PAD}">${edgeSvg}${nodeSvg}</svg></div>
+      <div class="pipe-hint">노드를 클릭하면 해당 구간의 로그만 필터됩니다 · 점선 = 이번 실행에서 건너뜀</div>`;
+    pipeBox._sig = sig;
+
+    /* 노드 클릭 → 로그 필터 (구조 재구성 시에만 재바인딩) */
+    const logBox = pipeBox._logBox;
+    pipeBox.querySelectorAll(".pnode").forEach((g) => {
+      g.addEventListener("click", () => {
+        const nodeId = def.dynamic
+          ? (nodes.find((n) => n.id === g.dataset.node)?.inst || {}).id
+          : g.dataset.node;
+        if (!logBox) return;
+        logBox._filter = logBox._filter === nodeId ? null : nodeId;
+        renderLogs(logBox, logBox._logs || [], logBox._status || "done");
+      });
     });
-  });
+  } else {
+    /* 제자리 갱신 — 클래스·텍스트만 바꿔 진행 중인 애니메이션을 살려둔다 */
+    const svg = pipeBox.querySelector("svg");
+    nodes.forEach((n) => {
+      const g = svg?.querySelector(`.pnode[data-node="${CSS.escape(n.id)}"]`);
+      if (!g) return;
+      const cls = `pnode pn-${nodeStatus(n.inst, job)}`;
+      if (g.getAttribute("class") !== cls) g.setAttribute("class", cls);
+      const sub = g.querySelector(".pn-sub");
+      const txt = nodeSub(n.inst, job);
+      if (sub && sub.textContent !== txt) sub.textContent = txt;
+    });
+    const paths = svg?.querySelectorAll(".pedge") || [];
+    edgeCls.forEach((cls, i) => {
+      const p = paths[i];
+      if (p && p.getAttribute("class") !== `pedge ${cls}`) p.setAttribute("class", `pedge ${cls}`);
+    });
+    const total = pipeBox.querySelector(".pipe-total");
+    if (total && total.textContent !== totalTxt) total.textContent = totalTxt;
+  }
 }
 
 function ensurePipeline(logBox, kind) {
