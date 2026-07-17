@@ -152,3 +152,36 @@ class TestA2ATaskGetAfterRestart:
         assert "error" not in after                      # 예전엔 -32001
         assert after["result"]["id"] == task_id
         assert after["result"]["metadata"]["skill"] == "represent"   # 메타 복원
+
+
+class TestElapsedFrozen:
+    def test_elapsed_stops_growing_after_completion(self, tmp_path, monkeypatch):
+        """처리 시간 지표의 정직성 — 완료된 job의 elapsed는 폴링 시점과 무관하게 고정.
+
+        이전 버그: RunLog.elapsed가 살아있는 시계(time.time() - t0)라서 완료 후에도
+        조회할 때마다 계속 자랐다 — UI '처리 시간'이 실제 처리가 아니라
+        '마지막 폴링까지의 경과'를 보여주는 거짓 지표였다.
+        """
+        import time
+
+        monkeypatch.setenv("A2A_DB_PATH", str(tmp_path / "t.db"))
+        store = JobStore(reap=False)
+        job, _ = store.create()
+        store.run(job, lambda: {"ok": True})
+
+        first = job.log.elapsed
+        time.sleep(0.25)
+        assert job.log.elapsed == first          # 완료 후 고정
+
+    def test_elapsed_frozen_on_error_too(self, tmp_path, monkeypatch):
+        import time
+
+        monkeypatch.setenv("A2A_DB_PATH", str(tmp_path / "t.db"))
+        store = JobStore(reap=False)
+        job, _ = store.create()
+        store.run(job, lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+
+        assert job.status == JobStatus.error
+        first = job.log.elapsed
+        time.sleep(0.25)
+        assert job.log.elapsed == first

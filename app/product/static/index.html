@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A 매칭엔진 v0</title>
-<link rel="stylesheet" href="/style.css?v=toss6">
+<link rel="stylesheet" href="/style.css?v=toss7">
 </head>
 <body>
 <header>
@@ -21,8 +21,8 @@
     <section id="empty-state" class="step">
       <h2>기업 자료로 시작하세요</h2>
       <p class="consult-hint">우측 상단 <b>기업 자료 입력</b>을 눌러 IR덱·웹사이트·텍스트를 넣으면,
-      엔진이 회사의 상(像)을 세우고 파트너 후보를 발굴합니다. 엔진의 사고 과정은 오른쪽
-      계기판에 실시간으로 흐릅니다.</p>
+      엔진이 회사 프로필을 분석하고 파트너 후보를 발굴합니다. 진행 상황과 처리 시간은
+      오른쪽에 실시간으로 표시됩니다.</p>
       <ul id="checklist-inline">
         <li data-check="assets"><b>기업 자료 1건 이상</b><small>IR덱 PDF · 웹사이트 · 기사 · 인스타그램 · 텍스트</small></li>
         <li data-check="problem">푸는 문제 <small>표면 키워드가 아닌 “누가 겪는 어떤 문제”</small></li>
@@ -83,7 +83,7 @@
 
     <!-- 웹 스카우트 (explore/exploit) -->
     <section id="step-scout" class="step hidden">
-      <h2><span class="num">3+</span> 웹 파트너 스카우트 <small>(명백지→정석 · 암묵지→모험 가설 → 웹 검색)</small>
+      <h2><span class="num">3+</span> 웹 파트너 탐색 <small>(명백지→정석 · 암묵지→모험 가설 → 웹 검색)</small>
         <button id="btn-scout" class="h-action">웹에서 후보 찾기</button>
       </h2>
       <p class="consult-hint">엔진이 회사 지식을 <b>명백지</b>(자료에 명시)와 <b>암묵지</b>(역추론된 상)로
@@ -94,12 +94,13 @@
     </section>
   </main>
 
-  <!-- ═══ 우측 — 엔진 계기판 독 (DAG·로그·A2A 루프 상시) ═══ -->
+  <!-- ═══ 우측 — 실행 현황 (진행·처리 시간·로그 상시) ═══ -->
   <aside class="dag-dock" id="dag-dock">
     <div class="dock-head">
-      <span>엔진 계기판</span>
+      <span>실행 현황</span>
       <span id="loop-current" class="badge">idle</span>
     </div>
+    <div id="loop-stats" class="loop-stats"></div>
     <div id="loop-lifecycle" class="loop-life">
       <span data-st="submitted">submitted</span>
       <i></i>
@@ -117,7 +118,7 @@
       <div id="consult-log" class="logbox hidden"></div>
     </div>
     <div id="loop-events" class="loop-events"></div>
-    <div class="dock-foot"><a href="/a2a.html" target="_blank" rel="noreferrer">A2A 프로토콜 DAG 열기</a></div>
+    <div class="dock-foot"><a href="/a2a.html" target="_blank" rel="noreferrer">A2A 프로토콜 상세</a></div>
   </aside>
 </div>
 
@@ -184,6 +185,6 @@
 </dialog>
 
 <footer>엔진은 초안까지만 — <b>발송·미팅 결정은 항상 사람</b>이 합니다 (CMP-06)</footer>
-<script src="/app.js?v=17"></script>
+<script src="/app.js?v=18"></script>
 </body>
 </html>

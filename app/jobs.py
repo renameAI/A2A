@@ -177,7 +177,8 @@ class JobStore:
                 job.error = {"code": "internal",
                              "message": "작업 스레드 비정상 종료", "details": None}
                 job.status = JobStatus.error
-            self._put(job)   # 종료 상태·최종 로그 영속화
+            job.log.freeze()   # 처리 시간 고정 — 폴링 시점에 따라 자라지 않게
+            self._put(job)     # 종료 상태·최종 로그 영속화
 
 
 store = JobStore()

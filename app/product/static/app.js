@@ -39,12 +39,12 @@ async function api(path, options = {}) {
 
 const PIPELINES = {
   onboard: {
-    title: "Represent — 자료 → 프로필 + 상(像)",
+    title: "프로필 분석 — 자료에서 회사 정보 추출",
     nodes: [
       { id: "fetch",       col: 0, row: 0, label: "자료 수집·청킹",   desc: "URL 크롤(robots·캐시)·PDF·SNS → 출처 라벨 청크" },
       { id: "llm.reason",  col: 1, row: 0, label: "다층 독해 (추론)", desc: "reasoning ON — 5층 독해로 회사의 상(像) 구축" },
       { id: "llm.format",  col: 2, row: 0, label: "구조화",           desc: "스키마 강제 + sanitize 정화 + grounding 검증" },
-      { id: "mock.parse",  col: 1, row: 1, label: "Mock 파서",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
+      { id: "mock.parse",  col: 1, row: 1, label: "간이 분석 (키 없음)",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
       { id: "gate",        col: 3, row: 0, label: "최소 프로필 게이트", desc: "REP-06 — 문제·솔루션·타겟·VP 미달 시 409" },
       { id: "audit",       col: 4, row: 0, label: "감사 로그",        desc: "SYS-04 — audit/*.jsonl 축적" },
     ],
@@ -52,20 +52,20 @@ const PIPELINES = {
             ["fetch", "mock.parse"], ["mock.parse", "gate"], ["gate", "audit"]],
   },
   match: {
-    title: "Retrieve — 보완성 검색 (유사도 아님)",
+    title: "후보 발굴 — 보완성 기반 검색",
     nodes: [
       { id: "synth",  col: 0, row: 0, label: "이상적 상대상 합성", desc: "1단 — 내 솔루션이 푸는 문제를 '겪는' 상대의 상" },
-      { id: "search", col: 1, row: 0, label: "하이브리드 검색",   desc: "2단 — 벡터 유사 + 온톨로지 보정 + 경쟁사 강등" },
+      { id: "search", col: 1, row: 0, label: "후보 검색",   desc: "2단 — 벡터 유사 + 온톨로지 보정 + 경쟁사 강등" },
     ],
     edges: [["synth", "search"]],
   },
   judge: {
-    title: "Judge — 점수가 아닌 구조화 판단",
+    title: "적합도 판단 — 근거·리스크 포함",
     nodes: [
       { id: "gate.dealbreaker", col: 0, row: 0, label: "결격 게이트",   desc: "JDG-04 — deal-breaker 하드 차단 (항상 규칙)" },
       { id: "llm.reason",       col: 1, row: 0, label: "깊은 추론",     desc: "reasoning ON — 상 재구성 → 차원 판정 → 딜 구조" },
       { id: "llm.format",       col: 2, row: 0, label: "구조화",        desc: "스키마 강제 — 판단을 JudgeResult 계약으로" },
-      { id: "rules.judge",      col: 1, row: 1, label: "규칙 판단",     desc: "Mock — bigram 보완성 + 온톨로지 규칙" },
+      { id: "rules.judge",      col: 1, row: 1, label: "규칙 기반 판단",     desc: "Mock — bigram 보완성 + 온톨로지 규칙" },
       { id: "validate",         col: 3, row: 0, label: "차원 계약 검증", desc: "JDG-02 — sell 5차원 / buy 7차원 누락 검사" },
       { id: "audit",            col: 4, row: 0, label: "감사 로그",     desc: "SYS-04 — 입력·궤적·결정 저장 (재학습용)" },
     ],
@@ -74,7 +74,7 @@ const PIPELINES = {
             ["gate.dealbreaker", "rules.judge"], ["rules.judge", "audit"]],
   },
   compose: {
-    title: "Compose — 수신자가 사는 가치의 언어로",
+    title: "제안 초안 — 수신자 가치 언어로",
     nodes: [
       { id: "compose.llm",      col: 0, row: 0, label: "생성 (LLM)",    desc: "fit_reasons에서만 주장 — claim_trace 추적" },
       { id: "llm.format",       col: 1, row: 0, label: "구조화",        desc: "스키마 강제 — 변형 A/B + 근거 매핑" },
@@ -84,9 +84,9 @@ const PIPELINES = {
     edges: [["compose.llm", "llm.format"], ["llm.format", "sendgate"],
             ["compose.template", "sendgate"]],
   },
-  negotiate: { title: "A2A 협상 — 제안 ↔ 검토 ↔ 재제안 (7-A)", dynamic: true },
+  negotiate: { title: "협상 시뮬레이션 — 제안·검토·재제안", dynamic: true },
   scout: {
-    title: "Scout — 지식 분리 → 가설 → 웹 검색 (JDG-09)",
+    title: "웹 파트너 탐색 — 지식 분리 → 가설 → 검색",
     nodes: [
       { id: "knowledge.split", col: 0, row: 0, label: "지식 분리",   desc: "명백지(stated) / 암묵지(inferred·상) 결정적 분리" },
       { id: "hypothesize",     col: 1, row: 0, label: "파트너 가설", desc: "exploit=명백지 정석 / explore=암묵지 모험 — 계약 코드 집행" },
@@ -97,7 +97,7 @@ const PIPELINES = {
             ["websearch", "shortlist"]],
   },
   consult: {
-    title: "Consultant — 진단 인터뷰 (기획서 9장)",
+    title: "AI 인터뷰 — 진단 대화",
     nodes: [
       { id: "consult",    col: 0, row: 0, label: "인터뷰 턴",  desc: "슬롯 공백 분석 → 질문·선택지 설계 (회사의 상에서 도출)" },
       { id: "llm.format", col: 1, row: 0, label: "구조화",     desc: "질문·선택지·슬롯을 스키마로 강제" },
@@ -257,7 +257,7 @@ function renderPipeline(pipeBox, kind, job) {
       </div>
       <div class="pipe-scroll"><svg width="${maxX + PAD}" height="${maxY + PAD}"
         viewBox="0 0 ${maxX + PAD} ${maxY + PAD}">${edgeSvg}${nodeSvg}</svg></div>
-      <div class="pipe-hint">노드를 클릭하면 해당 구간의 로그만 필터됩니다 · 점선 = 이번 실행에서 건너뜀</div>`;
+      <div class="pipe-hint">단계를 클릭하면 해당 로그만 표시됩니다 · 점선은 이번 실행에서 건너뛴 단계</div>`;
     pipeBox._sig = sig;
 
     /* 노드 클릭 → 로그 필터 (구조 재구성 시에만 재바인딩) */
@@ -352,13 +352,13 @@ async function runJob(path, body, logBox, kind) {
 /* ── A2A 소통 루프 — product job을 A2A Task lifecycle로 같은 화면에 표시 ── */
 
 const A2A_STAGE = {
-  scout: "web/scout",
-  onboard: "profile/represent",
-  consult: "consult",
-  match: "retrieve",
-  judge: "judge",
-  compose: "compose",
-  negotiate: "negotiate",
+  scout: "웹 파트너 탐색",
+  onboard: "프로필 분석",
+  consult: "AI 인터뷰",
+  match: "후보 발굴",
+  judge: "적합도 판단",
+  compose: "제안 초안",
+  negotiate: "협상 시뮬레이션",
 };
 
 function renderA2ALoop(kind, job) {
@@ -385,14 +385,32 @@ function renderA2ALoop(kind, job) {
       label,
       state: stateName,
       logs: job.logs.length,
+      elapsed: job.elapsed,
     });
     state.loopEvents = state.loopEvents.slice(-12);
+  } else if (last) {
+    last.elapsed = job.elapsed;   // 같은 상태여도 처리 시간은 최신으로
   }
+
+  /* 성능 지표 — 종료 상태별 집계 + 처리 시간 (같은 job의 최종 상태 기준) */
+  const finals = {};
+  for (const e of state.loopEvents) finals[e.jobId] = e;
+  const runs = Object.values(finals);
+  const doneRuns = runs.filter((e) => ["completed", "input-required"].includes(e.state));
+  const failRuns = runs.filter((e) => ["failed", "error"].includes(e.state));
+  const avg = doneRuns.length
+    ? (doneRuns.reduce((a, e) => a + (e.elapsed || 0), 0) / doneRuns.length) : 0;
+  const lastDone = doneRuns[doneRuns.length - 1];
+  $("#loop-stats").innerHTML = `
+    <div class="stat"><small>완료</small><b>${doneRuns.length}</b></div>
+    <div class="stat"><small>실패</small><b class="${failRuns.length ? "stat-bad" : ""}">${failRuns.length}</b></div>
+    <div class="stat"><small>최근 처리</small><b>${lastDone ? lastDone.elapsed.toFixed(1) + "s" : "–"}</b></div>
+    <div class="stat"><small>평균 처리</small><b>${doneRuns.length ? avg.toFixed(1) + "s" : "–"}</b></div>`;
 
   $("#loop-events").innerHTML = state.loopEvents.map((e) =>
     `<div class="loop-event loop-${esc(e.state)}">
       <b>${esc(e.label)}</b><span>${esc(e.state)}</span>
-      <small>${esc(e.t)} · job ${esc(e.jobId)} · logs ${e.logs}</small>
+      <small>${e.elapsed != null ? e.elapsed.toFixed(1) + "s · " : ""}${esc(e.t)} · 로그 ${e.logs}</small>
     </div>`).join("");
 }
 

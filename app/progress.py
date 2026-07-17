@@ -20,13 +20,19 @@ class RunLog:
     def __init__(self):
         self.entries: list[dict] = []
         self._t0 = time.time()
+        self._t_end: float | None = None
         self._node_stack: list[str] = []
         self._lock = threading.Lock()
 
     @property
     def elapsed(self) -> float:
-        """서버 기준 총 경과 초 — UI가 실행 중 노드의 소요 시간을 계산하는 기준."""
-        return round(time.time() - self._t0, 1)
+        """서버 기준 경과 초 — 실행 중엔 흐르고, freeze() 후엔 실제 처리 시간으로 고정.
+        고정하지 않으면 완료된 job을 폴링할 때마다 '처리 시간'이 계속 자라는 거짓 지표가 된다."""
+        return round((self._t_end or time.time()) - self._t0, 1)
+
+    def freeze(self) -> None:
+        """작업 종료 시점 고정 — 이후 elapsed는 처리 시간 지표로 쓸 수 있다."""
+        self._t_end = time.time()
 
     def add(self, stage: str, message: str, *, type: str = "log",
             node: str | None = None, status: str | None = None) -> None:
