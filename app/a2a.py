@@ -63,10 +63,61 @@ def _skill_registry() -> dict[str, tuple]:
     }
 
 
-# ── Task 상태 · 시각 · Task/이벤트 직렬화 (A2A 스키마) ────────────────
+# ── Task 메타 영속화 (Phase 6) ────────────────────────────────────
+# job은 jobs 테이블에 영속화되지만 A2A 고유 메타(skill·contextId·history·취소
+# 마킹)는 여기 있다 — 이것도 영속화해야 재시작 후 tasks/get이 완전한 Task를 준다.
+# 캐시(메모리) + write-through(SQLite), 같은 DB 파일·같은 패턴(A2A_DB_PATH).
 
-_task_meta: dict[str, dict] = {}     # job_id → {"skill", "contextId", "history"}
-_canceled: set[str] = set()          # 협조적 취소 마킹된 job_id
+_task_meta: dict[str, dict] = {}     # job_id → {"skill", "contextId", "history"} (캐시)
+_canceled: set[str] = set()          # 협조적 취소 마킹된 job_id (캐시)
+
+
+def _meta_connect():
+    import sqlite3
+    from .jobs import _db_path
+    path = _db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE IF NOT EXISTS a2a_task_meta "
+                 "(job_id TEXT PRIMARY KEY, data TEXT NOT NULL, "
+                 " canceled INTEGER NOT NULL DEFAULT 0)")
+    return conn
+
+
+def _meta_put(job_id: str, meta: dict, canceled: bool = False) -> None:
+    import sqlite3
+    try:
+        with _meta_connect() as conn:
+            conn.execute(
+                "INSERT INTO a2a_task_meta(job_id, data, canceled) VALUES(?,?,?) "
+                "ON CONFLICT(job_id) DO UPDATE SET data=excluded.data, "
+                "canceled=excluded.canceled",
+                (job_id, json.dumps(meta, ensure_ascii=False), int(canceled)))
+    except sqlite3.Error:
+        pass   # 영속화는 보조 — 메모리 캐시로 계속 동작
+
+
+def _meta_get(job_id: str) -> tuple[dict, bool]:
+    """메모리 캐시 우선 → 없으면 DB(재시작 후). (meta, canceled) 반환."""
+    if job_id in _task_meta:
+        return _task_meta[job_id], job_id in _canceled
+    import sqlite3
+    try:
+        with _meta_connect() as conn:
+            row = conn.execute(
+                "SELECT data, canceled FROM a2a_task_meta WHERE job_id=?",
+                (job_id,)).fetchone()
+    except sqlite3.Error:
+        return {}, False
+    if row is None:
+        return {}, False
+    meta = json.loads(row[0])
+    _task_meta[job_id] = meta                 # 캐시 채움
+    canceled = bool(row[1])
+    if canceled:
+        _canceled.add(job_id)
+    return meta, canceled
 
 
 def job_state_to_a2a(status: str, result, error) -> str:
@@ -99,7 +150,8 @@ def _agent_message(text: str, context_id: str) -> dict:
 
 
 def _effective_status(job: Job) -> str:
-    if job.job_id in _canceled:
+    _, canceled = _meta_get(job.job_id)      # 재시작 후에도 취소 마킹을 읽는다
+    if canceled:
         return "canceled"
     return job.status.value
 
@@ -110,7 +162,7 @@ def _artifact(skill: str, result: dict) -> dict:
 
 
 def task_from_job(job: Job) -> dict:
-    meta = _task_meta.get(job.job_id, {})
+    meta, _ = _meta_get(job.job_id)           # 캐시 → DB (재시작 생존)
     status = _effective_status(job)
     state = job_state_to_a2a(status, job.result, job.error)
     task = {
@@ -180,10 +232,12 @@ def _skill_fn(skill: str, raw_input: dict) -> Callable[[], dict]:
     return lambda: engine_fn(req).model_dump(mode="json")
 
 
-_META_CAP = 500   # 전역 dict 무한 성장 방어 (A2A-5) — 초과 시 종료 Task부터 회수
+_META_CAP = 500   # 메모리 캐시 무한 성장 방어 (A2A-5) — 초과 시 종료 Task부터 회수
 
 
 def _evict_terminal_meta() -> None:
+    """메모리 캐시만 비운다 — DB(a2a_task_meta)는 유지되므로 축출된 Task도
+    tasks/get으로 복원된다(캐시 축출 ≠ Task 소멸)."""
     if len(_task_meta) <= _META_CAP:
         return
     for jid in list(_task_meta):
@@ -206,11 +260,13 @@ def _start_job(skill: str, raw_input: dict, message: dict) -> Job:
     if existed:
         return job                      # 기존 Task 반환 — 새 스레드 없음
     _evict_terminal_meta()
-    _task_meta[job.job_id] = {
+    meta = {
         "skill": skill,
         "contextId": message.get("contextId") or job.job_id,
         "history": [message],
     }
+    _task_meta[job.job_id] = meta
+    _meta_put(job.job_id, meta)              # 영속화 — 재시작 후 tasks/get 완전 복원
     threading.Thread(target=job_store.run, args=(job, fn), daemon=True).start()
     return job
 
@@ -223,7 +279,7 @@ def _sse(obj: dict) -> str:
 
 def _status_event(job: Job, state: str, *, final: bool,
                   text: Optional[str] = None) -> dict:
-    meta = _task_meta.get(job.job_id, {})
+    meta, _ = _meta_get(job.job_id)
     ctx = meta.get("contextId", job.job_id)
     status = {"state": state, "timestamp": _now()}
     if text:
@@ -233,7 +289,7 @@ def _status_event(job: Job, state: str, *, final: bool,
 
 
 def _artifact_event(job: Job) -> dict:
-    meta = _task_meta.get(job.job_id, {})
+    meta, _ = _meta_get(job.job_id)
     return {"taskId": job.job_id, "contextId": meta.get("contextId", job.job_id),
             "kind": "artifact-update",
             "artifact": _artifact(meta.get("skill", "result"), job.result or {}),
@@ -295,12 +351,14 @@ def _handle_tasks_cancel(params, req_id):
         raise RpcError(TASK_NOT_FOUND, f"Task {task_id} 없음")
     # 이미 취소 마킹된 Task의 재취소는 멱등 (A2A-3) — 표시상태 canceled와
     # raw status(done)가 모순된 -32002를 내지 않는다.
-    if job.job_id in _canceled:
+    meta, canceled = _meta_get(job.job_id)
+    if canceled:
         return _ok(req_id, task_from_job(job))
     if job.status in _TERMINAL:
         raise RpcError(TASK_NOT_CANCELABLE,
                        "이미 종료된 Task는 취소할 수 없습니다")
     _canceled.add(job.job_id)   # 협조적 — 완료돼도 결과 폐기(task_from_job이 canceled로 표기)
+    _meta_put(job.job_id, meta, canceled=True)   # 취소 마킹도 재시작 생존
     return _ok(req_id, task_from_job(job))
 
 
