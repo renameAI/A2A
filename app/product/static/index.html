@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A 매칭엔진 v0</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=toss3">
 </head>
 <body>
 <header>
@@ -16,12 +16,12 @@
 <div class="layout">
   <!-- ═══ 우리가 받아야 할 것 (상시 체크리스트) ═══ -->
   <aside id="checklist">
-    <h2>📋 받아야 할 것</h2>
-    <p class="hint">엔진이 판단하려면 아래가 필요해요. 자료에서 추출하지 못하면 보강 질문으로 다시 여쭤봐요.</p>
+    <h2>받아야 할 것</h2>
+    <p class="hint">엔진이 판단하려면 아래가 필요해요. 자료에서 못 찾으면 보강 질문으로 다시 여쭤봐요.</p>
     <ul>
       <li data-check="assets"><b>기업 자료 1건 이상</b><small>IR덱 PDF · 웹사이트 · 기사 · 인스타그램 · 텍스트</small></li>
       <li class="group">최소 프로필 (미달 시 매칭 풀 제외)</li>
-      <li data-check="problem">푸는 문제 <small>표면 키워드 ❌ — "누가 겪는 어떤 문제"</small></li>
+      <li data-check="problem">푸는 문제 <small>표면 키워드가 아닌 “누가 겪는 어떤 문제”</small></li>
       <li data-check="solution">솔루션 <small>어떤 방식으로 푸는가</small></li>
       <li data-check="target">타겟 고객</li>
       <li data-check="vp">가치 제안 ≥1 <small>매출/비용/임팩트/문제해결</small></li>
@@ -35,7 +35,7 @@
   <main>
     <!-- ═══ ① 자료 입력 ═══ -->
     <section id="step1" class="step">
-      <h2><span class="num">①</span> 기업 자료 입력</h2>
+      <h2><span class="num">1</span> 기업 자료 입력</h2>
       <div id="assets"></div>
       <div class="asset-actions">
         <button type="button" data-add="website">+ 웹사이트</button>
@@ -72,7 +72,7 @@
 
     <!-- ═══ A2A 소통 루프 (메인 작업과 같은 화면에서 상태 추적) ═══ -->
     <section id="a2a-loop" class="step hidden">
-      <h2><span class="num">↔</span> A2A 소통 루프 <small>현재 매칭 플로우의 task lifecycle</small></h2>
+      <h2><span class="num">A2A</span> A2A 소통 루프 <small>현재 매칭 플로우의 task lifecycle</small></h2>
       <div class="loop-head">
         <span id="loop-current" class="badge">idle</span>
         <a href="/a2a.html" target="_blank" rel="noreferrer">프로토콜 샘플 DAG 열기</a>
@@ -91,13 +91,13 @@
 
     <!-- ═══ ② 프로필 확인 ═══ -->
     <section id="step2" class="step hidden">
-      <h2><span class="num">②</span> 추출된 프로필 <small>(provenance: <span class="prov stated">확인됨</span> <span class="prov inferred">추론됨</span> <span class="prov ask">질문필요</span>)</small></h2>
+      <h2><span class="num">2</span> 추출된 프로필 <small>(provenance: <span class="prov stated">확인됨</span> <span class="prov inferred">추론됨</span> <span class="prov ask">질문필요</span>)</small></h2>
       <div id="profile-card"></div>
     </section>
 
     <!-- ═══ ②+ AI 컨설턴트 인터뷰 (선택) ═══ -->
     <section id="step-consult" class="step hidden">
-      <h2><span class="num">②+</span> AI 컨설턴트 인터뷰 <small>(선택 — 진단 대화로 아웃리치 가설 수립)</small></h2>
+      <h2><span class="num">2+</span> AI 컨설턴트 인터뷰 <small>(선택 — 진단 대화로 아웃리치 가설 수립)</small></h2>
       <p class="consult-hint">전문 컨설턴트의 인터뷰를 재현해요. 질문마다 회사 자료에서 도출한 선택지가 제시되고,
       10개 슬롯(솔루션·pain point·세그먼트·시장·수신자·CTA·proof·제공물·리스크·후속 흐름)이 확정되면 최종 가설이 나옵니다.</p>
       <div class="slot-progress"><span id="slot-count">0</span>/10 슬롯 확정 <span id="slot-names"></span></div>
@@ -111,7 +111,7 @@
 
     <!-- ═══ ②++ AI 질문 위치 (IR덱 원문 위, 선택) ═══ -->
     <section id="step-evidence" class="step hidden">
-      <h2><span class="num">②++</span> AI 질문 위치 <small>(선택 — 엑사원 질문을 원문 위에 핀)</small></h2>
+      <h2><span class="num">2++</span> AI 질문 위치 <small>(선택 — 엑사원 질문을 원문 위에 핀)</small></h2>
       <p class="consult-hint">엑사원이 회사에 대해 궁금한 점(질문)을 던지면, 그 질문과 관련된
       위치를 원문 위에 빨간 점선 박스로 핀 꽂아요. 박스를 클릭하면 시트 댓글처럼 질문이 뜨고,
       답을 달면 ✓로 바뀌어요. <b>답하기 전까지는 후보 발굴로 넘어갈 수 없어요</b> (강제 응답).</p>
@@ -122,7 +122,7 @@
 
     <!-- ═══ ③ 의도 · 후보 발굴 ═══ -->
     <section id="step3" class="step hidden">
-      <h2><span class="num">③</span> 의도 설정 → 후보 발굴 <small>(보완성 검색 — 유사도 아님)</small></h2>
+      <h2><span class="num">3</span> 의도 설정 → 후보 발굴 <small>(보완성 검색 — 유사도 아님)</small></h2>
       <div class="row">
         <label>타겟 지역 <input id="intent-region" placeholder="예: 베트남"></label>
         <label>제안 유형

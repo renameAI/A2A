@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DB 저장소 인스펙터 · A2A 매칭엔진</title>
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=toss3">
 </head>
 <body>
 <header>
@@ -13,7 +13,7 @@
 </header>
 
 <main class="page">
-  <h2>🗄 SQLite 저장소 인스펙터 <small>(Phase 6 상태 영속화 — 실제 저장 그대로)</small></h2>
+  <h2>SQLite 저장소 인스펙터 <small>(Phase 6 상태 영속화 — 실제 저장 그대로)</small></h2>
   <p class="hint">인메모리가 아니라 실제 SQLite 파일에 저장됩니다. 아래는 그 파일의 위치·스키마·행을
   read-only로 보여줘요. 매칭 화면에서 회사를 온보딩하면 여기 행이 늘어나고, 서버를 재시작해도
   남아있습니다. 각 행의 <b>raw JSON 블롭</b>이 디스크에 실제로 들어있는 바이트예요.</p>
@@ -44,7 +44,8 @@ async function load() {
   const d = await (await fetch("/product/db/inspect")).json();
   $("#dbbar").innerHTML =
     `<span class="db-k">파일</span> <code>${esc(d.db_path)}</code>` +
-    `<span class="db-k">존재</span> ${d.exists ? "✅" : "❌ (아직 생성 전)"}` +
+    `<span class="db-k">존재</span> <span class="badge ${d.exists ? "mode-llm" : "mode-mock"}">` +
+      `${d.exists ? "있음" : "아직 생성 전"}</span>` +
     `<span class="db-k">크기</span> ${kb(d.size_bytes)}` +
     `<span class="db-k">journal</span> ${esc(d.journal_mode || "-")}` +
     `<span class="db-k">행</span> ${d.row_count}`;
