@@ -225,3 +225,46 @@ class TestUnderdefinedProfileFlag:
             pass   # NoStrongCandidate는 무관 — 경고 로그만 확인
         msgs = " ".join(e["message"] for e in run.entries)
         assert "과소정의" in msgs or "저신뢰" in msgs
+
+
+class TestMockPortrait:
+    """Mock 경로 간이 상 합성 — 결정적·정직성 계약.
+
+    수혜자는 셋: Scout mock 가설(portrait.gaps 소비), 감사 로그, UI 상 카드.
+    mock Judge·상대 합성은 규칙 기반이라 portrait를 읽지 않는다.
+    """
+
+    def _profile(self, text):
+        from app.engine.represent import _mock_extract
+        profile, _ = _mock_extract(text)
+        return profile
+
+    def test_full_profile_gets_honest_portrait(self):
+        p = self._profile(
+            "이름: 다이브인그룹\n국가: 한국\n산업: hospitality\n"
+            "설명: 노후 호텔 객실을 예술 경험형 상품으로 전환하는 스타트업\n"
+            "문제: 노후 객실 매출 정체\n솔루션: 저자본 예술 객실 전환\n"
+            "타겟: 중소 호텔 오너\n판매가치: 매출\n레퍼런스: Poco Hotel\n"
+            "트랙션: 유료 전환 3건")
+        pt = p.portrait
+        assert pt is not None
+        assert "매출 증대" in pt.business_model          # enum 토큰이 아니라 한국어
+        assert "revenue_growth" not in str(pt.model_dump())
+        assert "sme" not in pt.stage_narrative           # 단계도 한국어 라벨
+        assert "스타트업" in pt.stage_narrative
+        assert "Poco Hotel" in pt.assets                 # 자료에 있는 것만
+        assert pt.risk_signals                           # 항상 채워짐
+
+    def test_sparse_profile_absence_stated_as_absence(self):
+        p = self._profile("이름: 미니\n국가: 한국\n산업: saas")
+        pt = p.portrait
+        assert "부족" in pt.identity                     # 지어내지 않고 부족 명시
+        assert "미상" in pt.business_model
+        assert "해자 신호 없음" in pt.edge               # 빈 칭찬 금지
+        assert "첫 레퍼런스 확보" in pt.stage_narrative  # 부재 → 절실함 추정(표기)
+        assert "추정:" in pt.stage_narrative             # 추론은 추론으로 표시
+        assert "부재" in pt.risk_signals
+
+    def test_deterministic(self):
+        text = "이름: A\n국가: 한국\n산업: saas\n문제: p\n솔루션: s\n타겟: t\n판매가치: 비용"
+        assert self._profile(text).portrait == self._profile(text).portrait

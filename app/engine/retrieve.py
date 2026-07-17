@@ -53,6 +53,11 @@ def synthesize_counterpart(req: RetrieveRequest) -> str:
         profile_text = (f"{p.basic.name} ({p.basic.industry}, {p.basic.country}) — "
                         f"{p.description}\n푸는 문제: {p.problem_solved.value}\n"
                         f"솔루션: {p.solution.value}\n타겟: {p.target_customer.value}")
+        if p.portrait is not None:
+            # SYNTH_SYSTEM이 "상이 있으면 gaps·stage_narrative를 반영하라"고 지시하는데
+            # 여태 직렬화가 없어 죽은 지시였다 — 상을 실제로 전달한다
+            profile_text += (f"\n결핍(사는 쪽 얼굴): {p.portrait.gaps}"
+                             f"\n단계와 절실함: {p.portrait.stage_narrative}")
         intent_text = (f"가치제안 {[v.value for v in req.intent.value_props]}, "
                        f"지역 {req.intent.target_region or '미지정'}, "
                        f"유형 {req.intent.proposal_type or '미지정'}")

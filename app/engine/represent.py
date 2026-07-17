@@ -11,9 +11,9 @@ from ..errors import ProfileBelowMinimum
 from ..ingest.chunking import Chunk, chunk_text, pdf_to_text
 from ..ingest.extractor import extract_profile
 from ..ingest.fetchers import fetch_instagram, fetch_pdf_bytes, fetch_url
-from ..schemas import (AssetType, OntologyAnchor, Profile, BasicInfo, ProvField,
-                       Provenance, RepresentRequest, RepresentResponse,
-                       ValueProp, Willingness)
+from ..schemas import (AssetType, CompanyPortrait, OntologyAnchor, Profile,
+                       BasicInfo, ProvField, Provenance, RepresentRequest,
+                       RepresentResponse, ValueProp, Willingness)
 from .common import infer_stage, pseudo_embedding
 from .llm import get_extractor
 
@@ -166,7 +166,89 @@ def _mock_extract(full_text: str) -> tuple[Profile, list[str]]:
         open_questions.append(_ASK_QUESTIONS["value_prop"])
     if profile.willingness_sell is None and profile.willingness_purchase is None:
         open_questions.append("협력 의향(판매/구매)은 어느 정도인가요?")
+    profile.portrait = _mock_portrait(profile)
     return profile, open_questions
+
+
+# 상 합성용 한국어 라벨 — enum 토큰(revenue_growth, sme...)이 산문에 새지 않게
+_VP_KO = {ValueProp.revenue_growth: "매출 증대", ValueProp.cost_reduction: "비용 절감",
+          ValueProp.impact: "임팩트", ValueProp.problem_solving: "문제 해결"}
+_STAGE_KO = {"enterprise": "대기업", "chain": "체인·프랜차이즈", "seed": "시드 단계",
+             "startup": "스타트업", "sme": "중소기업"}
+
+
+def _mock_portrait(profile: Profile) -> CompanyPortrait:
+    """Mock 경로 간이 상 합성 — 파싱된 필드로 7필드를 결정적으로 조립.
+
+    정직성 원칙: 자료에 없는 사실을 지어내지 않는다. 부재는 부재로 서술하고,
+    규칙 기반 추정에는 '추정:'을 붙인다 (LLM 경로 portrait 지침과 동일 계약).
+    수혜자: Scout mock 가설(portrait.gaps 소비 — explore 가설이 폴백에서 진짜
+    결핍 기반으로 승격), 감사 로그, UI 상(像) 카드. mock Judge·상대 합성은
+    규칙 기반이라 portrait를 읽지 않는다 — 효과를 과장하지 않는다.
+    """
+    p = profile
+    prob, sol, tgt = (p.problem_solved.value, p.solution.value,
+                      p.target_customer.value)
+    has_refs, has_traction = bool(p.references), bool(p.traction)
+
+    # identity — 있는 조각만으로 조립, 빈 조각은 미상 명시
+    if prob and sol:
+        identity = (f"{tgt or '(타겟 미상)'}의 '{prob}' 문제를 "
+                    f"'{sol}' 방식으로 푸는 회사.")
+    else:
+        identity = ("자료만으로 정체성을 세우기에 부족 — "
+                    + "·".join(k for k, v in
+                               [("문제", prob), ("솔루션", sol), ("타겟", tgt)]
+                               if not v) + " 미확인.")
+
+    # business_model — mock 자료엔 돈 구조 필드가 없다: 가치 축만 정직하게
+    vp = [_VP_KO[v] for v in p.sell_value_props + p.purchase_value_props]
+    business_model = ((f"가치 축: {', '.join(vp)}. " if vp else "")
+                      + "수익 구조(과금 주체·단가·계약 형태)는 자료에 없음 — 미상.")
+
+    # edge — 간이 파서는 해자를 판별할 수 없다: 레퍼런스만 잠재 신호로
+    edge = (f"자료상 뚜렷한 해자 신호 없음. 추정: 레퍼런스 "
+            f"{len(p.references)}건({', '.join(p.references[:3])} 등)이 "
+            f"진입장벽의 간접 신호일 수 있음."
+            if has_refs else "자료상 뚜렷한 해자 신호 없음.")
+
+    # stage_narrative — 기존 결정적 단계 추정기 재사용 + 부재 신호 해석
+    stage = _STAGE_KO.get(infer_stage(p), "중소기업")
+    urgent = ("첫 레퍼런스 확보" if not has_refs
+              else "트랙션 신호 축적" if not has_traction
+              else "확장·재계약")
+    stage_narrative = (f"추정 단계: {stage} (규칙 기반 키워드 판정). "
+                       f"레퍼런스 {'있음' if has_refs else '없음'}·"
+                       f"트랙션 {'있음' if has_traction else '없음'} — "
+                       f"추정: 지금 절실한 것은 {urgent}.")
+
+    # assets — 자료에서 확인된 것만 나열
+    asset_parts = ([f"솔루션: {sol}"] if sol else []) \
+        + ([f"레퍼런스: {', '.join(p.references)}"] if has_refs else []) \
+        + ([f"트랙션: {p.traction}"] if has_traction else [])
+    assets = ("; ".join(asset_parts) + " — 보완성 판단의 재료."
+              if asset_parts else "자료에서 확인된 자산 없음.")
+
+    # gaps — 부재 필드 자체가 결핍 목록이다 + 사는 쪽 얼굴(5층)
+    missing = [k for k, v in [("문제 정의", prob), ("솔루션", sol),
+                              ("타겟", tgt), ("레퍼런스", has_refs),
+                              ("트랙션", has_traction)] if not v]
+    buy_face = ("구매 의향 표명 있음 — 사는 쪽 니즈 구체화 필요."
+                if p.willingness_purchase is not None
+                else "사는 쪽 얼굴(구매 니즈)은 자료에 없음 — 미상.")
+    gaps = ((f"자료가 답하지 않은 것: {', '.join(missing)}. " if missing else "")
+            + buy_face)
+
+    # risk_signals — 부재도 신호다 (EXTRACT_SYSTEM 독해 규칙과 동일)
+    signals = ([f"{m} 부재 — 초기 단계 또는 자료 미비 신호" for m in missing]
+               + (["협력 의향 미표명"] if p.willingness_sell is None
+                  and p.willingness_purchase is None else []))
+    risk_signals = "; ".join(signals) if signals else "특이 신호 없음."
+
+    return CompanyPortrait(
+        identity=identity, business_model=business_model, edge=edge,
+        stage_narrative=stage_narrative, assets=assets, gaps=gaps,
+        risk_signals=risk_signals)
 
 
 # ── 보강 질문 4지선다화 (자료 단서 기반 가설 선지) ──────────────────
