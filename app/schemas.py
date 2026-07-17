@@ -463,3 +463,61 @@ class CommentThread(BaseModel):
 
 class ThreadReplyRequest(BaseModel):
     text: str
+
+
+# ── Scout — 지식 분리 → 가설 → 웹 검색 숏리스트 (기획서 §1 가설수립·JDG-09) ──
+# Retrieve가 '이미 아는 풀' 안에서 찾는다면, Scout는 풀 밖(웹)에서 후보를 충원한다
+# (기획서 6.4 '외부 풀 충원' 트랙의 v0). exploit=명백지 기반 정석 가설,
+# explore=암묵지(회사의 상 — 역추론된 결핍·전략) 기반 모험 가설.
+
+class KnowledgeKind(str, Enum):
+    explicit = "explicit"    # 명백지 — 자료에 명시(stated)·자가신고
+    tacit = "tacit"          # 암묵지 — 역추론(inferred·portrait)
+
+
+class KnowledgeItem(BaseModel):
+    kind: KnowledgeKind
+    field: str               # 출처 필드 (예: "problem_solved", "portrait.gaps")
+    content: str
+    confidence: Optional[float] = None   # tacit만 (inferred 확신도)
+
+
+class HypothesisTrack(str, Enum):
+    exploit = "exploit"      # 정석 — 명백지가 가리키는 검증된 파트너 패턴
+    explore = "explore"      # 모험 — 암묵지에서 도출한 비자명 파트너 가설
+
+
+class PartnerHypothesis(BaseModel):
+    track: HypothesisTrack
+    hypothesis: str          # 어떤 파트너가 왜 맞는가 (한 문장)
+    grounded_in: list[str]   # 근거 지식 field 목록 — 가설의 출처 추적
+    search_query: str        # 웹 검색어
+    partner_type: str        # 기대 파트너 유형 (예: "동남아 중가 호텔 운영사")
+
+
+class ScoutCandidate(BaseModel):
+    track: HypothesisTrack
+    hypothesis: str          # 이 후보를 찾게 한 가설 원문
+    title: str
+    url: str
+    snippet: str
+    domain: str
+    relevance: float         # 결정적 스코어 (가설·검색어 ↔ 제목+스니펫 bigram overlap)
+
+
+class ScoutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    client_request_id: Optional[str] = None
+    profile: Profile
+    intent: Intent
+    k: int = Field(default=6, ge=1, le=20)
+    # explore 비율 — JDG-09 '파라미터로 조정 가능'(초기값 TBD·박사 몫이라 기본 1/3)
+    explore_ratio: float = Field(default=0.34, ge=0.0, le=1.0)
+
+
+class ScoutResponse(BaseModel):
+    knowledge: list[KnowledgeItem]
+    hypotheses: list[PartnerHypothesis]
+    shortlist: list[ScoutCandidate]
+    engine_mode: str                 # 가설 생성 경로 (llm | mock)
+    web_search_used: bool            # false면 검색 실패/차단 — 정직 표기

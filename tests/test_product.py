@@ -172,4 +172,4 @@ def test_upload_pdf_only():
 def test_ui_served():
     res = client.get("/")
     assert res.status_code == 200
-    assert "받아야 할 것" in res.text
+    assert "기업 자료로 시작하세요" in res.text   # 워크벤치 빈 상태

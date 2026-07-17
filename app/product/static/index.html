@@ -4,38 +4,131 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A 매칭엔진 v0</title>
-<link rel="stylesheet" href="/style.css?v=toss5">
+<link rel="stylesheet" href="/style.css?v=toss6">
 </head>
 <body>
 <header>
   <h1>A2A B2B 매칭엔진 <span class="ver">v0</span></h1>
-  <nav class="topnav"><a href="/" class="active">매칭</a><a href="#a2a-loop">A2A 루프</a><a href="/db.html">DB 저장소</a></nav>
-  <span id="engine-mode" class="badge mode-mock" title="ANTHROPIC_API_KEY 설정 시 llm으로 전환">engine: -</span>
+  <nav class="topnav"><a href="/" class="active">매칭</a><a href="/a2a.html">A2A 흐름</a><a href="/db.html">DB 저장소</a></nav>
+  <button id="open-onboard" class="header-cta">기업 자료 입력</button>
+  <span id="engine-mode" class="badge mode-mock" title="LLM 키 설정 시 llm으로 전환">engine: -</span>
 </header>
 
-<div class="layout">
-  <!-- ═══ 우리가 받아야 할 것 (상시 체크리스트) ═══ -->
-  <aside id="checklist">
-    <h2>받아야 할 것</h2>
-    <p class="hint">엔진이 판단하려면 아래가 필요해요. 자료에서 못 찾으면 보강 질문으로 다시 여쭤봐요.</p>
-    <ul>
-      <li data-check="assets"><b>기업 자료 1건 이상</b><small>IR덱 PDF · 웹사이트 · 기사 · 인스타그램 · 텍스트</small></li>
-      <li class="group">최소 프로필 (미달 시 매칭 풀 제외)</li>
-      <li data-check="problem">푸는 문제 <small>표면 키워드가 아닌 “누가 겪는 어떤 문제”</small></li>
-      <li data-check="solution">솔루션 <small>어떤 방식으로 푸는가</small></li>
-      <li data-check="target">타겟 고객</li>
-      <li data-check="vp">가치 제안 ≥1 <small>매출/비용/임팩트/문제해결</small></li>
-      <li class="group">판단 정확도를 높이는 것 (선택)</li>
-      <li data-check="willingness">협력 의향 (판매/구매)</li>
-      <li data-check="private">판매자 사전정보 <small>쉐어 최저선·전략 단계·통제 가능 항목 — 협상의 '패'</small></li>
-      <li data-check="intent">의도 <small>타겟 지역·제안 유형</small></li>
-    </ul>
-  </aside>
+<div class="workbench">
+  <!-- ═══ 좌측 — 작업 결과 (프로필·후보·판단·스카우트) ═══ -->
+  <main class="work-main">
+    <!-- 빈 상태 — 첫 진입 안내 -->
+    <section id="empty-state" class="step">
+      <h2>기업 자료로 시작하세요</h2>
+      <p class="consult-hint">우측 상단 <b>기업 자료 입력</b>을 눌러 IR덱·웹사이트·텍스트를 넣으면,
+      엔진이 회사의 상(像)을 세우고 파트너 후보를 발굴합니다. 엔진의 사고 과정은 오른쪽
+      계기판에 실시간으로 흐릅니다.</p>
+      <ul id="checklist-inline">
+        <li data-check="assets"><b>기업 자료 1건 이상</b><small>IR덱 PDF · 웹사이트 · 기사 · 인스타그램 · 텍스트</small></li>
+        <li data-check="problem">푸는 문제 <small>표면 키워드가 아닌 “누가 겪는 어떤 문제”</small></li>
+        <li data-check="solution">솔루션</li>
+        <li data-check="target">타겟 고객</li>
+        <li data-check="vp">가치 제안 ≥1</li>
+        <li data-check="willingness">협력 의향 (선택)</li>
+        <li data-check="private">판매자 사전정보 (선택)</li>
+        <li data-check="intent">의도 (선택)</li>
+      </ul>
+    </section>
 
-  <main>
-    <!-- ═══ ① 자료 입력 ═══ -->
-    <section id="step1" class="step">
-      <h2><span class="num">1</span> 기업 자료 입력</h2>
+    <!-- 보강 질문 (게이트 미달 시) -->
+    <section id="questions-step" class="step hidden">
+      <h2>보강 질문 <small>자료로 알 수 없는 것만 여쭤봐요</small></h2>
+      <div id="min-progress" class="hidden"></div>
+      <div id="questions"></div>
+      <button id="btn-reanalyze" class="primary">답변 반영해서 재분석</button>
+      <div id="onboard-error" class="error hidden"></div>
+    </section>
+
+    <!-- 추출된 프로필 -->
+    <section id="step2" class="step hidden">
+      <h2><span class="num">2</span> 추출된 프로필 <small>(provenance: <span class="prov stated">확인됨</span> <span class="prov inferred">추론됨</span> <span class="prov ask">질문필요</span>)</small></h2>
+      <div id="profile-card"></div>
+    </section>
+
+    <!-- AI 컨설턴트 인터뷰 (선택) -->
+    <section id="step-consult" class="step hidden">
+      <h2><span class="num">2+</span> AI 컨설턴트 인터뷰 <small>(선택 — 진단 대화로 아웃리치 가설 수립)</small></h2>
+      <p class="consult-hint">질문마다 회사 자료에서 도출한 선택지가 제시되고, 10개 슬롯이 확정되면 최종 가설이 나옵니다.</p>
+      <div class="slot-progress"><span id="slot-count">0</span>/10 슬롯 확정 <span id="slot-names"></span></div>
+      <button id="btn-consult" class="primary">인터뷰 시작</button>
+      <div id="consult-history"></div>
+      <div id="consult-qa" class="panel warn hidden"></div>
+      <div id="consult-result" class="panel info hidden"></div>
+      <div id="consult-error" class="error hidden"></div>
+    </section>
+
+    <!-- AI 질문 위치 (bbox, 선택) -->
+    <section id="step-evidence" class="step hidden">
+      <h2><span class="num">2++</span> AI 질문 위치 <small>(선택 — 엑사원 질문을 원문 위에 핀)</small></h2>
+      <p class="consult-hint">답하기 전까지는 후보 발굴로 넘어갈 수 없어요 (강제 응답).</p>
+      <div id="evidence-summary" class="slot-progress"></div>
+      <div id="evidence-pages"></div>
+      <div id="evidence-error" class="error hidden"></div>
+    </section>
+
+    <!-- 후보 발굴 결과 -->
+    <section id="step3" class="step hidden">
+      <h2><span class="num">3</span> 후보 발굴 <small>(보완성 검색 — 유사도 아님)</small>
+        <button id="open-intent" class="h-action">의도 설정·발굴 실행</button>
+      </h2>
+      <div id="match-error" class="error hidden"></div>
+      <div id="synth" class="panel info hidden"></div>
+      <div id="candidates"></div>
+    </section>
+
+    <!-- 웹 스카우트 (explore/exploit) -->
+    <section id="step-scout" class="step hidden">
+      <h2><span class="num">3+</span> 웹 파트너 스카우트 <small>(명백지→정석 · 암묵지→모험 가설 → 웹 검색)</small>
+        <button id="btn-scout" class="h-action">웹에서 후보 찾기</button>
+      </h2>
+      <p class="consult-hint">엔진이 회사 지식을 <b>명백지</b>(자료에 명시)와 <b>암묵지</b>(역추론된 상)로
+      나누고, 정석(exploit)·모험(explore) 가설을 세워 <b>풀 밖(웹)</b>에서 후보를 충원합니다.</p>
+      <div id="scout-error" class="error hidden"></div>
+      <div id="scout-hypotheses"></div>
+      <div id="scout-shortlist"></div>
+    </section>
+  </main>
+
+  <!-- ═══ 우측 — 엔진 계기판 독 (DAG·로그·A2A 루프 상시) ═══ -->
+  <aside class="dag-dock" id="dag-dock">
+    <div class="dock-head">
+      <span>엔진 계기판</span>
+      <span id="loop-current" class="badge">idle</span>
+    </div>
+    <div id="loop-lifecycle" class="loop-life">
+      <span data-st="submitted">submitted</span>
+      <i></i>
+      <span data-st="working">working</span>
+      <i></i>
+      <span data-st="input-required">input-required</span>
+      <i></i>
+      <span data-st="completed">completed</span>
+    </div>
+    <div id="dock-pipes">
+      <!-- runJob이 파이프라인 DAG + 로그를 여기에 쌓는다 -->
+      <div id="onboard-log" class="logbox hidden"></div>
+      <div id="match-log" class="logbox hidden"></div>
+      <div id="scout-log" class="logbox hidden"></div>
+      <div id="consult-log" class="logbox hidden"></div>
+    </div>
+    <div id="loop-events" class="loop-events"></div>
+    <div class="dock-foot"><a href="/a2a.html" target="_blank" rel="noreferrer">A2A 프로토콜 DAG 열기</a></div>
+  </aside>
+</div>
+
+<!-- ═══ 모달 — 기업 자료 입력 ═══ -->
+<dialog id="modal-onboard" class="modal">
+  <form method="dialog" class="modal-card">
+    <div class="modal-head">
+      <h2>기업 자료 입력</h2>
+      <button type="submit" class="modal-x" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
       <div id="assets"></div>
       <div class="asset-actions">
         <button type="button" data-add="website">+ 웹사이트</button>
@@ -44,7 +137,6 @@
         <button type="button" data-add="text">+ 직접 입력</button>
         <label class="upload-btn">+ IR덱 PDF<input type="file" id="pdf-input" accept=".pdf" hidden></label>
       </div>
-
       <div class="row">
         <label>판매 의향
           <select id="w-sell"><option value="">모름</option><option>매우 적극적</option><option>적극적</option><option>중간</option><option>소극적</option><option>매우 소극적</option></select>
@@ -53,76 +145,25 @@
           <select id="w-buy"><option value="">모름</option><option>매우 적극적</option><option>적극적</option><option>중간</option><option>소극적</option><option>매우 소극적</option></select>
         </label>
       </div>
-
       <label class="block">판매자 사전정보 (선택 · 한 줄에 <code>키: 값</code>)
         <textarea id="private-state" rows="3" placeholder="쉐어 최저선: 8:2&#10;전략 단계: 동남아 레퍼런스 0 — 첫 레퍼런스 확보가 목표&#10;시공 인력: 자체 인력으로 통제 가능"></textarea>
       </label>
+    </div>
+    <div class="modal-foot">
+      <div id="modal-onboard-error" class="error hidden"></div>
+      <button type="button" id="btn-onboard" class="primary">프로필 분석 시작</button>
+    </div>
+  </form>
+</dialog>
 
-      <button id="btn-onboard" class="primary">프로필 분석 시작</button>
-      <div id="onboard-log" class="logbox hidden"></div>
-      <div id="onboard-error" class="error hidden"></div>
-
-      <div id="questions-panel" class="panel warn hidden">
-        <h3>보강 질문 — 자료로 알 수 없는 것만 여쭤봐요</h3>
-        <div id="min-progress" class="hidden"></div>
-        <div id="questions"></div>
-        <button id="btn-reanalyze" class="primary">답변 반영해서 재분석</button>
-      </div>
-    </section>
-
-    <!-- ═══ A2A 소통 루프 (메인 작업과 같은 화면에서 상태 추적) ═══ -->
-    <section id="a2a-loop" class="step hidden">
-      <h2><span class="num">A2A</span> A2A 소통 루프 <small>현재 매칭 플로우의 task lifecycle</small></h2>
-      <div class="loop-head">
-        <span id="loop-current" class="badge">idle</span>
-        <a href="/a2a.html" target="_blank" rel="noreferrer">프로토콜 샘플 DAG 열기</a>
-      </div>
-      <div id="loop-lifecycle" class="loop-life">
-        <span data-st="submitted">submitted</span>
-        <i></i>
-        <span data-st="working">working</span>
-        <i></i>
-        <span data-st="input-required">input-required</span>
-        <i></i>
-        <span data-st="completed">completed</span>
-      </div>
-      <div id="loop-events" class="loop-events"></div>
-    </section>
-
-    <!-- ═══ ② 프로필 확인 ═══ -->
-    <section id="step2" class="step hidden">
-      <h2><span class="num">2</span> 추출된 프로필 <small>(provenance: <span class="prov stated">확인됨</span> <span class="prov inferred">추론됨</span> <span class="prov ask">질문필요</span>)</small></h2>
-      <div id="profile-card"></div>
-    </section>
-
-    <!-- ═══ ②+ AI 컨설턴트 인터뷰 (선택) ═══ -->
-    <section id="step-consult" class="step hidden">
-      <h2><span class="num">2+</span> AI 컨설턴트 인터뷰 <small>(선택 — 진단 대화로 아웃리치 가설 수립)</small></h2>
-      <p class="consult-hint">전문 컨설턴트의 인터뷰를 재현해요. 질문마다 회사 자료에서 도출한 선택지가 제시되고,
-      10개 슬롯(솔루션·pain point·세그먼트·시장·수신자·CTA·proof·제공물·리스크·후속 흐름)이 확정되면 최종 가설이 나옵니다.</p>
-      <div class="slot-progress"><span id="slot-count">0</span>/10 슬롯 확정 <span id="slot-names"></span></div>
-      <button id="btn-consult" class="primary">인터뷰 시작</button>
-      <div id="consult-log" class="logbox hidden"></div>
-      <div id="consult-history"></div>
-      <div id="consult-qa" class="panel warn hidden"></div>
-      <div id="consult-result" class="panel info hidden"></div>
-      <div id="consult-error" class="error hidden"></div>
-    </section>
-
-    <!-- ═══ ②++ AI 질문 위치 (IR덱 원문 위, 선택) ═══ -->
-    <section id="step-evidence" class="step hidden">
-      <h2><span class="num">2++</span> AI 질문 위치 <small>(선택 — 엑사원 질문을 원문 위에 핀)</small></h2>
-      <p class="consult-hint">엑사원이 회사에 대해 궁금한 점(질문)을 던지면, 그 질문과 관련된
-      위치를 원문 위에 빨간 점선 박스로 핀 꽂아요. 박스를 클릭하면 시트 댓글처럼 질문이 뜨고,
-      답을 달면 ✓로 바뀌어요. <b>답하기 전까지는 후보 발굴로 넘어갈 수 없어요</b> (강제 응답).</p>
-      <div id="evidence-summary" class="slot-progress"></div>
-      <div id="evidence-pages"></div>
-      <div id="evidence-error" class="error hidden"></div>
-    </section>
-
-    <!-- ═══ ③ 의도 · 후보 발굴 ═══ -->
-    <section id="step3" class="step hidden">
-      <h2><span class="num">3</span> 의도 설정 → 후보 발굴 <small>(보완성 검색 — 유사도 아님)</small></h2>
+<!-- ═══ 모달 — 의도 설정 · 후보 발굴 ═══ -->
+<dialog id="modal-intent" class="modal">
+  <form method="dialog" class="modal-card">
+    <div class="modal-head">
+      <h2>의도 설정 → 후보 발굴</h2>
+      <button type="submit" class="modal-x" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
       <div class="row">
         <label>타겟 지역 <input id="intent-region" placeholder="예: 베트남"></label>
         <label>제안 유형
@@ -135,16 +176,14 @@
         <label><input type="checkbox" value="impact"> 임팩트</label>
         <label><input type="checkbox" value="problem_solving"> 문제 해결</label>
       </div>
-      <button id="btn-match" class="primary">후보 발굴 (Retrieve)</button>
-      <div id="match-log" class="logbox hidden"></div>
-      <div id="match-error" class="error hidden"></div>
-      <div id="synth" class="panel info hidden"></div>
-      <div id="candidates"></div>
-    </section>
-  </main>
-</div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" id="btn-match" class="primary">후보 발굴 (Retrieve)</button>
+    </div>
+  </form>
+</dialog>
 
 <footer>엔진은 초안까지만 — <b>발송·미팅 결정은 항상 사람</b>이 합니다 (CMP-06)</footer>
-<script src="/app.js?v=16"></script>
+<script src="/app.js?v=17"></script>
 </body>
 </html>

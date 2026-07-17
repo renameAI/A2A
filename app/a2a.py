@@ -29,7 +29,7 @@ from . import progress
 from .errors import EngineError
 from .jobs import Job, store as job_store
 from .schemas import (ComposeRequest, JobStatus, JudgeRequest, NegotiateRequest,
-                      RepresentRequest, RetrieveRequest)
+                      RepresentRequest, RetrieveRequest, ScoutRequest)
 
 router = APIRouter(tags=["a2a"])
 
@@ -54,11 +54,13 @@ def _skill_registry() -> dict[str, tuple]:
     from .engine.negotiate import negotiate
     from .engine.represent import represent
     from .engine.retrieve import retrieve
+    from .engine.scout import scout
     return {
         "represent": (RepresentRequest, represent),
         "retrieve": (RetrieveRequest, retrieve),
         "judge": (JudgeRequest, judge),
         "compose": (ComposeRequest, compose),
+        "scout": (ScoutRequest, scout),
         "negotiate": (NegotiateRequest, negotiate),
     }
 

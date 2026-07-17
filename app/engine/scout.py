@@ -1,0 +1,266 @@
+"""Scout — 지식 분리 → 파트너 가설(explore/exploit) → 웹 검색 숏리스트.
+
+기획서 근거:
+- §1 해법 ①: "누구를 타겟할지(전략·가설 수립)를 컨설팅" — 가설 수립이 엔진의 1번 기능.
+- 7.4/10.5·JDG-09: 확신 후보(exploit) + 가설 검증용 불확실 후보(explore) 혼합,
+  explore 비율은 파라미터. Judge의 탐색 예산 개념을 '후보 충원' 단계로 앞당겨 적용.
+- 6.4: 외부 풀 충원은 별도 트랙 — 이 모듈이 그 트랙의 v0(웹 검색 기반)다.
+
+Retrieve와의 관계: Retrieve는 '이미 아는 풀' 안에서 보완성 검색, Scout는 풀 밖(웹)에서
+후보를 충원한다. 지식 분리가 두 트랙을 가른다 —
+  명백지(stated·자가신고) → exploit 가설 (업계 검증된 정석 파트너 패턴)
+  암묵지(inferred·회사의 상) → explore 가설 (역추론된 결핍·전략이 가리키는 비자명 파트너)
+
+분산 제어(FORMALIZATION 원칙 계승): 가설 생성만 확률적(LLM 1호출·non-deep)이고
+지식 분리·검색·스코어·쿼터 배분은 전부 결정적이다. 숏리스트 순서는 (-relevance, domain)
+전순서로 재현 가능하다.
+"""
+from urllib.parse import urlparse
+
+from .. import progress
+from ..config import Settings, get_settings
+from ..schemas import (HypothesisTrack, KnowledgeItem, KnowledgeKind,
+                       PartnerHypothesis, Profile, Provenance, ScoutCandidate,
+                       ScoutRequest, ScoutResponse)
+from .common import overlap
+from .llm import get_extractor
+from .prompts import SCOUT_SCHEMA, SCOUT_SYSTEM, scout_user
+
+_MAX_QUERIES = 5          # 가설 수 상한 = 검색 쿼리 상한 (비용·예의)
+_RESULTS_PER_QUERY = 6
+_MIN_RELEVANCE = 0.06     # 가설·검색어와 전혀 무관한 히트 컷 (bigram overlap)
+
+# 숏리스트에서 걸러낼 도메인 — 회사 홈페이지가 아니라 플랫폼·백과·뉴스 애그리게이터
+_NOISE_DOMAINS = {
+    "wikipedia.org", "namu.wiki", "youtube.com", "facebook.com", "instagram.com",
+    "linkedin.com", "twitter.com", "x.com", "reddit.com", "quora.com",
+    "tripadvisor.com", "booking.com", "agoda.com", "expedia.com",
+}
+
+
+# ── 1단 — 지식 분리 (결정적: provenance 기반) ─────────────────────
+
+def split_knowledge(profile: Profile) -> list[KnowledgeItem]:
+    """프로필 → 명백지/암묵지 목록.
+
+    명백지 = stated 필드·레퍼런스·자가신고(가치제안·의향).
+    암묵지 = inferred 필드(확신도 동반)·회사의 상 7항목(정의상 역추론 — 전체 암묵지).
+    ask(빈 값)는 지식이 아니므로 제외.
+    """
+    items: list[KnowledgeItem] = []
+
+    def _field(name: str, f) -> None:
+        if not f.value:
+            return
+        if f.provenance == Provenance.stated:
+            items.append(KnowledgeItem(kind=KnowledgeKind.explicit,
+                                       field=name, content=f.value))
+        elif f.provenance == Provenance.inferred:
+            items.append(KnowledgeItem(kind=KnowledgeKind.tacit, field=name,
+                                       content=f.value, confidence=f.confidence))
+
+    _field("problem_solved", profile.problem_solved)
+    _field("solution", profile.solution)
+    _field("target_customer", profile.target_customer)
+
+    if profile.references:
+        items.append(KnowledgeItem(kind=KnowledgeKind.explicit, field="references",
+                                   content=", ".join(profile.references)))
+    if profile.sell_value_props:
+        items.append(KnowledgeItem(
+            kind=KnowledgeKind.explicit, field="sell_value_props",
+            content=", ".join(v.value for v in profile.sell_value_props)))
+    if profile.traction:
+        items.append(KnowledgeItem(kind=KnowledgeKind.explicit,
+                                   field="traction", content=profile.traction))
+
+    if profile.portrait is not None:
+        for name in ("identity", "business_model", "edge", "stage_narrative",
+                     "assets", "gaps", "risk_signals"):
+            content = getattr(profile.portrait, name)
+            if content:
+                items.append(KnowledgeItem(kind=KnowledgeKind.tacit,
+                                           field=f"portrait.{name}", content=content))
+    return items
+
+
+# ── 2단 — 가설 생성 (LLM 1호출 / Mock 템플릿) ──────────────────────
+
+def _intent_text(req: ScoutRequest) -> str:
+    return (f"가치제안 {[v.value for v in req.intent.value_props]}, "
+            f"타겟 지역 {req.intent.target_region or '미지정'}, "
+            f"제안 유형 {req.intent.proposal_type or '미지정'}")
+
+
+def _mock_hypotheses(knowledge: list[KnowledgeItem],
+                     req: ScoutRequest) -> list[PartnerHypothesis]:
+    """LLM 없이 — 명백지/암묵지에서 결정적 템플릿 가설. CI·오프라인용."""
+    region = req.intent.target_region or "글로벌"
+    ex = {k.field: k.content for k in knowledge if k.kind == KnowledgeKind.explicit}
+    ta = {k.field: k.content for k in knowledge if k.kind == KnowledgeKind.tacit}
+    out: list[PartnerHypothesis] = []
+    if "target_customer" in ex:
+        out.append(PartnerHypothesis(
+            track=HypothesisTrack.exploit,
+            hypothesis=f"{region}에서 '{ex['target_customer']}'에 해당하는 사업자가 직접 수요자다.",
+            grounded_in=["target_customer"],
+            search_query=f"{region} {ex['target_customer']} 업체 목록",
+            partner_type=ex["target_customer"]))
+    if "problem_solved" in ex:
+        out.append(PartnerHypothesis(
+            track=HypothesisTrack.exploit,
+            hypothesis=f"'{ex['problem_solved']}' 문제를 공개적으로 겪는 사업자를 찾는다.",
+            grounded_in=["problem_solved"],
+            search_query=f"{region} {ex['problem_solved'][:24]} 사례",
+            partner_type="같은 문제를 겪는 수요처"))
+    gaps = ta.get("portrait.gaps")
+    if gaps:
+        out.append(PartnerHypothesis(
+            track=HypothesisTrack.explore,
+            hypothesis=f"결핍({gaps[:40]}…)을 메워줄 수 있는 인접 업계 파트너가 비자명 후보다.",
+            grounded_in=["portrait.gaps"],
+            search_query=f"{region} {gaps[:24]} 파트너",
+            partner_type="결핍 보완형 파트너"))
+    else:
+        out.append(PartnerHypothesis(
+            track=HypothesisTrack.explore,
+            hypothesis=f"{region}의 인접 산업에서 같은 고객을 다른 각도로 만나는 사업자가 교차 후보다.",
+            grounded_in=[k.field for k in knowledge if k.kind == KnowledgeKind.tacit][:2]
+                        or ["profile"],
+            search_query=f"{region} 협업 파트너십 프로그램",
+            partner_type="교차 도메인 파트너"))
+    return out
+
+
+def _llm_hypotheses(extractor, knowledge: list[KnowledgeItem],
+                    req: ScoutRequest) -> list[PartnerHypothesis]:
+    data = extractor.extract_json(SCOUT_SYSTEM,
+                                  scout_user(knowledge, _intent_text(req)),
+                                  SCOUT_SCHEMA, deep=False)   # 가설은 1호출 — 판단이 아님
+    out: list[PartnerHypothesis] = []
+    for h in data.get("hypotheses", []):
+        try:
+            out.append(PartnerHypothesis(**h))
+        except Exception:                        # noqa: BLE001 — 계약 위반 가설은 폐기
+            continue
+    return out
+
+
+def _enforce_hypothesis_contract(hyps: list[PartnerHypothesis],
+                                 knowledge: list[KnowledgeItem]) -> tuple[list, dict]:
+    """가설 계약 코드 집행 (프롬프트만의 규칙은 규칙이 아니다):
+    exploit은 명백지에만, explore는 암묵지를 최소 1개 근거로. 위반은 폐기+집계."""
+    explicit_fields = {k.field for k in knowledge if k.kind == KnowledgeKind.explicit}
+    tacit_fields = {k.field for k in knowledge if k.kind == KnowledgeKind.tacit}
+    kept, rejected = [], {"exploit_tacit": 0, "explore_no_tacit": 0, "empty": 0}
+    for h in hyps[:_MAX_QUERIES]:
+        if not h.search_query.strip() or not h.hypothesis.strip():
+            rejected["empty"] += 1
+            continue
+        grounded = set(h.grounded_in)
+        if h.track == HypothesisTrack.exploit and grounded & tacit_fields:
+            rejected["exploit_tacit"] += 1       # 정석 가설이 암묵지에 기댐 — 계약 위반
+            continue
+        if h.track == HypothesisTrack.explore and not (grounded & tacit_fields):
+            rejected["explore_no_tacit"] += 1    # 모험 가설에 암묵지 근거 없음
+            continue
+        kept.append(h)
+    return kept, rejected
+
+
+# ── 3단 — 웹 검색 → 4단 — 숏리스트 (결정적) ────────────────────────
+
+def _score(hit: dict, hyp: PartnerHypothesis) -> float:
+    """결정적 관련도 — 히트(제목+스니펫) ↔ 가설+검색어 bigram overlap."""
+    return round(overlap(f"{hit['title']} {hit['snippet']}",
+                         f"{hyp.hypothesis} {hyp.search_query} {hyp.partner_type}"), 4)
+
+
+def _shortlist(per_hyp_hits: list[tuple[PartnerHypothesis, list[dict]]],
+               k: int, explore_ratio: float) -> list[ScoutCandidate]:
+    """도메인 dedup → 트랙별 정렬 → explore 쿼터 배분(JDG-09) → 부족분 백필."""
+    seen_domains: set[str] = set()
+    pool: dict[HypothesisTrack, list[ScoutCandidate]] = {
+        HypothesisTrack.exploit: [], HypothesisTrack.explore: []}
+    for hyp, hits in per_hyp_hits:
+        for hit in hits:
+            domain = hit["domain"]
+            if not domain or domain in seen_domains or domain in _NOISE_DOMAINS:
+                continue
+            rel = _score(hit, hyp)
+            if rel < _MIN_RELEVANCE:
+                continue
+            seen_domains.add(domain)
+            pool[hyp.track].append(ScoutCandidate(
+                track=hyp.track, hypothesis=hyp.hypothesis,
+                title=hit["title"], url=hit["url"], snippet=hit["snippet"],
+                domain=domain, relevance=rel))
+    for track in pool:
+        pool[track].sort(key=lambda c: (-c.relevance, c.domain))
+
+    n_explore = min(len(pool[HypothesisTrack.explore]),
+                    max(1, round(k * explore_ratio)) if explore_ratio > 0 else 0)
+    n_exploit = min(len(pool[HypothesisTrack.exploit]), k - n_explore)
+    # 백필 — 한 트랙이 부족하면 다른 트랙에서 채운다 (k를 억지로 못 채우면 정직하게 적게)
+    n_explore = min(len(pool[HypothesisTrack.explore]), k - n_exploit)
+    picked = pool[HypothesisTrack.exploit][:n_exploit] \
+        + pool[HypothesisTrack.explore][:n_explore]
+    picked.sort(key=lambda c: (-c.relevance, c.domain))
+    return picked
+
+
+def scout(req: ScoutRequest, settings: "Settings | None" = None,
+          search_fn=None) -> ScoutResponse:
+    """지식 분리 → 가설 → 웹 검색 → 숏리스트. search_fn 주입은 테스트용."""
+    from ..ingest.websearch import web_search
+    settings = settings or get_settings()
+    search_fn = search_fn or web_search
+
+    with progress.node("knowledge.split", "지식 분리 (명백지/암묵지)"):
+        knowledge = split_knowledge(req.profile)
+        n_ex = sum(1 for x in knowledge if x.kind == KnowledgeKind.explicit)
+        progress.log("지식", f"명백지 {n_ex}건 · 암묵지 {len(knowledge) - n_ex}건 분리")
+
+    extractor = get_extractor(settings)
+    with progress.node("hypothesize", "파트너 가설 (exploit 정석 / explore 모험)"):
+        if extractor is not None:
+            raw = _llm_hypotheses(extractor, knowledge, req)
+            engine_mode = "llm"
+        else:
+            raw = _mock_hypotheses(knowledge, req)
+            engine_mode = "mock"
+        hyps, rejected = _enforce_hypothesis_contract(raw, knowledge)
+        n_rej = sum(rejected.values())
+        progress.log("가설", f"exploit {sum(1 for h in hyps if h.track == HypothesisTrack.exploit)}건 · "
+                             f"explore {sum(1 for h in hyps if h.track == HypothesisTrack.explore)}건"
+                             + (f" · 계약 위반 폐기 {n_rej}건 {rejected}" if n_rej else ""))
+
+    per_hyp: list[tuple[PartnerHypothesis, list[dict]]] = []
+    web_used = False
+    with progress.node("websearch", "웹 검색 (풀 밖 후보 충원)"):
+        for h in hyps:
+            hits = search_fn(h.search_query, settings,
+                             max_results=_RESULTS_PER_QUERY)
+            web_used = web_used or bool(hits)
+            per_hyp.append((h, hits))
+        if not web_used:
+            progress.log("검색", "⚠ 모든 검색 실패/차단 — 숏리스트가 비어도 가설은 유효")
+
+    with progress.node("shortlist", "숏리스트 (explore 쿼터 배분)"):
+        shortlist = _shortlist(per_hyp, req.k, req.explore_ratio)
+        progress.log("숏리스트", f"{len(shortlist)}건 채택 "
+                                f"(exploit {sum(1 for c in shortlist if c.track == HypothesisTrack.exploit)} / "
+                                f"explore {sum(1 for c in shortlist if c.track == HypothesisTrack.explore)}) · "
+                                f"explore_ratio={req.explore_ratio}")
+
+    from .. import audit
+    audit.record("scout", {
+        "name": req.profile.basic.name, "engine_mode": engine_mode,
+        "n_explicit": sum(1 for x in knowledge if x.kind == KnowledgeKind.explicit),
+        "n_tacit": sum(1 for x in knowledge if x.kind == KnowledgeKind.tacit),
+        "hypotheses": [h.model_dump(mode="json") for h in hyps],
+        "shortlist": [c.model_dump(mode="json") for c in shortlist],
+    })
+    return ScoutResponse(knowledge=knowledge, hypotheses=hyps,
+                         shortlist=shortlist, engine_mode=engine_mode,
+                         web_search_used=web_used)

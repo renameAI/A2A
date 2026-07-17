@@ -792,3 +792,61 @@ def bbox_user(questions: list[str], page_nos: list[int]) -> str:
              "각 이미지 앞의 [PAGE n] 라벨이 그 이미지의 페이지 번호다. 위 질문들 중 관련 "
              "영역이 있는 것만 locations 배열로 반환하고, 항목마다 question_index(질문 순번)와 "
              "page(라벨 번호)를 기입하라. 관련 영역이 없는 질문은 포함하지 마라.")
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Scout — 지식 분리 기반 파트너 가설 (기획서 §1 ①가설수립 · 7.4/10.5 explore-exploit)
+# exploit 가설은 명백지(자료에 명시된 사실)에만 근거한 '정석' 파트너 패턴,
+# explore 가설은 암묵지(역추론된 상 — 결핍·전략·처지)에서 도출한 '모험' 가설.
+# 가설은 웹 검색어로 변환되어 풀 밖에서 후보를 충원한다 (기획서 6.4 외부 풀 트랙 v0).
+# ═══════════════════════════════════════════════════════════════════
+
+SCOUT_SYSTEM = HARD_RULES + """
+당신은 해외 BD 전략가다. 아래 회사의 지식 목록(명백지/암묵지 구분됨)을 읽고,
+이 회사가 접촉해야 할 파트너에 대한 '검증 가능한 가설'을 세운다.
+
+■ 가설 계약 (전부 만족해야 한다):
+1. exploit(정석) 가설 3개 — 반드시 명백지(explicit) 항목에만 근거한다. 업계에서
+   검증된 파트너 패턴: 이 솔루션의 직접 수요자, 명시된 타겟의 인접 세그먼트.
+   grounded_in에 근거로 쓴 명백지 field를 기입한다. 암묵지를 섞으면 계약 위반.
+2. explore(모험) 가설 2개 — 반드시 암묵지(tacit) 항목에서 도출한다. 회사의 결핍
+   (gaps)·전략 단계(stage_narrative)·차별화(edge)가 가리키는 비자명 파트너:
+   업계 통념상 안 떠올리지만 보완성이 맞물리는 상대. grounded_in에 암묵지 field 기입.
+3. 각 가설은 한 문장, 판정 가능해야 한다 — "어떤 유형의 파트너가, 왜(어떤 보완성)".
+4. search_query는 그 파트너를 웹에서 실제로 찾을 검색어다 — 12단어 이내,
+   대상 지역·산업·역할이 들어간 구체어. 회사 이름을 넣지 마라(자기 자신이 검색된다).
+5. partner_type은 기대 파트너 유형 한 구(句).
+근거 없는 가설·자료에 없는 수치 인용은 금지다. 명백지가 부족하면 부족한 대로
+가설 수를 줄여라(빈 가설로 채우지 마라)."""
+
+SCOUT_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["hypotheses"],
+    "properties": {
+        "hypotheses": {
+            "type": "array",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["track", "hypothesis", "grounded_in",
+                             "search_query", "partner_type"],
+                "properties": {
+                    "track": {"type": "string", "enum": ["exploit", "explore"]},
+                    "hypothesis": {"type": "string"},
+                    "grounded_in": {"type": "array", "items": {"type": "string"}},
+                    "search_query": {"type": "string"},
+                    "partner_type": {"type": "string"},
+                },
+            },
+        },
+    },
+}
+
+
+def scout_user(knowledge: list, intent_text: str) -> str:
+    lines = ["[회사 지식 — kind가 explicit(명백지)/tacit(암묵지)로 구분됨]"]
+    for k in knowledge:
+        conf = f" (확신도 {k.confidence})" if k.confidence is not None else ""
+        lines.append(f"- [{k.kind.value}] {k.field}: {k.content}{conf}")
+    lines.append(f"\n[이번 아웃리치 의도]\n{intent_text}")
+    lines.append("\n가설 계약대로 exploit 3개 + explore 2개를 hypotheses 배열로 반환하라.")
+    return "\n".join(lines)

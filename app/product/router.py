@@ -400,6 +400,30 @@ def match(req: MatchRequest, background: BackgroundTasks):
     return _submit(background, _run)
 
 
+# ── 웹 스카우트 (엔진 scout 호출 — 풀 밖 후보 충원, JDG-09) ─────────
+
+class ScoutCallRequest(BaseModel):
+    company_id: str
+    intent: Intent
+    k: int = Field(default=6, ge=1, le=20)
+    explore_ratio: float = Field(default=0.34, ge=0.0, le=1.0)
+
+
+@router.post("/scout", status_code=202)
+def scout_partners(req: ScoutCallRequest, background: BackgroundTasks):
+    """명백지/암묵지 분리 → exploit(정석)·explore(모험) 가설 → 웹 검색 숏리스트."""
+    from ..engine.scout import scout as scout_engine
+    from ..schemas import ScoutRequest
+    rec = _require_company(req.company_id)
+
+    def _run() -> dict:
+        result = scout_engine(ScoutRequest(
+            profile=rec.profile, intent=req.intent,
+            k=req.k, explore_ratio=req.explore_ratio))
+        return result.model_dump(mode="json")
+    return _submit(background, _run)
+
+
 # ── 판단 (엔진 judge 호출 — 보내는 쪽 · 탐색 예산) ──────────────────
 
 class JudgeCallRequest(BaseModel):

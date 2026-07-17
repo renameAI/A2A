@@ -204,6 +204,24 @@ curl -X POST localhost:8423/a2a -H 'Content-Type: application/json' -d '{
 `app/a2a.py` 단일 모듈, `TestClient` 스트리밍으로 lifecycle 테스트(`tests/test_a2a.py`).
 취소 한계: 엔진 스킬은 계산 중간 중단 지점이 없어 `tasks/cancel`은 협조적(완료돼도 결과 폐기).
 
+## 웹 파트너 스카우트 — 명백지/암묵지 → explore/exploit 가설 → 웹 검색
+
+Retrieve가 '이미 아는 풀' 안에서 찾는다면, Scout는 **풀 밖(웹)**에서 후보를 충원한다
+(기획서 6.4 외부 풀 충원 트랙의 v0 · JDG-09 탐색 예산을 충원 단계에 적용).
+
+1. **지식 분리** ([engine/scout.py](app/engine/scout.py) `split_knowledge`, 결정적):
+   명백지 = provenance `stated`·레퍼런스·자가신고 / 암묵지 = `inferred`(확신도 동반)·회사의 상 7항목(정의상 역추론).
+2. **가설 생성**: exploit(정석) 가설은 **명백지에만** 근거, explore(모험) 가설은 **암묵지 최소 1개** 근거 —
+   프롬프트 계약([prompts.py](app/engine/prompts.py) `SCOUT_SYSTEM`)을 코드가 집행(위반 가설 폐기+집계).
+3. **웹 검색** ([ingest/websearch.py](app/ingest/websearch.py)): 키 없는 DuckDuckGo HTML(크롤러와 같은
+   공개 웹 범주, 24h 캐시). 상용 검색 API(Tavily·Serper)는 AXR 협의 후 이 모듈만 교체.
+4. **숏리스트**: 도메인 dedup + 노이즈 도메인 필터 + explore 쿼터 배분(`explore_ratio`, JDG-09 파라미터) +
+   결정적 정렬. 검색 전멸 시 `web_search_used:false`로 정직 표기(가설은 유효).
+
+`POST /product/scout {company_id, intent, k, explore_ratio}` · 엔진 API `POST /v1/scout` · A2A 스킬 `scout`.
+정직한 한계: mock 경로는 전부 명백지라 explore 가설이 원천 불가(계약의 정직한 동작) — 모험 가설은
+실 LLM 경로(회사의 상)에서 나온다. v0 숏리스트엔 정보성 글이 섞일 수 있다(가설 검색어 품질은 LLM 경로가 우위).
+
 ## 근거 시각화 (bbox) — IR덱 원문 위 AI가 본 위치 + 댓글 강제
 
 Simsa(cts_screening 검토 SaaS)의 box_2d 패턴을 재사용한 선택 기능. IR덱 PDF 페이지 이미지

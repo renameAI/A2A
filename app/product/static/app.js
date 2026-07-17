@@ -85,6 +85,17 @@ const PIPELINES = {
             ["compose.template", "sendgate"]],
   },
   negotiate: { title: "A2A 협상 — 제안 ↔ 검토 ↔ 재제안 (7-A)", dynamic: true },
+  scout: {
+    title: "Scout — 지식 분리 → 가설 → 웹 검색 (JDG-09)",
+    nodes: [
+      { id: "knowledge.split", col: 0, row: 0, label: "지식 분리",   desc: "명백지(stated) / 암묵지(inferred·상) 결정적 분리" },
+      { id: "hypothesize",     col: 1, row: 0, label: "파트너 가설", desc: "exploit=명백지 정석 / explore=암묵지 모험 — 계약 코드 집행" },
+      { id: "websearch",       col: 2, row: 0, label: "웹 검색",     desc: "가설별 검색어로 풀 밖 후보 충원 (키 없는 공개 웹)" },
+      { id: "shortlist",       col: 3, row: 0, label: "숏리스트",    desc: "도메인 dedup + explore 쿼터 배분 + 결정적 정렬" },
+    ],
+    edges: [["knowledge.split", "hypothesize"], ["hypothesize", "websearch"],
+            ["websearch", "shortlist"]],
+  },
   consult: {
     title: "Consultant — 진단 인터뷰 (기획서 9장)",
     nodes: [
@@ -341,6 +352,7 @@ async function runJob(path, body, logBox, kind) {
 /* ── A2A 소통 루프 — product job을 A2A Task lifecycle로 같은 화면에 표시 ── */
 
 const A2A_STAGE = {
+  scout: "web/scout",
   onboard: "profile/represent",
   consult: "consult",
   match: "retrieve",
@@ -350,9 +362,7 @@ const A2A_STAGE = {
 };
 
 function renderA2ALoop(kind, job) {
-  const box = $("#a2a-loop");
-  if (!box) return;
-  box.classList.remove("hidden");
+  if (!$("#loop-current")) return;
   const stateName = job.a2a_state || (job.status === "done" ? "completed" : job.status);
   const label = A2A_STAGE[kind] || kind;
   $("#loop-current").textContent = `${label}: ${stateName}`;
@@ -462,8 +472,10 @@ function collectPrivateState() {
 
 async function onboard() {
   const assets = collectAssets();
-  if (!assets.length) { showError("#onboard-error", "자료를 1건 이상 입력해주세요."); return; }
+  if (!assets.length) { showError("#modal-onboard-error", "자료를 1건 이상 입력해주세요."); return; }
   hideError("#onboard-error");
+  document.getElementById("modal-onboard")?.close();
+  $("#empty-state")?.classList.add("hidden");
   const btn = $("#btn-onboard"); btn.disabled = true;
   try {
     // content 없는 URL 자산은 서버가 수집(fetch)한다
@@ -475,11 +487,12 @@ async function onboard() {
     };
     const data = await runJob("/product/onboard", body, $("#onboard-log"), "onboard");
     state.companyId = data.company_id;
-    $("#questions-panel").classList.add("hidden");
+    $("#questions-step").classList.add("hidden");
     renderProfile(data);
     $("#step2").classList.remove("hidden");
     $("#step-consult").classList.remove("hidden");
     $("#step3").classList.remove("hidden");
+    $("#step-scout").classList.remove("hidden");
     $("#engine-mode").textContent = `engine: ${data.engine_mode}`;
     $("#engine-mode").className = `badge mode-${data.engine_mode}`;
     updateChecklist(data.profile);
@@ -498,6 +511,7 @@ async function onboard() {
       showError("#onboard-error",
         "최소 프로필 기준 미달 — 아래 보강 질문에 답하면 매칭 풀에 들어갈 수 있어요.");
     } else {
+      $("#questions-step").classList.remove("hidden");
       showError("#onboard-error", `${err.code || ""} ${err.message}`);
     }
   } finally { btn.disabled = false; }
@@ -538,7 +552,7 @@ function showQuestions(questions, clarify) {
       renderMinProgress();
     };
   });
-  $("#questions-panel").classList.remove("hidden");
+  $("#questions-step").classList.remove("hidden");
 }
 
 /* ── 최소 프로필 진행바 (무엇이 채워지고 무엇이 남았는지) ─────────── */
@@ -740,6 +754,7 @@ function collectIntent() {
 
 $("#btn-match").onclick = async () => {
   hideError("#match-error");
+  document.getElementById("modal-intent")?.close();
   const btn = $("#btn-match"); btn.disabled = true;
   state.intent = collectIntent();
   updateChecklist();
@@ -990,7 +1005,7 @@ $("#btn-consult").onclick = consultNext;
 /* ── 체크리스트 라이브 갱신 ─────────────────────────────────── */
 
 function setCheck(name, ok) {
-  const li = document.querySelector(`#checklist [data-check="${name}"]`);
+  const li = document.querySelector(`#checklist-inline [data-check="${name}"]`);
   if (li) li.classList.toggle("ok", !!ok);
 }
 
@@ -1015,3 +1030,63 @@ function updateChecklist(profile) {
 /* 초기 상태: 웹사이트 + 텍스트 입력 한 줄씩 */
 addAssetRow("website");
 addAssetRow("text");
+
+/* ── 모달 (기업 자료 입력 · 의도 설정) ─────────────────────────── */
+
+$("#open-onboard").onclick = () => document.getElementById("modal-onboard").showModal();
+$("#open-intent").onclick = () => document.getElementById("modal-intent").showModal();
+
+/* ── 3+ 웹 파트너 스카우트 — explore/exploit 가설 → 웹 검색 (JDG-09) ── */
+
+const TRACK_KO = { exploit: "정석", explore: "모험" };
+
+function renderScout(data) {
+  const hyps = data.hypotheses || [];
+  $("#scout-hypotheses").innerHTML = hyps.length ? `
+    <h3 class="scout-h">가설 ${hyps.length}건
+      <small>명백지 ${data.knowledge.filter((k) => k.kind === "explicit").length} ·
+      암묵지 ${data.knowledge.filter((k) => k.kind === "tacit").length}건에서 도출</small></h3>
+    ${hyps.map((h) => `
+      <div class="hyp hyp-${esc(h.track)}">
+        <span class="track track-${esc(h.track)}">${TRACK_KO[h.track] || h.track}</span>
+        <div class="hyp-body">
+          <div class="hyp-text">${esc(h.hypothesis)}</div>
+          <div class="hyp-meta">근거: ${h.grounded_in.map(esc).join(", ")} ·
+            검색어 "${esc(h.search_query)}"</div>
+        </div>
+      </div>`).join("")}` : "";
+
+  const list = data.shortlist || [];
+  $("#scout-shortlist").innerHTML = list.length ? `
+    <h3 class="scout-h">웹 숏리스트 ${list.length}건
+      <small>정석 ${list.filter((c) => c.track === "exploit").length} ·
+      모험 ${list.filter((c) => c.track === "explore").length}</small></h3>
+    ${list.map((c) => `
+      <div class="cand scout-cand">
+        <div class="cand-head">
+          <span class="track track-${esc(c.track)}">${TRACK_KO[c.track] || c.track}</span>
+          <h3><a href="${esc(c.url)}" target="_blank" rel="noreferrer">${esc(c.title)}</a>
+            <small>${esc(c.domain)}</small></h3>
+          <div class="score-bar" title="relevance ${c.relevance}"><i style="width:${Math.min(c.relevance * 100, 100)}%"></i></div>
+        </div>
+        <div class="summary">${esc(c.snippet)}</div>
+        <details><summary>이 후보를 찾게 한 가설</summary><pre>${esc(c.hypothesis)}</pre></details>
+      </div>`).join("")}`
+    : (data.web_search_used === false
+       ? `<div class="panel warn">웹 검색이 차단·실패했습니다 — 가설은 위에 유효하게 남아 있어요.
+          네트워크 상태를 확인하거나 잠시 후 다시 시도해 주세요.</div>` : "");
+}
+
+$("#btn-scout").onclick = async () => {
+  hideError("#scout-error");
+  if (!state.companyId) { showError("#scout-error", "먼저 기업 자료를 입력해 프로필을 만들어 주세요."); return; }
+  const btn = $("#btn-scout"); btn.disabled = true;
+  try {
+    const data = await runJob("/product/scout",
+      { company_id: state.companyId, intent: state.intent || collectIntent(), k: 6 },
+      $("#scout-log"), "scout");
+    renderScout(data);
+  } catch (err) {
+    showError("#scout-error", `${err.code || ""} ${err.message}`);
+  } finally { btn.disabled = false; }
+};
