@@ -572,6 +572,10 @@ def represent(req: RepresentRequest, settings: Settings | None = None
             "assets": [a.type.value for a in req.assets],
             "open_questions": open_questions,
             "portrait": profile.portrait.model_dump() if profile.portrait else None,
+            # SFT 학습 자산화 — 입력 원문과 전체 라벨이 없으면 궤적에서 학습쌍을
+            # 복원할 수 없다 (기존 로그 48건이 그래서 학습에 못 쓰였다)
+            "input_text": full_text,
+            "profile_json": profile.model_dump(mode="json"),
         })
 
     anchors = [

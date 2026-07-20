@@ -25,12 +25,13 @@ REQUIRED_FIELDS = {
               "verdicts", "trajectory"],
     "consult": ["company", "turn", "history", "output"],
     "negotiate": ["seller", "buyer", "termination", "rounds_used", "rounds"],
+    "scout": ["name", "engine_mode", "hypotheses", "shortlist"],
 }
 
 # kind별 '주체명' 필드 — 분할 해시 키. 같은 회사의 여러 궤적이 train/held-out에
 # 갈라지지 않도록(누수 방지) 회사 단위로 묶는다.
 SUBJECT_FIELD = {"represent": "name", "judge": "self",
-                 "consult": "company", "negotiate": "seller"}
+                 "consult": "company", "negotiate": "seller", "scout": "name"}
 
 
 @dataclass
@@ -177,12 +178,22 @@ def build(audit_dir: str | Path, out_dir: str | Path,
     _write_jsonl(out / "heldout.jsonl", held)
     (out / "seal.json").write_text(
         json.dumps(sealed, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # SFT 학습쌍 — 입력 캡처된 궤적만 변환된다 (구버전 로그는 skip 집계에 드러남)
+    train_sft, train_skip = to_sft(train)
+    held_sft, held_skip = to_sft(held)
+    _write_jsonl(out / "train_sft.jsonl", train_sft)
+    _write_jsonl(out / "heldout_sft.jsonl", held_sft)
+
     summary = {
         "total_lines": len(records),
         "valid": len(report.valid),
         "errors": len(report.errors),
         "train": len(train),
         "heldout": len(held),
+        "train_sft": len(train_sft),
+        "heldout_sft": len(held_sft),
+        "sft_skipped": {"train": train_skip, "heldout": held_skip},
         "coverage": coverage,
         "seal_violations": violations,
     }
@@ -190,6 +201,62 @@ def build(audit_dir: str | Path, out_dir: str | Path,
         json.dumps({**summary, "validation_errors": report.errors},
                    ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
+
+
+# ── SFT 변환 — 궤적 → chat 학습쌍 ─────────────────────────────────
+# 엔진이 실제로 쓰는 프롬프트(system+user → 구조화 JSON)와 1:1이어야
+# 학습-추론 분포가 일치한다. 입력 원문(input_text)이 없는 레코드(입력 캡처
+# 이전의 구버전 로그)는 학습쌍을 복원할 수 없으므로 정직하게 건너뛰고 센다.
+
+def to_sft(records: list[dict]) -> tuple[list[dict], dict]:
+    """검증된 audit 레코드 → chat-format SFT 예제. 반환: (examples, skip 집계).
+
+    represent: input_text → EXTRACT_SYSTEM / 라벨 = profile_json + open_questions
+    judge:     input_text(judge_user 전문) → JUDGE_SYSTEM / 라벨 = result_json
+    consult/negotiate/scout: 입력 재구성이 아직 불완전 — v1 범위 밖 (집계에 표시).
+    """
+    from .engine.prompts import EXTRACT_SYSTEM, JUDGE_SYSTEM
+    examples: list[dict] = []
+    skipped = {"no_input": 0, "kind_out_of_scope": 0}
+    for rec in records:
+        kind = rec.get("kind")
+        if kind == "represent":
+            if not rec.get("input_text") or not rec.get("profile_json"):
+                skipped["no_input"] += 1
+                continue
+            label = {"profile": rec["profile_json"],
+                     "open_questions": rec.get("open_questions", [])}
+            examples.append({
+                "messages": [
+                    {"role": "system", "content": EXTRACT_SYSTEM},
+                    {"role": "user", "content": rec["input_text"]},
+                    {"role": "assistant",
+                     "content": json.dumps(label, ensure_ascii=False)},
+                ],
+                "meta": {"kind": kind, "subject": rec.get("name"),
+                         "engine_mode": rec.get("engine_mode"),
+                         "structured_input": True,
+                         "label_source": "trajectory"},
+            })
+        elif kind == "judge":
+            if not rec.get("input_text") or not rec.get("result_json"):
+                skipped["no_input"] += 1
+                continue
+            examples.append({
+                "messages": [
+                    {"role": "system", "content": JUDGE_SYSTEM},
+                    {"role": "user", "content": rec["input_text"]},
+                    {"role": "assistant",
+                     "content": json.dumps(rec["result_json"],
+                                           ensure_ascii=False)},
+                ],
+                "meta": {"kind": kind, "subject": rec.get("self"),
+                         "structured_input": False,
+                         "label_source": "trajectory"},
+            })
+        else:
+            skipped["kind_out_of_scope"] += 1
+    return examples, skipped
 
 
 def _write_jsonl(path: Path, records: list[dict]) -> None:

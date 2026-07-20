@@ -308,6 +308,9 @@ def _audit_judge(req: JudgeRequest, result: JudgeResult,
                      for d in result.category_judgments},
         "risks": [f"{r.type.value}: {r.description}" for r in result.risks],
         "trajectory": result.trajectory,
+        # SFT 학습 자산화 — 판단 입력 프롬프트 전문 + 전체 결과 JSON (재학습 쌍)
+        "input_text": judge_user(req),
+        "result_json": result.model_dump(mode="json"),
     })
 
 
