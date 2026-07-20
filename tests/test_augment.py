@@ -152,13 +152,61 @@ class TestSftConversion:
         assert "테스트사" in msgs[1]["content"]
         assert json.loads(msgs[2]["content"])["open_questions"] == ["질문?"]
 
-    def test_judge_pair(self):
-        rec = {"kind": "judge", "self": "갑", "counterpart": "을",
-               "vantage": "seller", "objective": "exploration_budget",
-               "decision": "conditional", "verdicts": {}, "trajectory": "...",
+    def _judge_rec(self, **overrides):
+        rec = {"kind": "judge", "engine_mode": "llm", "self": "갑",
+               "counterpart": "을", "vantage": "seller",
+               "objective": "exploration_budget", "decision": "conditional",
+               "decision_pre_gate": "conditional", "needs_human": False,
+               "verdicts": {}, "trajectory": "...",
                "input_text": "렌즈(vantage): seller ...",
-               "result_json": {"decision": "conditional"}}
-        examples, skipped = to_sft([rec])
+               "result_json": {
+                   "category_judgments": [], "risks": [], "reasoning_moves": [],
+                   "trajectory": "...", "decision": "conditional",
+                   "decision_rationale": "...", "fit_reasons": ["근거1"],
+                   "gap_factors": [],
+                   "match_summary": {"problem_solution": "p", "value_proposition": "v",
+                                     "reference": "first_case"},
+                   "deal_structure": None, "confidence_band": "high",
+                   "sample_agreement": 1.0, "needs_human": False}}
+        rec.update(overrides)
+        return rec
+
+    def test_judge_pair(self):
+        examples, skipped = to_sft([self._judge_rec()])
         assert len(examples) == 1
         assert examples[0]["meta"]["kind"] == "judge"
         assert skipped["no_input"] == 0
+
+    def test_judge_label_excludes_non_schema_keys(self):
+        """라벨에 sample_agreement·needs_human이 남으면 JUDGE_SCHEMA
+        (additionalProperties:false) 위반 출력을 학습시키게 된다."""
+        examples, _ = to_sft([self._judge_rec()])
+        label = json.loads(examples[0]["messages"][2]["content"])
+        assert "sample_agreement" not in label
+        assert "needs_human" not in label
+        assert label["decision"] == "conditional"
+
+    def test_mock_judge_excluded(self):
+        """규칙 기반(mock) 판단은 '전문가 라벨'이 아니다 — 반드시 제외."""
+        examples, skipped = to_sft([self._judge_rec(engine_mode="mock")])
+        assert len(examples) == 0
+        assert skipped["mock_engine"] == 1
+
+    def test_legacy_record_without_engine_mode_excluded(self):
+        rec = self._judge_rec()
+        del rec["engine_mode"]
+        examples, skipped = to_sft([rec])
+        assert len(examples) == 0
+        assert skipped["mock_engine"] == 1
+
+    def test_gate_corrected_decision_excluded(self):
+        """L3 게이트가 decision을 덮어쓴 레코드는 LLM의 원 판단이 아니다."""
+        examples, skipped = to_sft(
+            [self._judge_rec(decision="hold", decision_pre_gate="recommend")])
+        assert len(examples) == 0
+        assert skipped["gate_corrected"] == 1
+
+    def test_low_confidence_excluded(self):
+        examples, skipped = to_sft([self._judge_rec(needs_human=True)])
+        assert len(examples) == 0
+        assert skipped["low_confidence"] == 1

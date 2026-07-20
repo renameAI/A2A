@@ -431,8 +431,12 @@ def _profile_block(label: str, profile, private_state=None) -> str:
     return "\n".join(lines)
 
 
-def judge_user(req) -> str:
-    """JudgeRequest → LLM 입력. 메시지 본문은 스키마상 애초에 들어올 수 없다 (JDG-07)."""
+def judge_user(req, ontology_hint: "str | None" = None) -> str:
+    """JudgeRequest → LLM 입력. 메시지 본문은 스키마상 애초에 들어올 수 없다 (JDG-07).
+
+    ontology_hint: app/ontology/retrieve.py가 뽑은 실 산업 사례 참고(선택) —
+    사실이 아니라 구조 참고이므로 judge()가 이미 그렇게 고지된 문자열만 넘긴다.
+    """
     lens_note = ("판매자 렌즈 — self가 추격할 가치를 판단. 공통 5차원 판정."
                  if req.vantage.value == "seller" else
                  "구매자 렌즈 — self가 수용 안전·이득을 판단. 공통 5차원 + "
@@ -442,7 +446,7 @@ def judge_user(req) -> str:
                    f"타겟 지역: {intent.target_region or '미지정'} / "
                    f"제안 유형: {intent.proposal_type or '미지정'} / "
                    f"노트: {intent.notes or '없음'}")
-    return "\n\n".join([
+    parts = [
         f"렌즈(vantage): {req.vantage.value} — {lens_note}",
         f"목적함수(objective): {req.objective.value}",
         f"[의도]\n{intent_text}",
@@ -450,8 +454,11 @@ def judge_user(req) -> str:
                        req.self_private_state),
         _profile_block("counterpart — 검토 대상 (상대)", req.counterpart_profile,
                        req.counterpart_private_state),
-        "판단 절차 ①~⑤를 수행하라. 양측의 상 재구성부터 시작한다.",
-    ])
+    ]
+    if ontology_hint:
+        parts.append(f"[참고 — 유사 산업 실증 패턴]\n{ontology_hint}")
+    parts.append("판단 절차 ①~⑤를 수행하라. 양측의 상 재구성부터 시작한다.")
+    return "\n\n".join(parts)
 
 
 # ═══════════════════════════════════════════════════════════════════

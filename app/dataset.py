@@ -215,9 +215,10 @@ def to_sft(records: list[dict]) -> tuple[list[dict], dict]:
     judge:     input_text(judge_user 전문) → JUDGE_SYSTEM / 라벨 = result_json
     consult/negotiate/scout: 입력 재구성이 아직 불완전 — v1 범위 밖 (집계에 표시).
     """
-    from .engine.prompts import EXTRACT_SYSTEM, JUDGE_SYSTEM
+    from .engine.prompts import EXTRACT_SYSTEM, JUDGE_SCHEMA, JUDGE_SYSTEM
     examples: list[dict] = []
-    skipped = {"no_input": 0, "kind_out_of_scope": 0}
+    skipped = {"no_input": 0, "kind_out_of_scope": 0, "mock_engine": 0,
+              "gate_corrected": 0, "low_confidence": 0}
     for rec in records:
         kind = rec.get("kind")
         if kind == "represent":
@@ -239,16 +240,36 @@ def to_sft(records: list[dict]) -> tuple[list[dict], dict]:
                          "label_source": "trajectory"},
             })
         elif kind == "judge":
+            # 적대적 검토 확정(C2) — engine_mode 없는(구버전) 또는 "mock"인 레코드는
+            # 규칙 기반 판단이라 '전문가 라벨'로 쓰면 안 된다.
+            if rec.get("engine_mode") != "llm":
+                skipped["mock_engine"] += 1
+                continue
             if not rec.get("input_text") or not rec.get("result_json"):
                 skipped["no_input"] += 1
                 continue
+            # 적대적 검토 확정(C3) — L3 게이트가 decision을 덮어쓴 레코드는 LLM의
+            # 원 판단이 아니다. needs_human(저합의)도 전문가 확신 판단으로 못 쓴다.
+            decision = rec.get("decision")
+            pre_gate = rec.get("decision_pre_gate", decision)
+            if decision != pre_gate:
+                skipped["gate_corrected"] += 1
+                continue
+            if rec.get("needs_human"):
+                skipped["low_confidence"] += 1
+                continue
+            # 라벨은 JUDGE_SCHEMA가 실제로 요구하는 키만 — sample_agreement·
+            # needs_human은 스키마 밖(additionalProperties:false)이라 이 키가
+            # 라벨에 남으면 튜닝 모델이 스키마 위반 출력을 배운다.
+            label = {k: rec["result_json"][k] for k in JUDGE_SCHEMA["required"]
+                     if k in rec["result_json"]}
             examples.append({
                 "messages": [
                     {"role": "system", "content": JUDGE_SYSTEM},
                     {"role": "user", "content": rec["input_text"]},
                     {"role": "assistant",
-                     "content": json.dumps(rec["result_json"],
-                                           ensure_ascii=False)},
+                     "content": json.dumps(label, ensure_ascii=False,
+                                           sort_keys=True)},
                 ],
                 "meta": {"kind": kind, "subject": rec.get("self"),
                          "structured_input": False,

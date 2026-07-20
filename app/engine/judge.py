@@ -256,6 +256,22 @@ def _vote_llm_judge(req: JudgeRequest, extractor, deep: bool, samples: int
     return chosen, agreement
 
 
+def _ontology_hint(req: JudgeRequest) -> "str | None":
+    """실 산업 협상 사례에서 뽑은 참고 힌트 (app/ontology, 선택·결정적).
+
+    judge_user(req)와 별개 함수에서 각각 호출돼도 같은 req면 항상 같은 문자열이
+    나온다(순수 함수 + 캐시) — _audit_judge가 재호출해도 실제 전송 프롬프트와
+    감사 로그의 input_text가 어긋나지 않는다.
+    """
+    try:
+        from ..ontology.retrieve import domain_hint
+    except Exception:                             # 재료 파일 문제로 판단을 막지 않는다
+        return None
+    p1, p2 = req.self_profile, req.counterpart_profile
+    return domain_hint(p1.basic.industry, p1.description,
+                       p2.basic.industry, p2.description)
+
+
 def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     """LLM 판단 경로 — 프롬프트가 판단 구조를, 스키마가 출력 계약을 강제한다.
     출력 계약은 규칙 경로와 동일하므로 API·테스트 구조는 그대로다."""
@@ -263,7 +279,10 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     progress.log("Judge", f"{req.self_profile.basic.name} → "
                           f"{req.counterpart_profile.basic.name} 판단 시작 "
                           f"({req.vantage.value} 렌즈 · {'깊은 추론' if deep else '표준'} 경로)")
-    data = extractor.extract_json(JUDGE_SYSTEM, judge_user(req), JUDGE_SCHEMA,
+    hint = _ontology_hint(req)
+    if hint:
+        progress.log("Judge", f"온톨로지 참고 힌트 적용 — {hint[:70]}...")
+    data = extractor.extract_json(JUDGE_SYSTEM, judge_user(req, hint), JUDGE_SCHEMA,
                                   deep=deep)   # 판단은 기본 깊은 추론 (7장 크라운 주얼)
     if not data.get("fit_reasons"):
         data["fit_reasons"] = ["판단 근거 부족 — 접촉으로 확인 필요"]
@@ -287,14 +306,19 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
 
 
 def _audit_judge(req: JudgeRequest, result: JudgeResult,
-                 pre_gate_decision: "str | None" = None) -> None:
+                 pre_gate_decision: "str | None" = None,
+                 engine_mode: str = "llm") -> None:
     """감사 가능 로그 (SYS-04) — 입력·추론 궤적·결정 저장 (HITL 검토·재학습용).
 
     적대적 검토 확정(F3): L3 게이트가 decision을 덮어쓴 뒤 감사가 기록돼 LLM의
     원 결정이 소실됐다 — 재학습 라벨·HITL 검토에 필요한 값이라 pre-gate 결정과
-    투표 신호를 함께 남긴다."""
+    투표 신호를 함께 남긴다.
+
+    engine_mode: 적대적 검토 추가 확정(C2) — 이게 없으면 규칙 기반(mock) 판단이
+    to_sft()에서 '전문가 판단'으로 둔갑한다. mock 경로는 명시적으로 "mock"을 넘긴다."""
     from .. import audit
     audit.record("judge", {
+        "engine_mode": engine_mode,
         "self": req.self_profile.basic.name,
         "counterpart": req.counterpart_profile.basic.name,
         "vantage": req.vantage.value, "objective": req.objective.value,
@@ -308,8 +332,9 @@ def _audit_judge(req: JudgeRequest, result: JudgeResult,
                      for d in result.category_judgments},
         "risks": [f"{r.type.value}: {r.description}" for r in result.risks],
         "trajectory": result.trajectory,
-        # SFT 학습 자산화 — 판단 입력 프롬프트 전문 + 전체 결과 JSON (재학습 쌍)
-        "input_text": judge_user(req),
+        # SFT 학습 자산화 — 판단 입력 프롬프트 전문 + 전체 결과 JSON (재학습 쌍).
+        # _ontology_hint(req)는 결정적이라 _llm_judge가 실제로 보낸 것과 동일하다.
+        "input_text": judge_user(req, _ontology_hint(req)),
         "result_json": result.model_dump(mode="json"),
     })
 
@@ -329,7 +354,7 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         pre_gate = result.decision.value                    # 감사용 원 결정 보존 (F3)
         _apply_consistency_gate(result, agreement, settings)   # L3 하드 게이트
         with progress.node("audit", "감사 로그 (SYS-04)"):
-            _audit_judge(req, result, pre_gate_decision=pre_gate)
+            _audit_judge(req, result, pre_gate_decision=pre_gate, engine_mode="llm")
         return result
 
     with progress.node("rules.judge", "규칙 기반 판단 (Mock)"):
@@ -381,5 +406,5 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         confidence_band=band,
     )
     with progress.node("audit", "감사 로그 (SYS-04)"):
-        _audit_judge(req, result)
+        _audit_judge(req, result, engine_mode="mock")
     return result
