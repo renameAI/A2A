@@ -1,0 +1,11 @@
+# 서버(GPU) 전용 — 서빙 레포 requirements.txt와 분리 (무거운 딥러닝 의존성)
+# EXAONE4는 transformers 4.54+ 에서 지원. 서버 환경에 맞춰 버전 조정.
+torch>=2.4
+transformers>=4.54
+peft>=0.11
+accelerate>=0.33
+datasets>=2.20
+# 선택: 32B 풀 배치 분산
+deepspeed>=0.14
+# 선택: QLoRA(4bit)로 메모리 절감 시
+bitsandbytes>=0.43
