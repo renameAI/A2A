@@ -660,45 +660,20 @@ details pre {
 @keyframes dag-pop { from { opacity: 0; transform: translateY(6px) scale(.96); } }
 @keyframes dag-flow { from { opacity: 0; transform: scaleX(0); transform-origin: left; } }
 
-/* ── 워크벤치 — 좌 결과 / 우 엔진 계기판 독 ─────────────────────── */
-.workbench {
-  display: grid; grid-template-columns: minmax(0, 1fr) 480px; gap: 20px;
-  padding: 24px; max-width: 1560px; margin: 0 auto;
-}
-.workbench > .work-main { min-width: 0; }
-.dag-dock {
-  align-self: start; position: sticky; top: 76px; min-width: 0;
-  display: flex; flex-direction: column; gap: 12px;
-  max-height: calc(100vh - 96px); overflow-y: auto;
-  background: var(--surface); border-radius: var(--r-card);
-  padding: 18px; box-shadow: var(--shadow);
-}
-.dock-head {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 15px; font-weight: 700; letter-spacing: -0.4px;
-}
-.dock-foot { text-align: right; }
-.dock-foot a { color: var(--blue); font-size: 13px; font-weight: 600; text-decoration: none; }
-#dock-pipes { display: flex; flex-direction: column; gap: 12px; }
-#dock-pipes .pipebox { margin-top: 0; }
-#dock-pipes .logbox { margin-top: 0; }
-.dag-dock .pipe-scroll svg { max-width: 100%; height: auto; }   /* 독 폭에 맞춰 스케일 */
-@media (max-width: 1100px) {
-  .workbench { grid-template-columns: minmax(0, 1fr); }
-  .dag-dock { position: static; max-height: none; }
-}
-
+/* ── 헤더 CTA · 팬 액션 ─────────────────────────────────────── */
 .header-cta {
   background: var(--blue); color: #fff; font-weight: 700; font-size: 14px;
   padding: 9px 16px; border-radius: var(--r-md); margin-left: auto;
 }
 .header-cta:hover { background: var(--blue-dark); }
 header .badge { margin-left: 10px; }
-.step h2 .h-action {
+.dock-foot { text-align: right; }
+.dock-foot a { color: var(--blue); font-size: 13px; font-weight: 600; text-decoration: none; }
+.h-action {
   margin-left: auto; background: var(--blue-bg); color: var(--blue);
   font-size: 13.5px; font-weight: 600; padding: 8px 14px;
 }
-.step h2 .h-action:hover { background: #d8ebff; }
+.h-action:hover { background: #d8ebff; }
 
 #checklist-inline { list-style: none; margin: 14px 0 0; padding: 0;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px; }
@@ -764,3 +739,192 @@ header .badge { margin-left: 10px; }
   font-variant-numeric: tabular-nums;
 }
 .loop-stats .stat b.stat-bad { color: var(--red); }
+
+/* ═══════════════════════════════════════════════════════════════
+   전체 화면 워크플로우 캔버스 — 기계 세계(심야 블루프린트)가 배경이 되고,
+   사람의 입력·결과는 밝은 팝업·드로어로 떠오른다. 초록은 완료 점에만.
+   ═══════════════════════════════════════════════════════════════ */
+body.canvas-page { overflow: hidden; }
+
+.canvas {
+  position: relative;
+  height: calc(100vh - 60px);
+  display: grid;
+  grid-template-columns: repeat(5, minmax(150px, 218px));
+  grid-template-rows: repeat(3, minmax(96px, 128px));
+  gap: 40px 48px;
+  padding: 20px 40px 64px;
+  align-content: center; justify-content: center;
+  background-color: #0a1020;
+  background-image:
+    linear-gradient(rgba(49, 130, 246, .05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(49, 130, 246, .05) 1px, transparent 1px);
+  background-size: 22px 22px;
+  box-shadow: inset 0 0 120px rgba(2, 6, 16, .7);
+}
+.edge-layer {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+/* ── 노드 카드 ── */
+.wf-node {
+  position: relative; z-index: 1;
+  background: #0f1a2e; border: 1.5px solid #1b2a44; border-radius: 14px;
+  padding: 13px 16px 12px; cursor: pointer;
+  transition: border-color .3s ease, opacity .3s ease, box-shadow .3s ease;
+  display: flex; flex-direction: column; gap: 3px; justify-content: center;
+}
+.wf-head { display: flex; align-items: center; gap: 9px; }
+.wf-head b { color: #dce6f5; font-size: 14.5px; font-weight: 600; letter-spacing: -0.3px; }
+.wf-head small { color: #46587a; font-size: 11px; font-weight: 600; }
+.wf-sub { color: #5b7196; font-size: 11.5px; line-height: 1.45; letter-spacing: -0.2px; }
+.wf-meta {
+  color: #46587a; font-size: 11px; margin-top: 2px;
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums; letter-spacing: 0;
+}
+.wf-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #2c405f;
+  flex: 0 0 auto; transition: background .3s ease;
+}
+
+.wf-node:hover { border-color: #3182f6; }
+.wf-locked { opacity: .42; border-style: dashed; cursor: default; }
+.wf-locked:hover { border-color: #1b2a44; }
+.wf-ready .wf-dot { background: #4a6a9e; }
+.wf-ready .wf-meta { color: #6d84a8; }
+
+.wf-running {
+  border-color: #3182f6; background: #101f3a;
+  animation: dag-breathe 2.4s ease-in-out infinite;   /* 숙고의 리듬 재사용 */
+}
+.wf-running .wf-dot { background: #7dd3fc; }
+.wf-running .wf-meta { color: #7dd3fc; }
+.wf-running .wf-head b { color: #fff; }
+
+.wf-input { border-color: var(--amber); }
+.wf-input .wf-dot { background: var(--amber); }
+.wf-input .wf-meta { color: #ffca6b; }
+
+.wf-done { border-color: #23364f; }
+.wf-done .wf-dot { background: var(--green); }   /* 초록은 점에만 */
+.wf-done .wf-head b { color: #b9c8de; }
+.wf-done .wf-meta { color: #4a6183; }
+
+.wf-error { border-color: var(--red); background: #2a1220; }
+.wf-error .wf-dot { background: var(--red); }
+.wf-error .wf-meta { color: #f87f8a; }
+
+/* 실행 시작 1회 펄스 링 — 상태 전이에 결박된 연출 (반복 아님) */
+.wf-fire::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 17px;
+  border: 2px solid #3182f6; opacity: 0; pointer-events: none;
+  animation: wf-fire .7s ease-out 1;
+}
+@keyframes wf-fire {
+  0% { opacity: .9; transform: scale(.97); }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+
+/* ── 엣지 2겹 — 상시 배선(me-base) + 전류 오버레이(me-flow) ── */
+.medge path { fill: none; }
+.me-base { stroke: #16233c; stroke-width: 2; transition: stroke .3s ease; }
+.me-flow { stroke: transparent; stroke-width: 2.5; }
+.me-opt .me-base, .me-cond .me-base, .me-feedback .me-base { stroke-dasharray: 5 6; }
+.me-done .me-base { stroke: #23364f; stroke-dasharray: none; }
+.me-active .me-flow {
+  stroke: #3182f6; stroke-dasharray: 9 13;
+  animation: dag-current .75s linear infinite;
+  filter: drop-shadow(0 0 3px rgba(49, 130, 246, .55));
+}
+.me-cond.me-active .me-flow {
+  stroke: var(--amber);
+  filter: drop-shadow(0 0 3px rgba(255, 159, 10, .55));
+}
+.me-feedback.me-active .me-flow {
+  stroke: #7dd3fc;
+  filter: drop-shadow(0 0 3px rgba(125, 211, 252, .55));
+}
+
+/* ── 하단 상태 스트립 ── */
+.canvas-strip {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 22px;
+  background: rgba(10, 16, 32, .82); border-top: 1px solid #16233c;
+  backdrop-filter: blur(6px);
+}
+.canvas-strip .loop-stats { display: flex; gap: 8px; }
+.canvas-strip .loop-stats .stat {
+  background: rgba(255, 255, 255, .05); border-radius: 8px;
+  padding: 4px 10px; display: flex; flex-direction: row; align-items: baseline; gap: 6px;
+}
+.canvas-strip .loop-stats .stat small { color: #5b7196; font-size: 11px; }
+.canvas-strip .loop-stats .stat b { color: #dce6f5; font-size: 13px; }
+.canvas-strip .loop-stats .stat b.stat-bad { color: var(--red); }
+#canvas-live {
+  color: #7dd3fc; font-size: 12px; flex: 1;
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums; letter-spacing: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.strip-note { color: #46587a; font-size: 11.5px; white-space: nowrap; }
+
+/* ── 우측 슬라이드 드로어 — 사람 세계(밝음) ── */
+.drawer {
+  position: fixed; top: 60px; right: 0; bottom: 0;
+  width: min(600px, 46vw); z-index: 15;
+  background: var(--surface); border-radius: 20px 0 0 20px;
+  box-shadow: -12px 0 40px rgba(2, 12, 27, .25);
+  transform: translateX(105%);
+  transition: transform .25s cubic-bezier(.4, 0, .2, 1);
+  display: flex; flex-direction: column;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 18px 22px 12px;
+}
+.drawer-head b { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; flex: 1; }
+#drawer-close { background: none; font-size: 15px; color: var(--t400); padding: 6px 10px; }
+#drawer-close:hover { background: var(--fill); color: var(--t700); }
+.badge.ds-running { background: var(--blue-bg); color: var(--blue); }
+.badge.ds-done { background: var(--green-bg); color: var(--green); }
+.badge.ds-input { background: var(--amber-bg); color: #b57200; }
+.badge.ds-error { background: var(--red-bg); color: var(--red); }
+.drawer-tabs { display: flex; gap: 2px; padding: 0 22px 10px; border-bottom: 1px solid var(--line); }
+.drawer-tabs button {
+  background: none; color: var(--t400); font-size: 13.5px; font-weight: 600;
+  padding: 8px 14px; border-radius: var(--r-sm);
+}
+.drawer-tabs button.on { background: var(--blue-bg); color: var(--blue); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 16px 22px 28px; min-width: 0; }
+.drawer-body .pane { display: none; }
+.drawer-body .pane.on { display: block; }
+.drawer-body .pane > h3 {
+  font-size: 16px; font-weight: 700; margin: 6px 0 10px; letter-spacing: -0.4px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.drawer-body .pane > h3 small { font-weight: 500; color: var(--t400); font-size: 12.5px; }
+.pane.engine .logbox, .pane.engine .pipebox { margin-top: 12px; }
+.pane.engine .pipe-scroll svg { max-width: 100%; height: auto; }
+.eng-off { display: none !important; }
+
+/* ── 축소 화면 폴백 — 촬영은 데스크톱, 좁으면 세로 스택 ── */
+@media (max-width: 1100px) {
+  body.canvas-page { overflow: auto; }
+  .canvas {
+    height: auto; min-height: calc(100vh - 60px);
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: none;
+    gap: 14px; padding: 20px 16px 70px; align-content: start;
+  }
+  .canvas .wf-node { grid-row: auto !important; grid-column: 1 !important; }
+  .edge-layer { display: none; }
+  .drawer { width: 100vw; border-radius: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-running { animation: none; }
+  .wf-fire::after { animation: none; opacity: 0; }
+  .me-active .me-flow { animation: none; stroke-dasharray: none; }
+}

@@ -339,6 +339,7 @@ async function runJob(path, body, logBox, kind) {
   while (true) {
     const job = await api(`/product/jobs/${job_id}`);
     renderA2ALoop(kind || path, job);
+    renderCanvasNode(kind || path, job);
     if (pipe) renderPipeline(pipe, kind, job);
     renderLogs(logBox, job.logs, job.status);
     if (job.status === "done") return job.result;
@@ -412,6 +413,262 @@ function renderA2ALoop(kind, job) {
       <b>${esc(e.label)}</b><span>${esc(e.state)}</span>
       <small>${e.elapsed != null ? e.elapsed.toFixed(1) + "s · " : ""}${esc(e.t)} · 로그 ${e.logs}</small>
     </div>`).join("");
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   전체 화면 워크플로우 캔버스 — 서비스 단계 맵.
+   노드 = HTML 카드(리치 콘텐츠), 엣지 = 카드 뒤 SVG 한 장(2겹: 상시 배선 +
+   전류 오버레이). 상태 갱신은 제자리(클래스 비교 후 교체)로만 — 폴링이
+   호흡·전류 애니메이션을 리셋하지 않게 (renderPipeline과 같은 원칙).
+   ═══════════════════════════════════════════════════════════════ */
+
+const NODE_KO = { onboard: "자료 입력", profile: "프로필 분석", questions: "보강 질문",
+  consult: "AI 인터뷰", match: "후보 발굴", scout: "웹 파트너 탐색",
+  judge: "적합도 판단", compose: "제안 초안", negotiate: "협상 시뮬레이션" };
+const KIND_NODE = { onboard: "profile" };   // job kind → 캔버스 노드 (그 외 동일 이름)
+const WF_KO = { locked: "대기", ready: "실행 가능", running: "실행 중",
+  input: "응답 필요", done: "완료", error: "실패" };
+
+const CANVAS_EDGES = [
+  { from: "onboard", to: "profile" },
+  { from: "profile", to: "questions", type: "cond", axis: "v", ox: 26 },
+  { from: "questions", to: "profile", type: "feedback", axis: "v", ox: -26 },
+  { from: "profile", to: "consult", type: "opt" },
+  { from: "profile", to: "match" },
+  { from: "profile", to: "scout", type: "opt" },
+  { from: "consult", to: "match", type: "opt", axis: "v" },
+  { from: "match", to: "judge" },
+  { from: "judge", to: "compose" },
+  { from: "judge", to: "negotiate" },
+];
+
+function nodeEl(kind) { return document.getElementById(`node-${KIND_NODE[kind] || kind}`); }
+function nodeSt(kind) { return nodeEl(kind)?.dataset.st || "locked"; }
+
+function announce(text) {   // aria-live 한 줄 — 접근성 + 상태 전이의 텍스트 증거
+  const live = $("#canvas-live");
+  if (live && live.textContent !== text) live.textContent = text;
+}
+
+function setNodeState(kind, status, meta) {
+  const el = nodeEl(kind);
+  if (!el) return;
+  if (el.dataset.st !== status) {
+    const wasRunning = el.dataset.st === "running";
+    el.dataset.st = status;
+    el.className = `wf-node wf-${status}`;
+    if (status === "running" && !wasRunning) {   // 실행 시작 1회 펄스 링
+      el.classList.add("wf-fire");
+      el.addEventListener("animationend",
+        () => el.classList.remove("wf-fire"), { once: true });
+    }
+    announce(`${NODE_KO[KIND_NODE[kind] || kind]}: ${WF_KO[status] || status}`);
+    refreshEdges();
+    syncDrawerStatus();
+  }
+  if (meta != null) {
+    const m = el.querySelector(".wf-meta");
+    if (m && m.textContent !== meta) m.textContent = meta;
+  }
+}
+
+/* job 폴링 → 캔버스 노드 미러 (runJob 훅) */
+function renderCanvasNode(kind, job) {
+  if (!NODE_KO[KIND_NODE[kind] || kind]) return;
+  let status = "running";
+  if (job.status === "done") status = "done";
+  else if (job.status === "error")
+    status = job.error?.code === "profile_below_minimum" ? "input" : "error";
+  else if (job.a2a_state === "input-required") status = "input";
+  const t = (job.status === "done" || job.status === "error")
+    ? (job.logs.length ? job.logs[job.logs.length - 1].t : job.elapsed) : job.elapsed;
+  const meta = status === "running" ? `${t.toFixed(1)}s 진행 중`
+    : status === "done" ? `${t.toFixed(1)}s 완료`
+    : status === "input" ? "응답 대기"
+    : `실패 — ${job.error?.code || ""}`;
+  setNodeState(kind, status, meta);
+}
+
+/* 게이트 — 선행 조건 충족 시 잠긴 노드를 연다 */
+function refreshNodeGates() {
+  if (state.companyId) {
+    ["consult", "scout", "match"].forEach((k) => {
+      if (nodeSt(k) === "locked") setNodeState(k, "ready", "클릭해 실행");
+    });
+  }
+  const nCands = document.querySelectorAll("#candidates .cand").length;
+  if (nCands && nodeSt("judge") === "locked")
+    setNodeState("judge", "ready", `후보 ${nCands}건 대기`);
+  const nJudged = Object.keys(state.judged).length;
+  if (nJudged) {
+    if (!["running", "error"].includes(nodeSt("judge")))
+      setNodeState("judge", "done", `판단 ${nJudged}건 완료`);
+    ["compose", "negotiate"].forEach((k) => {
+      if (nodeSt(k) === "locked") setNodeState(k, "ready", "후보 카드에서 실행");
+    });
+  }
+  refreshEdges();
+}
+
+/* ── 엣지 — 경로는 리사이즈 때만 재생성, 상태는 클래스만 교체 ── */
+
+function edgeD(e, ra, rb) {
+  if (e.axis === "v") {
+    const down = rb.top >= ra.bottom;
+    const x1 = ra.left + ra.width / 2 + (e.ox || 0);
+    const y1 = down ? ra.bottom : ra.top;
+    const x2 = rb.left + rb.width / 2 + (e.ox || 0);
+    const y2 = down ? rb.top : rb.bottom;
+    const my = (y1 + y2) / 2;
+    return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+  }
+  const x1 = ra.right, y1 = ra.top + ra.height / 2;
+  const x2 = rb.left, y2 = rb.top + rb.height / 2;
+  const mx = (x1 + x2) / 2;
+  return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+}
+
+function drawEdges() {
+  const layer = $("#edge-layer"), canvas = $("#canvas");
+  if (!layer || !canvas) return;
+  const cb = canvas.getBoundingClientRect();
+  if (!cb.width) return;
+  const rel = (el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left - cb.left, right: r.right - cb.left,
+             top: r.top - cb.top, bottom: r.bottom - cb.top,
+             width: r.width, height: r.height };
+  };
+  layer.setAttribute("viewBox", `0 0 ${cb.width} ${cb.height}`);
+  layer.innerHTML = CANVAS_EDGES.map((e) => {
+    const a = document.getElementById(`node-${e.from}`);
+    const b = document.getElementById(`node-${e.to}`);
+    if (!a || !b) return "";
+    const d = edgeD(e, rel(a), rel(b));
+    return `<g class="medge me-idle${e.type ? " me-" + e.type : ""}" data-e="${e.from}>${e.to}">
+      <path class="me-base" d="${d}"></path>
+      <path class="me-flow" d="${d}"></path>
+    </g>`;
+  }).join("");
+  refreshEdges();
+}
+
+function edgeState(e) {
+  const sa = nodeSt(e.from), sb = nodeSt(e.to);
+  if (e.type === "feedback")   // 답변이 분석으로 되먹임되는 순간에만 전류
+    return sa === "done" && sb === "running" ? "active" : "idle";
+  if (e.type === "cond")       // 엔진이 멈춰 사람에게 묻는 순간
+    return sb === "input" ? "active" : sb === "done" ? "done" : "idle";
+  if (sb === "running" && (sa === "done" || sa === "running")) return "active";
+  if (sa === "done" && sb === "done") return "done";
+  return "idle";
+}
+
+function refreshEdges() {
+  const layer = $("#edge-layer");
+  if (!layer) return;
+  CANVAS_EDGES.forEach((e) => {
+    const g = layer.querySelector(`[data-e="${e.from}>${e.to}"]`);
+    if (!g) return;
+    const cls = `medge me-${edgeState(e)}${e.type ? " me-" + e.type : ""}`;
+    if (g.getAttribute("class") !== cls) g.setAttribute("class", cls);
+  });
+}
+
+/* ── 드로어 — 결과·엔진 과정 (비모달, 뒤 캔버스가 계속 보인다) ── */
+
+const PANE_OF = { profile: "profile", questions: "profile", onboard: "profile",
+  match: "match", judge: "match", compose: "match", negotiate: "match",
+  consult: "consult", scout: "scout" };
+const ENGINE_LOG = { profile: "onboard-log", match: "match-log",
+  scout: "scout-log", consult: "consult-log" };
+
+function selectDrawerTab(tab) {
+  const drawer = $("#drawer");
+  drawer.dataset.tab = tab;
+  drawer.querySelectorAll(".drawer-tabs button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.tab === tab));
+  const pane = PANE_OF[drawer.dataset.kind] || "profile";
+  drawer.querySelectorAll(".drawer-body .pane").forEach((p) =>
+    p.classList.toggle("on",
+      tab === "engine" ? p.dataset.pane === "engine" : p.dataset.pane === pane));
+}
+
+function filterEngine(pane) {
+  const keep = ENGINE_LOG[pane];
+  Object.values(ENGINE_LOG).forEach((id) => {
+    const box = document.getElementById(id);
+    if (!box) return;
+    const off = keep && id !== keep;
+    box.classList.toggle("eng-off", off);
+    if (box._pipe) box._pipe.classList.toggle("eng-off", off);
+  });
+}
+
+function syncDrawerStatus() {
+  const drawer = $("#drawer");
+  if (!drawer || !drawer.classList.contains("open")) return;
+  const st = nodeSt(drawer.dataset.kind);
+  const badge = $("#drawer-status");
+  badge.textContent = WF_KO[st] || st;
+  badge.className = `badge ds-${st}`;
+}
+
+function openDrawer(kind, tab) {
+  const drawer = $("#drawer");
+  drawer.dataset.kind = kind;
+  drawer.classList.add("open");
+  drawer.setAttribute("aria-hidden", "false");
+  $("#drawer-title").textContent = NODE_KO[kind] || kind;
+  filterEngine(PANE_OF[kind] || "profile");
+  selectDrawerTab(tab || (nodeSt(kind) === "running" ? "engine" : "result"));
+  syncDrawerStatus();
+}
+
+function closeDrawer() {
+  const drawer = $("#drawer");
+  drawer.classList.remove("open");
+  drawer.setAttribute("aria-hidden", "true");
+}
+
+function openQuestionsModal() {
+  const mq = document.getElementById("modal-questions");
+  if (mq && !mq.open) mq.showModal();
+}
+
+/* 노드 클릭 — 입력형은 팝업, 실행·결과형은 드로어 */
+function initCanvas() {
+  document.querySelectorAll(".wf-node").forEach((el) => {
+    el.dataset.st = el.classList.contains("wf-ready") ? "ready" : "locked";
+  });
+  $("#node-onboard").onclick = () => document.getElementById("modal-onboard").showModal();
+  $("#node-profile").onclick = () => {
+    if (nodeSt("profile") === "input" && $("#questions").children.length) {
+      openQuestionsModal(); return;
+    }
+    if (state.companyId) openDrawer("profile");
+  };
+  $("#node-questions").onclick = () => {
+    if ($("#questions").children.length) openQuestionsModal();
+  };
+  $("#node-consult").onclick = () => { if (nodeSt("consult") !== "locked") openDrawer("consult"); };
+  $("#node-scout").onclick = () => { if (nodeSt("scout") !== "locked") openDrawer("scout"); };
+  $("#node-match").onclick = () => {
+    const st = nodeSt("match");
+    if (st === "locked") return;
+    if (document.querySelectorAll("#candidates .cand").length
+        || st === "running" || st === "error") openDrawer("match");
+    else document.getElementById("modal-intent").showModal();
+  };
+  ["judge", "compose", "negotiate"].forEach((k) => {
+    $(`#node-${k}`).onclick = () => { if (nodeSt(k) !== "locked") openDrawer("match"); };
+  });
+  $("#drawer-close").onclick = closeDrawer;
+  document.querySelectorAll(".drawer-tabs button").forEach((b) =>
+    b.onclick = () => selectDrawerTab(b.dataset.tab));
+  drawEdges();
+  if (window.ResizeObserver)
+    new ResizeObserver(() => drawEdges()).observe($("#canvas"));
 }
 
 /* ── ① 자료 입력 ─────────────────────────────────────────────── */
@@ -492,8 +749,12 @@ async function onboard() {
   const assets = collectAssets();
   if (!assets.length) { showError("#modal-onboard-error", "자료를 1건 이상 입력해주세요."); return; }
   hideError("#onboard-error");
+  hideError("#modal-onboard-error");
   document.getElementById("modal-onboard")?.close();
-  $("#empty-state")?.classList.add("hidden");
+  document.getElementById("modal-questions")?.close();
+  setNodeState("onboard", "done", "자료 제출됨");
+  if (state.dialogue.length || document.querySelectorAll("#questions input").length)
+    setNodeState("questions", "done", "답변 반영됨");   // 되먹임 엣지가 전류를 띤다
   const btn = $("#btn-onboard"); btn.disabled = true;
   try {
     // content 없는 URL 자산은 서버가 수집(fetch)한다
@@ -505,32 +766,36 @@ async function onboard() {
     };
     const data = await runJob("/product/onboard", body, $("#onboard-log"), "onboard");
     state.companyId = data.company_id;
-    $("#questions-step").classList.add("hidden");
     renderProfile(data);
-    $("#step2").classList.remove("hidden");
-    $("#step-consult").classList.remove("hidden");
-    $("#step3").classList.remove("hidden");
-    $("#step-scout").classList.remove("hidden");
     $("#engine-mode").textContent = `engine: ${data.engine_mode}`;
     $("#engine-mode").className = `badge mode-${data.engine_mode}`;
     updateChecklist(data.profile);
     computeMinStatus(data.open_questions);
-    if (data.open_questions.length) showQuestions(data.open_questions);
-    renderMinProgress();
+    refreshNodeGates();
+    if (data.open_questions.length) {
+      showQuestions(data.open_questions);   // 팝업 자동 오픈 포함
+      renderMinProgress();
+      setNodeState("questions", "input", `질문 ${data.open_questions.length}건`);
+    } else {
+      setNodeState("questions", "done", "질문 없음");
+    }
     if (data.question_pin_count > 0) {
-      $("#step-evidence").classList.remove("hidden");
+      $("#evidence-block").classList.remove("hidden");
       await loadEvidence();
     }
+    openDrawer("profile", "result");   // 완성된 상(像)을 바로 보여준다
   } catch (err) {
     if (err.code === "profile_below_minimum") {
       computeMinStatus(err.details.open_questions);
       showQuestions(err.details.open_questions, err.details.clarify);
       renderMinProgress();
+      setNodeState("questions", "input",
+                   `질문 ${err.details.open_questions.length}건`);
       showError("#onboard-error",
-        "최소 프로필 기준 미달 — 아래 보강 질문에 답하면 매칭 풀에 들어갈 수 있어요.");
+        "최소 프로필 기준 미달 — 위 질문에 답하면 매칭 풀에 들어갈 수 있어요.");
     } else {
-      $("#questions-step").classList.remove("hidden");
-      showError("#onboard-error", `${err.code || ""} ${err.message}`);
+      document.getElementById("modal-onboard")?.showModal();
+      showError("#modal-onboard-error", `${err.code || ""} ${err.message}`);
     }
   } finally { btn.disabled = false; }
 }   // eslint-disable-line
@@ -570,7 +835,7 @@ function showQuestions(questions, clarify) {
       renderMinProgress();
     };
   });
-  $("#questions-step").classList.remove("hidden");
+  openQuestionsModal();   // 엔진이 멈춰 사람에게 묻는 순간 — 팝업으로
 }
 
 /* ── 최소 프로필 진행바 (무엇이 채워지고 무엇이 남았는지) ─────────── */
@@ -783,13 +1048,21 @@ $("#btn-match").onclick = async () => {
     $("#synth").innerHTML = `<b>합성된 이상적 상대상</b> (검색어가 된 문장): ${esc(data.synthesized_counterpart)}`;
     $("#synth").classList.remove("hidden");
     renderCandidates(data.candidates);
+    refreshNodeGates();
+    openDrawer("match", "result");
   } catch (err) {
     showError("#match-error", err.code === "no_strong_candidate"
       ? "강한 후보 없음 — 엔진이 약한 후보를 억지로 채우지 않았어요. 의도(지역·가치제안)를 바꿔보세요."
       : err.code === "unclear_evidence_unresolved"
-      ? "AI 질문에 아직 답하지 않은 항목이 있어요 — 위 'AI 질문 위치' 섹션에서 답변해 주세요."
+      ? "AI 질문에 아직 답하지 않은 항목이 있어요 — 프로필 분석 카드의 'AI 질문 위치'에서 답변해 주세요."
       : `${err.code || ""} ${err.message}`);
     $("#candidates").innerHTML = "";
+    if (err.code === "unclear_evidence_unresolved") {
+      setNodeState("profile", "input", "AI 질문 미응답");
+      openDrawer("profile", "result");
+    } else {
+      openDrawer("match", "result");
+    }
   } finally { btn.disabled = false; }
 };
 
@@ -841,7 +1114,10 @@ async function judgeCandidate(candidateId, btn) {
       ? `deal-breaker 결렬 — ${esc(err.details?.reason || err.message)} (사람에게 비노출 처리되는 매칭입니다)`
       : esc(`${err.code || ""} ${err.message}`);
     area.insertAdjacentHTML("beforeend", `<div class="error">${msg}</div>`);
-  } finally { btn.disabled = false; btn.textContent = "판단 실행 (Judge)"; }
+  } finally {
+    btn.disabled = false; btn.textContent = "판단 실행 (Judge)";
+    refreshNodeGates();
+  }
 }
 
 const DIM_KO = { industry_fit: "산업 적합성", purpose_alignment: "협업목적 정합",
@@ -894,7 +1170,10 @@ async function composeDraft(candidateId, btn) {
     logBox.classList.add("log-collapsed");
     logBox.onclick = () => logBox.classList.toggle("log-collapsed");
   } catch (err) { area.insertAdjacentHTML("beforeend", `<div class="error">${esc(err.message)}</div>`); }
-  finally { btn.disabled = false; btn.textContent = "콜드메일 초안 (Compose)"; }
+  finally {
+    btn.disabled = false; btn.textContent = "콜드메일 초안 (Compose)";
+    refreshNodeGates();
+  }
 }
 
 async function negotiateSim(candidateId, btn) {
@@ -923,7 +1202,10 @@ async function negotiateSim(candidateId, btn) {
     logBox.classList.add("log-collapsed");
     logBox.onclick = () => logBox.classList.toggle("log-collapsed");
   } catch (err) { area.insertAdjacentHTML("beforeend", `<div class="error">${esc(err.message)}</div>`); }
-  finally { btn.disabled = false; btn.textContent = "A2A 협상 시뮬레이션"; }
+  finally {
+    btn.disabled = false; btn.textContent = "A2A 협상 시뮬레이션";
+    refreshNodeGates();
+  }
 }
 
 /* ── ②+ AI 컨설턴트 인터뷰 (CON-01~02) ─────────────────────────
@@ -970,7 +1252,7 @@ function renderConsultTurn(data) {
     if (apply) apply.onclick = () => {
       $("#intent-region").value = region;
       updateChecklist();
-      document.querySelector("#step3").scrollIntoView({ block: "start" });
+      document.getElementById("modal-intent").showModal();
     };
     return;
   }
@@ -1053,6 +1335,7 @@ addAssetRow("text");
 
 $("#open-onboard").onclick = () => document.getElementById("modal-onboard").showModal();
 $("#open-intent").onclick = () => document.getElementById("modal-intent").showModal();
+initCanvas();
 
 /* ── 3+ 웹 파트너 스카우트 — explore/exploit 가설 → 웹 검색 (JDG-09) ── */
 
