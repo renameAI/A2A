@@ -442,7 +442,9 @@ const CANVAS_EDGES = [
   { from: "judge", to: "negotiate" },
 ];
 
-function nodeEl(kind) { return document.getElementById(`node-${KIND_NODE[kind] || kind}`); }
+/* 여기서 kind는 캔버스 노드 이름 그대로 — job kind→노드 매핑(KIND_NODE)은
+   renderCanvasNode에서만 적용한다 (전역 매핑이면 '자료 입력' 노드를 직접 못 만진다) */
+function nodeEl(kind) { return document.getElementById(`node-${kind}`); }
 function nodeSt(kind) { return nodeEl(kind)?.dataset.st || "locked"; }
 
 function announce(text) {   // aria-live 한 줄 — 접근성 + 상태 전이의 텍스트 증거
@@ -462,7 +464,7 @@ function setNodeState(kind, status, meta) {
       el.addEventListener("animationend",
         () => el.classList.remove("wf-fire"), { once: true });
     }
-    announce(`${NODE_KO[KIND_NODE[kind] || kind]}: ${WF_KO[status] || status}`);
+    announce(`${NODE_KO[kind] || kind}: ${WF_KO[status] || status}`);
     refreshEdges();
     syncDrawerStatus();
   }
@@ -474,7 +476,8 @@ function setNodeState(kind, status, meta) {
 
 /* job 폴링 → 캔버스 노드 미러 (runJob 훅) */
 function renderCanvasNode(kind, job) {
-  if (!NODE_KO[KIND_NODE[kind] || kind]) return;
+  const node = KIND_NODE[kind] || kind;
+  if (!NODE_KO[node]) return;
   let status = "running";
   if (job.status === "done") status = "done";
   else if (job.status === "error")
@@ -486,7 +489,7 @@ function renderCanvasNode(kind, job) {
     : status === "done" ? `${t.toFixed(1)}s 완료`
     : status === "input" ? "응답 대기"
     : `실패 — ${job.error?.code || ""}`;
-  setNodeState(kind, status, meta);
+  setNodeState(node, status, meta);
 }
 
 /* 게이트 — 선행 조건 충족 시 잠긴 노드를 연다 */
