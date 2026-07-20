@@ -35,7 +35,29 @@ _NOISE_DOMAINS = {
     "wikipedia.org", "namu.wiki", "youtube.com", "facebook.com", "instagram.com",
     "linkedin.com", "twitter.com", "x.com", "reddit.com", "quora.com",
     "tripadvisor.com", "booking.com", "agoda.com", "expedia.com",
+    # 뉴스·블로그·포털 — '파트너 후보'는 사업자여야 한다. 기사·순위 블로그는
+    # 단서일 뿐 후보가 아니다 (실측: 에스피지 런에서 숏리스트가 전부 기사였음).
+    # 후보가 모자라면 억지로 채우지 않고 정직하게 적게 반환한다 (RET-06과 동일 철학).
+    "daum.net", "naver.com", "nate.com", "zum.com", "msn.com",
+    "tistory.com", "brunch.co.kr", "velog.io", "medium.com", "blogspot.com",
+    "news1.kr", "newsis.com", "yna.co.kr", "yonhapnewstv.co.kr", "ytn.co.kr",
+    "chosun.com", "joongang.co.kr", "donga.com", "hani.co.kr", "khan.co.kr",
+    "mk.co.kr", "hankyung.com", "sedaily.com", "fnnews.com", "asiae.co.kr",
+    "etnews.com", "zdnet.co.kr", "epnc.co.kr", "dt.co.kr", "ddaily.co.kr",
+    "heraldcorp.com", "kmib.co.kr", "segye.com", "munhwa.com", "edaily.co.kr",
+    "mt.co.kr", "inews24.com", "businesspost.co.kr", "thebell.co.kr",
 }
+
+
+def _is_noise(domain: str) -> bool:
+    """노이즈 도메인 판정 — 서브도메인 포함 suffix 매칭 (v.daum.net, m.blog.naver.com
+    같은 변형이 exact 매칭을 빠져나가던 구멍을 막는다) + 보편 뉴스 패턴."""
+    d = domain.lower()
+    if any(d == n or d.endswith("." + n) for n in _NOISE_DOMAINS):
+        return True
+    # 도메인 자체가 뉴스/미디어임을 선언하는 보편 패턴 (기업 홈페이지가 이 패턴을
+    # 쓰는 경우는 사실상 없다)
+    return d.startswith("news.") or d.startswith("media.") or ".news." in d
 
 
 # ── 1단 — 지식 분리 (결정적: provenance 기반) ─────────────────────
@@ -92,6 +114,28 @@ def _intent_text(req: ScoutRequest) -> str:
             f"제안 유형 {req.intent.proposal_type or '미지정'}")
 
 
+_PRED_SUFFIXES = ("합니다", "습니다", "입니다", "됩니다", "한다", "이다", "있다")
+_JOSA = ("에서", "에게", "으로", "로", "에", "을", "를", "이", "가", "은", "는")
+
+
+def _query_core(text: str, limit: int = 24) -> str:
+    """문장 → 검색어 핵심 명사구. 서술어절과 말미 조사를 떼어낸다 —
+    '로보틱스 감속기에 집중합니다' → '로보틱스 감속기'.
+    사용자가 사전 입력에 서술문을 넣어도 검색어가 무의미해지지 않게 하는 최소 방어.
+    (진짜 검색어 품질은 LLM 경로의 SCOUT_SYSTEM 규칙이 담당 — 이건 mock 폴백.)"""
+    core = text.split("(")[0].split(".")[0].strip()[:limit]
+    words = core.split()
+    while words and words[-1].endswith(_PRED_SUFFIXES):
+        words.pop()
+    if words:
+        last = words[-1]
+        for josa in _JOSA:
+            if len(last) > len(josa) and last.endswith(josa):
+                words[-1] = last[: -len(josa)]
+                break
+    return " ".join(words) if words else core
+
+
 def _mock_hypotheses(knowledge: list[KnowledgeItem],
                      req: ScoutRequest) -> list[PartnerHypothesis]:
     """LLM 없이 — 명백지/암묵지에서 결정적 템플릿 가설. CI·오프라인용."""
@@ -111,7 +155,7 @@ def _mock_hypotheses(knowledge: list[KnowledgeItem],
             track=HypothesisTrack.exploit,
             hypothesis=f"'{ex['problem_solved']}' 문제를 공개적으로 겪는 사업자를 찾는다.",
             grounded_in=["problem_solved"],
-            search_query=f"{region} {ex['problem_solved'][:24]} 사례",
+            search_query=f"{region} {_query_core(ex['problem_solved'])} 기업",
             partner_type="같은 문제를 겪는 수요처"))
     gaps = ta.get("portrait.gaps")
     if gaps:
@@ -184,10 +228,14 @@ def _shortlist(per_hyp_hits: list[tuple[PartnerHypothesis, list[dict]]],
     seen_domains: set[str] = set()
     pool: dict[HypothesisTrack, list[ScoutCandidate]] = {
         HypothesisTrack.exploit: [], HypothesisTrack.explore: []}
+    n_noise = 0
     for hyp, hits in per_hyp_hits:
         for hit in hits:
             domain = hit["domain"]
-            if not domain or domain in seen_domains or domain in _NOISE_DOMAINS:
+            if not domain or domain in seen_domains:
+                continue
+            if _is_noise(domain):
+                n_noise += 1                     # 정직 집계 — 조용히 삼키지 않는다
                 continue
             rel = _score(hit, hyp)
             if rel < _MIN_RELEVANCE:
@@ -208,7 +256,7 @@ def _shortlist(per_hyp_hits: list[tuple[PartnerHypothesis, list[dict]]],
     picked = pool[HypothesisTrack.exploit][:n_exploit] \
         + pool[HypothesisTrack.explore][:n_explore]
     picked.sort(key=lambda c: (-c.relevance, c.domain))
-    return picked
+    return picked, n_noise
 
 
 def scout(req: ScoutRequest, settings: "Settings | None" = None,
@@ -249,7 +297,10 @@ def scout(req: ScoutRequest, settings: "Settings | None" = None,
             progress.log("검색", "⚠ 모든 검색 실패/차단 — 숏리스트가 비어도 가설은 유효")
 
     with progress.node("shortlist", "숏리스트 (explore 쿼터 배분)"):
-        shortlist = _shortlist(per_hyp, req.k, req.explore_ratio)
+        shortlist, n_noise = _shortlist(per_hyp, req.k, req.explore_ratio)
+        if n_noise:
+            progress.log("숏리스트", f"뉴스·블로그·포털 {n_noise}건 제외 — "
+                                    f"후보는 사업자여야 한다 (모자라면 정직하게 적게)")
         progress.log("숏리스트", f"{len(shortlist)}건 채택 "
                                 f"(exploit {sum(1 for c in shortlist if c.track == HypothesisTrack.exploit)} / "
                                 f"explore {sum(1 for c in shortlist if c.track == HypothesisTrack.explore)}) · "

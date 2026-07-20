@@ -138,7 +138,7 @@ class TestShortlist:
     def test_domain_dedup_and_noise_filter(self):
         hyp = _hyp(HypothesisTrack.exploit)
         hits = [_hit("a.com"), _hit("a.com"), _hit("wikipedia.org"), _hit("b.com")]
-        out = _shortlist([(hyp, hits)], k=6, explore_ratio=0.34)
+        out, _ = _shortlist([(hyp, hits)], k=6, explore_ratio=0.34)
         domains = [c.domain for c in out]
         assert domains.count("a.com") == 1          # dedup
         assert "wikipedia.org" not in domains       # noise 필터
@@ -148,7 +148,7 @@ class TestShortlist:
         ex_hyp, xp_hyp = _hyp(HypothesisTrack.exploit), _hyp(HypothesisTrack.explore)
         ex_hits = [_hit(f"ex{i}.com") for i in range(6)]
         xp_hits = [_hit(f"xp{i}.com") for i in range(6)]
-        out = _shortlist([(ex_hyp, ex_hits), (xp_hyp, xp_hits)], k=6, explore_ratio=0.34)
+        out, _ = _shortlist([(ex_hyp, ex_hits), (xp_hyp, xp_hits)], k=6, explore_ratio=0.34)
         assert len(out) == 6
         assert sum(1 for c in out if c.track == HypothesisTrack.explore) == 2
         assert sum(1 for c in out if c.track == HypothesisTrack.exploit) == 4
@@ -156,7 +156,7 @@ class TestShortlist:
     def test_backfill_when_track_short(self):
         """한 트랙이 부족하면 다른 트랙에서 채운다."""
         ex_hyp, xp_hyp = _hyp(HypothesisTrack.exploit), _hyp(HypothesisTrack.explore)
-        out = _shortlist([(ex_hyp, [_hit("only-ex.com")]),
+        out, _ = _shortlist([(ex_hyp, [_hit("only-ex.com")]),
                           (xp_hyp, [_hit(f"xp{i}.com") for i in range(5)])],
                          k=4, explore_ratio=0.25)
         assert len(out) == 4                        # exploit 1 + explore 3 백필
@@ -165,7 +165,7 @@ class TestShortlist:
     def test_irrelevant_hits_cut(self):
         hyp = _hyp(HypothesisTrack.exploit)
         junk = _hit("junk.com", title="qqqq zzzz", snippet="wwww")   # overlap≈0
-        out = _shortlist([(hyp, [junk])], k=6, explore_ratio=0.34)
+        out, _ = _shortlist([(hyp, [junk])], k=6, explore_ratio=0.34)
         assert out == []
 
 
@@ -209,3 +209,36 @@ class TestScoutEndToEnd:
         assert job["status"] == "done", job.get("error")
         assert job["result"]["engine_mode"] == "mock"
         assert job["result"]["hypotheses"]
+
+
+class TestNoiseAndQueryCore:
+    """에스피지 실측 회귀 — 뉴스·블로그가 후보로 나오고 검색어가 서술문이던 결함."""
+
+    def test_news_blog_portal_filtered(self):
+        from app.engine.scout import _is_noise
+        for d in ("v.daum.net", "m.blog.naver.com", "magazine-k.tistory.com",
+                  "news1.kr", "news.nate.com", "epnc.co.kr", "news.example.co.kr"):
+            assert _is_noise(d), d
+        for d in ("spg.co.kr", "anpoly.com", "site1.com", "hyundai.com"):
+            assert not _is_noise(d), d
+
+    def test_query_core_strips_predicate_and_josa(self):
+        from app.engine.scout import _query_core
+        assert _query_core("로보틱스 감속기에 집중합니다") == "로보틱스 감속기"
+        assert _query_core("노후 호텔 객실의 매출 정체와 리뉴얼 자본 부담") \
+            == "노후 호텔 객실의 매출 정체와 리뉴얼 자본"
+        assert _query_core("AI 수요예측") == "AI 수요예측"     # 명사구는 그대로
+
+    def test_shortlist_counts_noise(self):
+        from app.engine.scout import _shortlist
+        from app.schemas import HypothesisTrack, PartnerHypothesis
+        hyp = PartnerHypothesis(track=HypothesisTrack.exploit, hypothesis="테스트 가설 문장",
+                                grounded_in=["target_customer"],
+                                search_query="테스트 가설", partner_type="수요처")
+        hits = [{"title": "테스트 가설 결과", "url": "https://news1.kr/a",
+                 "snippet": "테스트 가설 스니펫", "domain": "news1.kr"},
+                {"title": "테스트 가설 결과", "url": "https://good-co.com/a",
+                 "snippet": "테스트 가설 스니펫", "domain": "good-co.com"}]
+        out, n_noise = _shortlist([(hyp, hits)], k=6, explore_ratio=0)
+        assert n_noise == 1
+        assert [c.domain for c in out] == ["good-co.com"]
