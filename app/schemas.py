@@ -205,6 +205,10 @@ class RepresentResponse(BaseModel):
     open_questions: list[str]        # ask 항목 + 저확신 추론 (REP-07)
     engine_mode: str = "mock"        # "llm" | "mock" — 조용한 degrade 금지 (ING-05)
     evidence: Optional[dict[str, list[str]]] = None   # 필드 → 근거 청크 ID (ING-04)
+    # 수집·채굴 투명성 — 크롤·파싱한 자료가 실제로 얼마나 쓰였는지 사용자가 본다.
+    # sources: 자산별 {label, type, url, chars, preview}. mined: 하드 팩트 마이너 결과.
+    sources: list[dict] = []
+    mined: Optional[dict] = None
 
 
 # ── /v1/retrieve (API §2) ───────────────────────────────────────────

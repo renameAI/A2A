@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A 매칭엔진 v0</title>
-<link rel="stylesheet" href="/style.css?v=canvas2">
+<link rel="stylesheet" href="/style.css?v=canvas3">
 </head>
 <body class="canvas-page">
 <header>
@@ -71,6 +71,12 @@
     <div class="wf-sub">제안·검토·재제안 왕복</div>
     <div class="wf-meta">판단 후</div>
   </div>
+
+  <!-- 발굴된 후보가 실시간으로 여기 열리고, 판단 상태가 각 칩에 점등된다 -->
+  <div id="cand-lane" style="grid-row:3;grid-column:4"></div>
+
+  <!-- 실행 중 엔진 로그 최근 몇 줄이 흐른다 — 드로어를 안 열어도 사고 과정이 보인다 -->
+  <div id="log-ticker" class="log-ticker" aria-hidden="true"></div>
 
   <div class="canvas-strip">
     <span id="loop-current" class="badge">idle</span>
@@ -162,35 +168,55 @@
       <button type="submit" class="modal-x" aria-label="닫기">✕</button>
     </div>
     <div class="modal-body">
-      <ul id="checklist-inline">
-        <li data-check="assets"><b>기업 자료 1건 이상</b><small>IR덱 PDF · 웹사이트 · 기사 · 인스타그램 · 텍스트</small></li>
-        <li data-check="problem">푸는 문제 <small>표면 키워드가 아닌 “누가 겪는 어떤 문제”</small></li>
-        <li data-check="solution">솔루션</li>
-        <li data-check="target">타겟 고객</li>
-        <li data-check="vp">가치 제안 ≥1</li>
-        <li data-check="willingness">협력 의향 (선택)</li>
-        <li data-check="private">판매자 사전정보 (선택)</li>
-        <li data-check="intent">의도 (선택)</li>
-      </ul>
-      <div id="assets"></div>
-      <div class="asset-actions">
-        <button type="button" data-add="website">+ 웹사이트</button>
-        <button type="button" data-add="article">+ 기사</button>
-        <button type="button" data-add="instagram">+ 인스타그램</button>
-        <button type="button" data-add="text">+ 직접 입력</button>
-        <label class="upload-btn">+ IR덱 PDF<input type="file" id="pdf-input" accept=".pdf" hidden></label>
+      <div class="onb-sec">
+        <h3>기업 기본 정보 <small>자료에서 추출할 수 없는 값은 여기 입력이 쓰입니다</small></h3>
+        <div class="row">
+          <label>기업명 <span class="req">필수</span>
+            <input id="core-name" placeholder="예: 귤메달"></label>
+          <label>국가
+            <input id="core-country" placeholder="예: 한국"></label>
+          <label>산업
+            <input id="core-industry" placeholder="예: 식품 제조"></label>
+        </div>
       </div>
-      <div class="row">
-        <label>판매 의향
-          <select id="w-sell"><option value="">모름</option><option>매우 적극적</option><option>적극적</option><option>중간</option><option>소극적</option><option>매우 소극적</option></select>
-        </label>
-        <label>구매 의향
-          <select id="w-buy"><option value="">모름</option><option>매우 적극적</option><option>적극적</option><option>중간</option><option>소극적</option><option>매우 소극적</option></select>
+      <div class="onb-sec">
+        <h3>기업 자료 <small>IR덱 PDF · 웹사이트 · 기사 · 텍스트 — 원문에서 수치·고객·인증을 캐냅니다</small></h3>
+        <div id="assets"></div>
+        <div class="asset-actions">
+          <button type="button" data-add="website">+ 웹사이트</button>
+          <button type="button" data-add="article">+ 기사</button>
+          <button type="button" data-add="instagram">+ 인스타그램</button>
+          <button type="button" data-add="text">+ 직접 입력</button>
+          <label class="upload-btn">+ IR덱 PDF<input type="file" id="pdf-input" accept=".pdf" hidden></label>
+        </div>
+      </div>
+      <div class="onb-sec">
+        <h3>핵심 정보 직접 입력 <small>선택 — 자료에서 추출되지 않으면 이 값이 확인된 사실로 쓰입니다</small></h3>
+        <label class="block">푸는 문제
+          <input id="core-problem" placeholder="누가 겪는 어떤 문제를 푸나요? 예: 노후 호텔 객실의 매출 정체"></label>
+        <label class="block">솔루션
+          <input id="core-solution" placeholder="어떤 방식으로 푸나요?"></label>
+        <label class="block">타겟 고객
+          <input id="core-target" placeholder="누구에게 파나요?"></label>
+        <div class="row core-vp">
+          <span class="vp-label">가치 제안</span>
+          <label><input type="checkbox" value="매출"> 매출 증대</label>
+          <label><input type="checkbox" value="비용"> 비용 절감</label>
+          <label><input type="checkbox" value="임팩트"> 임팩트</label>
+          <label><input type="checkbox" value="문제해결"> 문제 해결</label>
+        </div>
+        <div class="row">
+          <label>판매 의향
+            <select id="w-sell"><option value="">모름</option><option>매우 적극적</option><option>적극적</option><option>중간</option><option>소극적</option><option>매우 소극적</option></select>
+          </label>
+          <label>구매 의향
+            <select id="w-buy"><option value="">모름</option><option>매우 적극적</option><option>적극적</option><option>중간</option><option>소극적</option><option>매우 소극적</option></select>
+          </label>
+        </div>
+        <label class="block">판매자 사전정보 (선택 · 한 줄에 <code>키: 값</code>)
+          <textarea id="private-state" rows="3" placeholder="쉐어 최저선: 8:2&#10;전략 단계: 동남아 레퍼런스 0 — 첫 레퍼런스 확보가 목표&#10;시공 인력: 자체 인력으로 통제 가능"></textarea>
         </label>
       </div>
-      <label class="block">판매자 사전정보 (선택 · 한 줄에 <code>키: 값</code>)
-        <textarea id="private-state" rows="3" placeholder="쉐어 최저선: 8:2&#10;전략 단계: 동남아 레퍼런스 0 — 첫 레퍼런스 확보가 목표&#10;시공 인력: 자체 인력으로 통제 가능"></textarea>
-      </label>
     </div>
     <div class="modal-foot">
       <div id="modal-onboard-error" class="error hidden"></div>
@@ -244,6 +270,6 @@
   </form>
 </dialog>
 
-<script src="/app.js?v=20"></script>
+<script src="/app.js?v=22"></script>
 </body>
 </html>

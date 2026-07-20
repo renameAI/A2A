@@ -94,6 +94,7 @@ def _ingest_assets(req: RepresentRequest, settings: Settings
     from .. import progress
     chunks: list[Chunk] = []
     full_text_parts: list[str] = []
+    sources: list[dict] = []
     for i, asset in enumerate(req.assets):
         label = f"a{i + 1}:{asset.type.value}"
         progress.log("수집", f"{label} 수집 시작"
@@ -102,11 +103,14 @@ def _ingest_assets(req: RepresentRequest, settings: Settings
         progress.log("수집", f"{label} 완료 — {len(text):,}자")
         chunks.extend(chunk_text(text, label))
         full_text_parts.append(text)
+        sources.append({"label": label, "type": asset.type.value,
+                        "url": asset.url or None, "chars": len(text),
+                        "preview": " ".join(text.split())[:280]})
     if req.dialogue:
         qa = "\n".join(f"{t.q}: {t.a}" for t in req.dialogue)      # LLM 경로: 질문 원문 유지
         chunks.extend(chunk_text(f"[보강 대화 답변 — 최우선 신뢰]\n{qa}", "dialogue"))
         full_text_parts.append("\n".join(_dialogue_to_mock_lines(req.dialogue)))
-    return chunks, "\n".join(full_text_parts)
+    return chunks, "\n".join(full_text_parts), sources
 
 
 # ── Mock 경로 — 구조화 텍스트 파서 ──────────────────────────────────
@@ -129,22 +133,34 @@ def _prov_field(fields: dict, key: str) -> ProvField:
     return ProvField(value="", provenance=Provenance.ask)
 
 
-def _mock_extract(full_text: str) -> tuple[Profile, list[str]]:
+def _mock_extract(full_text: str, mined=None) -> tuple[Profile, list[str]]:
+    """정형 라인('키: 값') 파서 + 하드 팩트 마이너 결합.
+
+    정형 라인이 항상 우선(사용자가 명시한 값), 마이너는 빈 자리만 채운다.
+    마이너 산출은 전부 원문 부분문자열이므로 stated가 정당하다 — 이게 없으면
+    실제 IR·홈페이지를 넣어도 전부 '미상'이 되는 결함이 있었다(귤메달 실측).
+    """
     fields = _parse_lines(full_text)
+    mined_regions = (mined.regions if mined else [])
     profile = Profile(
         basic=BasicInfo(
             name=fields.get("이름", "미상"),
-            country=fields.get("국가", "미상"),
-            city=fields.get("도시"),
-            founded_year=int(fields["설립"]) if fields.get("설립", "").isdigit() else None,
+            country=fields.get("국가") or ("한국" if mined_regions else "미상"),
+            city=fields.get("도시") or (mined_regions[0] if mined_regions else None),
+            founded_year=(int(fields["설립"]) if fields.get("설립", "").isdigit()
+                          else (mined.founded_year if mined else None)),
             industry=fields.get("산업", "unknown"),
         ),
-        description=fields.get("설명", ""),
+        description=fields.get("설명") or (mined.description if mined else ""),
         problem_solved=_prov_field(fields, "문제"),
         solution=_prov_field(fields, "솔루션"),
         target_customer=_prov_field(fields, "타겟"),
-        references=[r.strip() for r in fields.get("레퍼런스", "").split(",") if r.strip()],
-        traction=fields.get("트랙션"),
+        references=([r.strip() for r in fields.get("레퍼런스", "").split(",")
+                     if r.strip()]
+                    or (mined.client_sentences[:3] if mined else [])),
+        traction=fields.get("트랙션")
+                 or (" / ".join(mined.metric_sentences[:2]) if mined
+                     and mined.metric_sentences else None),
         sell_value_props=[_VALUE_PROP_MAP[t.strip()]
                           for t in fields.get("판매가치", "").split(",")
                           if t.strip() in _VALUE_PROP_MAP],
@@ -167,6 +183,10 @@ def _mock_extract(full_text: str) -> tuple[Profile, list[str]]:
     if profile.willingness_sell is None and profile.willingness_purchase is None:
         open_questions.append("협력 의향(판매/구매)은 어느 정도인가요?")
     profile.portrait = _mock_portrait(profile)
+    if mined and mined.cert_sentences:
+        # 인증·수상은 원문 그대로 자산 신호로 — 레퍼런스와 섞지 않는다(다른 종류)
+        profile.portrait.assets += (f" 인증·수상 신호(자료 원문): "
+                                    f"{mined.cert_sentences[0]}")
     return profile, open_questions
 
 
@@ -531,8 +551,21 @@ def represent(req: RepresentRequest, settings: Settings | None = None
     from .. import progress
     settings = settings or get_settings()
     with progress.node("fetch", "자료 수집·청킹"):
-        chunks, full_text = _ingest_assets(req, settings)
+        chunks, full_text, sources = _ingest_assets(req, settings)
         progress.log("청킹", f"청킹 완료 — {len(chunks)}개 청크 (출처 라벨 유지)")
+
+    # 하드 팩트 채굴 — 크롤·파싱 원문에서 검증 가능한 사실(원문 부분문자열)만.
+    # 양 경로 공통으로 캐서 응답에 노출한다(수집 자료가 실제로 쓰였다는 증거).
+    from ..ingest.mine import mine_hard_facts
+    mined = mine_hard_facts(full_text)
+    if mined.total:
+        progress.log("채굴", f"하드 팩트 — 수치 문장 {len(mined.metric_sentences)}·"
+                             f"고객 신호 {len(mined.client_sentences)}·"
+                             f"인증·수상 {len(mined.cert_sentences)}"
+                             + (f"·설립 {mined.founded_year}년"
+                                if mined.founded_year else ""))
+    else:
+        progress.log("채굴", "하드 팩트 없음 — 자료에서 수치·고객·인증 신호 미검출")
 
     extractor = get_extractor(settings)
     if extractor is not None:
@@ -542,9 +575,9 @@ def represent(req: RepresentRequest, settings: Settings | None = None
                              f"보강 질문 {len(open_questions)}건")
         engine_mode = "llm"
     else:
-        with progress.node("mock.parse", "Mock 파서 (LLM 키 없음)"):
-            progress.log("추출", "Mock 모드 — 구조화 텍스트 파서 사용")
-            profile, open_questions = _mock_extract(full_text)
+        with progress.node("mock.parse", "간이 분석 (LLM 키 없음)"):
+            progress.log("추출", "간이 분석 — 정형 라인 파서 + 하드 팩트 채굴 결합")
+            profile, open_questions = _mock_extract(full_text, mined)
         evidence = None
         engine_mode = "mock"
 
@@ -595,4 +628,6 @@ def represent(req: RepresentRequest, settings: Settings | None = None
         open_questions=open_questions,
         engine_mode=engine_mode,
         evidence=evidence,
+        sources=sources,
+        mined=mined.as_dict() if mined.total or mined.description else None,
     )

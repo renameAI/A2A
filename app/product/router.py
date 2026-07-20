@@ -242,6 +242,7 @@ def onboard(req: OnboardRequest, background: BackgroundTasks):
                 "ontology_anchors": [a.model_dump() for a in rep.ontology_anchors],
                 "open_questions": rep.open_questions,
                 "evidence": rep.evidence, "engine_mode": rep.engine_mode,
+                "sources": rep.sources, "mined": rep.mined,
                 "question_pin_count": len(pins),
                 "open_thread_count": sum(1 for t in threads if t.status == "open")}
     return _submit(background, _run)

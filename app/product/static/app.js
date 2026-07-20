@@ -477,7 +477,22 @@ function setNodeState(kind, status, meta) {
 }
 
 /* job 폴링 → 캔버스 노드 미러 (runJob 훅) */
+function renderTicker(job) {
+  const t = $("#log-ticker");
+  if (!t) return;
+  const running = job.status === "running" || job.status === "queued";
+  const lines = (job.logs || []).slice(-3).map((l) =>
+    `<div class="tick-line"><span class="tick-t">${l.t.toFixed(1)}s</span>` +
+    `<span class="tick-stage">${esc(l.stage)}</span>${esc(l.message)}</div>`);
+  const sig = lines.join("|") + (running ? ":r" : ":d");
+  if (t._sig === sig) return;          // 제자리 갱신 — 무의미한 재렌더 금지
+  t._sig = sig;
+  t.innerHTML = lines.join("");
+  t.classList.toggle("tick-live", running);
+}
+
 function renderCanvasNode(kind, job) {
+  renderTicker(job);
   const node = KIND_NODE[kind] || kind;
   if (!NODE_KO[node]) return;
   let status = "running";
@@ -533,6 +548,17 @@ function edgeD(e, ra, rb) {
   return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
 }
 
+function _candEdges() {
+  /* 동적 엣지 — 발굴 노드 → 후보 칩 → 판단 노드. 칩이 렌더된 뒤에만 존재한다. */
+  return [...document.querySelectorAll("#cand-lane .wf-cand")].flatMap((chip) => {
+    const cid = chip.dataset.cid;
+    return [
+      { from: "match", to: `cand-${cid}`, el: chip, side: "in" },
+      { from: `cand-${cid}`, to: "judge", el: chip, side: "out" },
+    ];
+  });
+}
+
 function drawEdges() {
   const layer = $("#edge-layer"), canvas = $("#canvas");
   if (!layer || !canvas) return;
@@ -545,7 +571,7 @@ function drawEdges() {
              width: r.width, height: r.height };
   };
   layer.setAttribute("viewBox", `0 0 ${cb.width} ${cb.height}`);
-  layer.innerHTML = CANVAS_EDGES.map((e) => {
+  const staticSvg = CANVAS_EDGES.map((e) => {
     const a = document.getElementById(`node-${e.from}`);
     const b = document.getElementById(`node-${e.to}`);
     if (!a || !b) return "";
@@ -555,6 +581,21 @@ function drawEdges() {
       <path class="me-flow" d="${d}"></path>
     </g>`;
   }).join("");
+  const dynSvg = _candEdges().map((e) => {
+    const match = document.getElementById("node-match");
+    const judgeN = document.getElementById("node-judge");
+    if (!match || !judgeN) return "";
+    const rc = rel(e.el);
+    // 발굴(위 행) → 칩: 아래로. 칩 → 판단(위 행): 위로.
+    const d = e.side === "in"
+      ? edgeD({ axis: "v" }, rel(match), rc)
+      : edgeD({ axis: "v" }, rc, rel(judgeN));
+    return `<g class="medge me-idle me-cand" data-e="${e.from}>${e.to}">
+      <path class="me-base" d="${d}"></path>
+      <path class="me-flow" d="${d}"></path>
+    </g>`;
+  }).join("");
+  layer.innerHTML = staticSvg + dynSvg;
   refreshEdges();
 }
 
@@ -577,6 +618,17 @@ function refreshEdges() {
     if (!g) return;
     const cls = `medge me-${edgeState(e)}${e.type ? " me-" + e.type : ""}`;
     if (g.getAttribute("class") !== cls) g.setAttribute("class", cls);
+  });
+  document.querySelectorAll("#cand-lane .wf-cand").forEach((chip) => {
+    const cid = chip.dataset.cid;
+    const st = chip.dataset.st;   // pending | running | done | error
+    const inCls = `medge me-cand me-${st === "pending" ? "done" : "done"}`;
+    const outCls = `medge me-cand me-${st === "running" ? "active"
+      : st === "done" ? "done" : "idle"}`;
+    const gi = layer.querySelector(`[data-e="match>cand-${cid}"]`);
+    const go = layer.querySelector(`[data-e="cand-${cid}>judge"]`);
+    if (gi && gi.getAttribute("class") !== inCls) gi.setAttribute("class", inCls);
+    if (go && go.getAttribute("class") !== outCls) go.setAttribute("class", outCls);
   });
 }
 
@@ -647,6 +699,48 @@ function closeDrawer() {
 function openQuestionsModal() {
   const mq = document.getElementById("modal-questions");
   if (mq && !mq.open) mq.showModal();
+}
+
+const DEC_KO = { recommend: "추천", conditional: "조건부", hold: "보류",
+                 terminate: "결렬" };
+
+function renderCandLane(candidates) {
+  const lane = $("#cand-lane");
+  if (!lane) return;
+  lane.innerHTML = candidates.slice(0, 4).map((c) => `
+    <button type="button" class="wf-cand" data-cid="${esc(c.company_id)}" data-st="pending"
+            title="${esc(c.summary || c.name)}">
+      <span class="wf-cand-dot"></span>
+      <span class="wf-cand-name">${esc(c.name)}</span>
+      <i class="wf-cand-score"><b style="width:${Math.min(c.retrieval_score * 100, 100)}%"></b></i>
+      <small class="wf-cand-dec">판단 대기</small>
+    </button>`).join("");
+  lane.querySelectorAll(".wf-cand").forEach((chip) => {
+    chip.onclick = () => {
+      openDrawer("match", "result");
+      const card = document.getElementById(`cand-${CSS.escape(chip.dataset.cid)}`);
+      if (card) {
+        card.scrollIntoView({ block: "center", behavior: "smooth" });
+        card.classList.add("cand-focus");
+        card.addEventListener("animationend",
+          () => card.classList.remove("cand-focus"), { once: true });
+      }
+    };
+  });
+  drawEdges();   // 칩 좌표가 생겼으니 동적 엣지 재생성
+}
+
+function setCandState(candidateId, st, decision) {
+  const chip = document.querySelector(
+    `#cand-lane .wf-cand[data-cid="${CSS.escape(candidateId)}"]`);
+  if (!chip) return;
+  chip.dataset.st = st;
+  const dec = chip.querySelector(".wf-cand-dec");
+  if (dec) dec.textContent = st === "running" ? "판단 중..."
+    : st === "error" ? "결격·오류"
+    : decision ? DEC_KO[decision] || decision : "판단 대기";
+  if (decision) chip.dataset.decision = decision;
+  refreshEdges();
 }
 
 /* 노드 클릭 — 입력형은 팝업, 실행·결과형은 드로어 */
@@ -743,6 +837,16 @@ function collectDialogue() {
   document.querySelectorAll("#questions input").forEach((input) => {
     if (input.value.trim()) upsertDialogue(input.dataset.q, input.value.trim());
   });
+  // 사전 입력(기업명·핵심 정보) — 정규 키로 보내면 간이 분석이 그대로 읽고,
+  // LLM 경로에선 [보강 대화 답변]으로 최우선 신뢰(stated) 처리된다
+  const core = { 이름: "#core-name", 국가: "#core-country", 산업: "#core-industry",
+                 문제: "#core-problem", 솔루션: "#core-solution", 타겟: "#core-target" };
+  for (const [key, sel] of Object.entries(core)) {
+    const v = $(sel)?.value.trim();
+    if (v) upsertDialogue(key, v);
+  }
+  const vps = [...document.querySelectorAll(".core-vp input:checked")].map((c) => c.value);
+  if (vps.length) upsertDialogue("판매가치", vps.join(","));
   const dialogue = [...state.dialogue];
   const ws = $("#w-sell").value, wb = $("#w-buy").value;
   if (ws) dialogue.push({ q: "판매의향", a: ws });
@@ -762,6 +866,10 @@ function collectPrivateState() {
 async function onboard() {
   const assets = collectAssets();
   if (!assets.length) { showError("#modal-onboard-error", "자료를 1건 이상 입력해주세요."); return; }
+  if (!$("#core-name").value.trim() && !state.companyId) {
+    showError("#modal-onboard-error", "기업명을 입력해주세요 — 자료에서 회사명을 확정할 수 없을 때의 기준값입니다.");
+    return;
+  }
   hideError("#onboard-error");
   hideError("#modal-onboard-error");
   document.getElementById("modal-onboard")?.close();
@@ -1012,6 +1120,9 @@ function provBadge(field) {
   return `<span class="prov ${field.provenance}">${label}</span>`;
 }
 
+const WILLING_KO = { very_high: "매우 적극적", high: "적극적", medium: "중간",
+                     low: "소극적", very_low: "매우 소극적" };
+
 function renderProfile(data) {
   const p = data.profile;
   const ev = data.evidence || {};
@@ -1027,9 +1138,44 @@ function renderProfile(data) {
       <dt>타겟 고객</dt><dd>${esc(p.target_customer.value) || "—"} ${provBadge(p.target_customer)}${evChips("target_customer")}</dd>
       <dt>가치 제안</dt><dd>판매: ${vp(p.sell_value_props)} / 구매: ${vp(p.purchase_value_props)}</dd>
       <dt>레퍼런스</dt><dd>${p.references.map(esc).join(", ") || "없음 (첫 사례)"}</dd>
-      <dt>협력 의향</dt><dd>판매: ${p.willingness_sell || "미상"} / 구매: ${p.willingness_purchase || "미상"}</dd>
+      <dt>협력 의향</dt><dd>판매: ${WILLING_KO[p.willingness_sell] || "미상"} / 구매: ${WILLING_KO[p.willingness_purchase] || "미상"}</dd>
       <dt>온톨로지</dt><dd>${data.ontology_anchors.map((a) => `<span class="points"><span>${esc(a.category)}: ${esc(a.value)}</span></span>`).join(" ")}</dd>
-    </dl>` + renderPortrait(p.portrait);
+    </dl>` + renderSources(data.sources, data.mined) + renderPortrait(p.portrait);
+}
+
+const SRC_KO = { website: "웹사이트", article: "기사", instagram: "인스타그램",
+                 text: "직접 입력", ir_deck: "IR덱 PDF" };
+
+function renderSources(sources, mined) {
+  /* 수집·채굴 투명성 — 넣은 자료가 실제로 얼마나 읽혔고 무엇이 캐졌는지 */
+  if (!sources || !sources.length) return "";
+  const chips = sources.map((s) => `
+    <details class="src">
+      <summary><span class="src-type">${SRC_KO[s.type] || esc(s.type)}</span>
+        ${s.url ? `<span class="src-url">${esc(s.url)}</span>` : ""}
+        <span class="src-chars">${s.chars.toLocaleString()}자 수집</span></summary>
+      <p class="src-preview">${esc(s.preview)}…</p>
+    </details>`).join("");
+  let minedHtml = "";
+  if (mined) {
+    const row = (label, items) => items && items.length ? `
+      <div class="mine-row"><b>${label}</b>
+        <ul>${items.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
+    const facts = [
+      mined.founded_year ? `<div class="mine-row"><b>설립</b><ul><li>${mined.founded_year}년</li></ul></div>` : "",
+      row("수치 신호", mined.metric_sentences),
+      row("고객·파트너 신호", mined.client_sentences),
+      row("인증·수상", mined.cert_sentences),
+    ].join("");
+    if (facts) minedHtml = `
+      <div class="mine-card">
+        <h4>자료에서 캐낸 하드 팩트 <small>전부 원문 그대로 — 요약·생성 없음</small></h4>
+        ${facts}
+      </div>`;
+  }
+  return `<div class="src-block">
+    <h4>수집한 자료 ${sources.length}건</h4>${chips}${minedHtml}
+  </div>`;
 }
 
 const PORTRAIT_KO = { identity: "정체성", business_model: "수익 구조", edge: "차별화",
@@ -1070,6 +1216,7 @@ $("#btn-match").onclick = async () => {
     $("#synth").classList.remove("hidden");
     state.judged = {};   // 새 후보군 — 이전 후보의 판단 수를 이어받지 않는다
     renderCandidates(data.candidates);
+    renderCandLane(data.candidates);
     setNodeState("judge", "ready", `후보 ${data.candidates.length}건 대기`);
     ["compose", "negotiate"].forEach((k) =>
       setNodeState(k, "locked", "판단 후"));
@@ -1120,6 +1267,7 @@ function ensureLogBox(parent) {
 
 async function judgeCandidate(candidateId, btn) {
   btn.disabled = true; btn.textContent = "판단 중...";
+  setCandState(candidateId, "running");
   const area = $(`#cand-${CSS.escape(candidateId)} .judge-area`);
   const logBox = ensureLogBox(area);
   try {
@@ -1127,6 +1275,7 @@ async function judgeCandidate(candidateId, btn) {
       { company_id: state.companyId, candidate_id: candidateId,
         intent: state.intent || collectIntent() }, logBox, "judge");
     state.judged[candidateId] = data.judge_result;
+    setCandState(candidateId, "done", data.judge_result.decision);
     area.innerHTML = renderJudgment(data.judge_result, candidateId);
     if (logBox._pipe) area.prepend(logBox._pipe);   // 파이프박스도 함께 복원 (innerHTML로 유실 방지)
     area.prepend(logBox);                       // 로그는 결과 위에 유지 (접힘)
@@ -1135,6 +1284,8 @@ async function judgeCandidate(candidateId, btn) {
     area.querySelector(".c-btn").onclick = (e) => composeDraft(candidateId, e.target);
     area.querySelector(".n-btn").onclick = (e) => negotiateSim(candidateId, e.target);
   } catch (err) {
+    setCandState(candidateId, "error",
+                 err.code === "deal_breaker" ? "terminate" : null);
     const msg = err.code === "deal_breaker"
       ? `deal-breaker 결렬 — ${esc(err.details?.reason || err.message)} (사람에게 비노출 처리되는 매칭입니다)`
       : esc(`${err.code || ""} ${err.message}`);

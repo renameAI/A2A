@@ -928,3 +928,141 @@ body.canvas-page { overflow: hidden; }
   .wf-fire::after { animation: none; opacity: 0; }
   .me-active .me-flow { animation: none; stroke-dasharray: none; }
 }
+
+/* ═══ 투자자 데모 폴리시 — 사전 입력·수집 투명성·후보 레인·로그 티커 ═══ */
+
+/* 온보딩 모달 섹션 */
+.onb-sec { margin-bottom: 20px; }
+.onb-sec > h3 {
+  font-size: 15px; font-weight: 700; margin: 0 0 10px; letter-spacing: -0.4px;
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.onb-sec > h3 small { font-weight: 500; color: var(--t400); font-size: 12px; }
+.req {
+  background: var(--red-bg); color: var(--red); font-size: 11px; font-weight: 700;
+  border-radius: var(--r-pill); padding: 2px 8px; vertical-align: 1px; margin-left: 4px;
+}
+.core-vp { align-items: center; gap: 8px; }
+.core-vp .vp-label { font-size: 14px; font-weight: 600; color: var(--t700); margin-right: 4px; }
+.core-vp > label {
+  display: flex; align-items: center; gap: 7px; font-weight: 500;
+  min-width: auto; flex: 0 0 auto; padding: 9px 13px;
+  background: var(--fill); border-radius: var(--r-pill); cursor: pointer;
+  font-size: 13.5px; color: var(--t600);
+}
+.core-vp > label:has(input:checked) { background: var(--blue-bg); color: var(--blue); }
+
+/* 수집한 자료 + 하드 팩트 (프로필 드로어) */
+.src-block { margin-top: 16px; }
+.src-block > h4, .mine-card > h4 {
+  font-size: 14.5px; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.3px;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.mine-card > h4 small { font-weight: 500; color: var(--t400); font-size: 11.5px; }
+.src {
+  background: var(--fill); border-radius: var(--r-sm); padding: 0 12px;
+  margin-bottom: 6px;
+}
+.src summary {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 10px 0; font-size: 13px; list-style: none; flex-wrap: wrap;
+}
+.src summary::-webkit-details-marker { display: none; }
+.src-type {
+  background: var(--surface); color: var(--t600); font-weight: 600;
+  border-radius: 6px; padding: 3px 8px; font-size: 12px;
+  box-shadow: var(--shadow);
+}
+.src-url { color: var(--t500); font-size: 12.5px; overflow: hidden;
+  text-overflow: ellipsis; max-width: 260px; white-space: nowrap; }
+.src-chars {
+  margin-left: auto; color: var(--blue); font-size: 12px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.src-preview {
+  margin: 0 0 10px; padding: 10px 12px; background: var(--surface);
+  border-radius: var(--r-sm); color: var(--t500); font-size: 12.5px; line-height: 1.6;
+}
+.mine-card {
+  margin-top: 12px; background: var(--blue-bg); border-radius: var(--r-md);
+  padding: 14px 16px;
+}
+.mine-row { display: flex; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+.mine-row:last-child { margin-bottom: 0; }
+.mine-row > b { flex: 0 0 96px; color: var(--blue); font-size: 12.5px; padding-top: 1px; }
+.mine-row ul { margin: 0; padding: 0; list-style: none; flex: 1; min-width: 0; }
+.mine-row li {
+  color: var(--t700); line-height: 1.55; padding: 2px 0;
+}
+.mine-row li::before { content: "— "; color: var(--t300); }
+
+/* 후보 레인 — 발굴된 후보 칩이 캔버스에 열린다 */
+#cand-lane {
+  display: flex; flex-direction: column; gap: 8px; justify-content: center;
+  min-width: 0; z-index: 1;
+}
+.wf-cand {
+  display: grid; grid-template-columns: 10px 1fr; grid-template-rows: auto auto auto;
+  column-gap: 8px; align-items: center; text-align: left;
+  background: #0d1626; border: 1.5px solid #1b2a44; border-radius: 11px;
+  padding: 8px 11px 7px; cursor: pointer;
+  transition: border-color .3s ease, transform .15s ease;
+}
+.wf-cand:hover { border-color: #3182f6; transform: translateX(2px); }
+.wf-cand-dot {
+  grid-row: 1; width: 7px; height: 7px; border-radius: 50%;
+  background: #2c405f; transition: background .3s ease;
+}
+.wf-cand[data-st="running"] { border-color: #3182f6; animation: dag-breathe 2.4s ease-in-out infinite; }
+.wf-cand[data-st="running"] .wf-cand-dot { background: #7dd3fc; }
+.wf-cand[data-st="done"] .wf-cand-dot { background: var(--green); }
+.wf-cand[data-st="done"][data-decision="hold"] .wf-cand-dot { background: var(--amber); }
+.wf-cand[data-st="done"][data-decision="terminate"] .wf-cand-dot,
+.wf-cand[data-st="error"] .wf-cand-dot { background: var(--red); }
+.wf-cand[data-st="error"] { border-color: #522; }
+.wf-cand-name {
+  grid-row: 1; color: #dce6f5; font-size: 12.5px; font-weight: 600;
+  letter-spacing: -0.3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wf-cand-score {
+  grid-column: 2; height: 3px; background: #16233c; border-radius: 2px;
+  overflow: hidden; margin: 3px 0 2px;
+}
+.wf-cand-score b {
+  display: block; height: 100%; background: #3182f6; border-radius: 2px;
+  transition: width .6s cubic-bezier(.4, 0, .2, 1);
+}
+.wf-cand-dec {
+  grid-column: 2; color: #5b7196; font-size: 10.5px;
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.me-cand .me-base { stroke-dasharray: 3 5; opacity: .7; }
+
+/* 후보 카드 포커스 플래시 (레인 칩 → 드로어 카드 내비게이션) */
+@keyframes cand-flash {
+  0% { box-shadow: 0 0 0 3px rgba(49, 130, 246, .5); }
+  100% { box-shadow: 0 0 0 3px rgba(49, 130, 246, 0); }
+}
+.cand-focus { animation: cand-flash 1.2s ease-out 1; }
+
+/* 라이브 로그 티커 — 실행 중 사고 과정이 캔버스 하단에 흐른다 */
+.log-ticker {
+  position: absolute; left: 22px; right: 22px; bottom: 46px;
+  display: flex; flex-direction: column; gap: 2px;
+  pointer-events: none; opacity: .45; transition: opacity .4s ease;
+}
+.log-ticker.tick-live { opacity: 1; }
+.tick-line {
+  color: #5b7196; font-size: 11.5px; letter-spacing: 0;
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tick-line:last-child { color: #7dd3fc; }
+.tick-t { color: #46587a; margin-right: 8px; font-variant-numeric: tabular-nums; }
+.tick-stage { color: #8b95a1; margin-right: 8px; font-weight: 600; }
+.tick-stage::before { content: "["; color: #46587a; }
+.tick-stage::after { content: "]"; color: #46587a; }
+@media (prefers-reduced-motion: reduce) {
+  .wf-cand[data-st="running"] { animation: none; }
+}
