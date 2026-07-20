@@ -4,6 +4,7 @@
 분리 배포 시 이 계층만 HTTP 클라이언트로 바꾸면 된다 (엔진 계약 불변).
 구매자 사전정보는 대회 데모 규약대로 시뮬레이션 가상 부여한다 (7-A.6, [시뮬] 표시).
 """
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .. import progress
+from ..a2a import job_state_to_a2a
 from ..config import get_settings
 from ..engine import pool as pool_module
 from ..jobs import store as job_store
@@ -24,6 +26,7 @@ from ..engine.judge import judge
 from ..engine.negotiate import negotiate
 from ..engine.represent import represent
 from ..engine.retrieve import retrieve
+from ..engine import vision as vision_module
 from ..engine.vision import get_vision_extractor
 from ..errors import EngineError
 from ..ingest.fetchers import fetch_pdf_bytes
@@ -32,9 +35,9 @@ from ..schemas import (Asset, AssetType, BBox, CommentThread, ComposeMode,
                        ComposeRequest, DialogueTurn, Intent, JudgeRequest,
                        JudgeResult, Lens, NegotiateRequest, Objective,
                        PoolChoice, PrivateState, PrivateStateItem, Profile,
-                       RepresentRequest, RetrieveDirection, RetrieveRequest,
-                       SourceTag, ThreadComment, ThreadReplyRequest, Vantage,
-                       ValueProp, VisualEvidence, Willingness)
+                       QuestionPin, RepresentRequest, RetrieveDirection,
+                       RetrieveRequest, SourceTag, ThreadComment,
+                       ThreadReplyRequest, Vantage, ValueProp, Willingness)
 from .store import store
 
 router = APIRouter(prefix="/product", tags=["product"])
@@ -46,15 +49,6 @@ def _pages_dir() -> Path:
     override = os.environ.get("A2A_PAGES_DIR")
     return Path(override) if override else \
         Path(__file__).resolve().parent.parent.parent / "pages"
-
-# 근거 시각화 대상 필드 — Profile 핵심 필드 + 회사의 상(portrait) 7항목
-_BBOX_TARGET_FIELDS = [
-    "problem_solved", "solution", "target_customer",
-    "sell_value_props", "purchase_value_props",
-    "portrait.identity", "portrait.business_model", "portrait.edge",
-    "portrait.stage_narrative", "portrait.assets", "portrait.gaps",
-    "portrait.risk_signals",
-]
 
 
 # ── 비동기 job 공통 (LLM 작업은 수 분 소요 — UI가 로그를 폴링) ──────
@@ -70,7 +64,10 @@ def product_job(job_id: str):
     job = job_store.get(job_id)
     if job is None:
         raise EngineError(404, "not_found", f"job {job_id} 없음")
+    # A2A Task lifecycle 상태 매핑은 a2a 모듈에 단일 정의 (product·전송계층 공유).
+    # 사람 입력 대기(최소 프로필 미달·미응답 질문 핀) = A2A input-required.
     return {"job_id": job.job_id, "status": job.status.value,
+            "a2a_state": job_state_to_a2a(job.status.value, job.result, job.error),
             "result": job.result, "error": job.error,
             "logs": job.log.entries, "elapsed": job.log.elapsed}
 
@@ -87,57 +84,123 @@ async def upload(file: UploadFile):
     return {"path": str(path), "filename": file.filename}
 
 
-# ── 근거 시각화 (bbox) — IR덱 원문 위 근거 위치 + 댓글 강제 (선택 기능) ──
-# GEMINI_API_KEY가 없으면 아무 일도 하지 않는다 — 텍스트 추출과 완전히 독립.
+# ── 질문 위치 탐지 (bbox) — 엑사원 질문을 IR덱 페이지에 핀 꽂기 (선택 기능) ──
+# 역할 분리: 엑사원(추론)이 질문을 만들고, VLM은 그 질문을 페이지 어디에 붙일지
+# 위치만 찾는다. GEMINI_API_KEY 없으면 아무 일도 안 함 — 텍스트 추출과 완전 독립.
+# 위치를 못 찾은 질문은 여기서 빠지고, 기존 텍스트 보강질문(clarify) 흐름이 담당한다.
 
-def _run_visual_grounding(company_id: str, assets: list[Asset]
-                          ) -> tuple[list[VisualEvidence], list[CommentThread]]:
+_PINS_PER_QUESTION = 2   # 질문당 상위 K개 핀 (결합 점수 s = r·g 내림차순)
+
+
+def _run_question_pinning(company_id: str, assets: list[Asset],
+                          questions: list[str]
+                          ) -> tuple[list[QuestionPin], list[CommentThread]]:
     settings = get_settings()
     vision = get_vision_extractor(settings)
-    if vision is None:
+    if vision is None or not questions:
         return [], []
 
-    evidence: list[VisualEvidence] = []
-    threads: list[CommentThread] = []
-    with progress.node("vision.grounding", "근거 위치 탐지 (bbox)"):
+    # 후보 수집 → 계약 검증(인덱스·페이지·기하·그라운딩·관련도) → 중복 제거 →
+    # 질문당 상위 K 선별. VLM 출력은 전부 '후보'일 뿐, 검증기를 통과해야 핀이 된다.
+    # 전송은 배치 단위 — 페이지 수·바이트 이중 상한(make_batches), 토큰은 실측 누적.
+    candidates: list[QuestionPin] = []
+    rejected = {"index": 0, "page": 0, "geometry": 0, "grounding": 0, "relevance": 0}
+    with progress.node("vision.pinning", "질문 위치 탐지 (bbox)"):
+        progress.log("비전", f"엑사원 질문 {len(questions)}건을 IR덱 페이지에서 찾는 중")
         for i, asset in enumerate(assets):
             if asset.type != AssetType.ir_deck or not asset.url:
                 continue
             try:
                 data = fetch_pdf_bytes(asset.url, settings)
-                pages = render_pdf_pages(data)
+                pages = render_pdf_pages(data, jpeg_quality=settings.vision_jpeg_quality)
             except Exception as e:
                 progress.log("비전", f"⚠ a{i}:ir_deck 렌더링 실패 — 건너뜀 ({e})")
                 continue
-            progress.log("비전", f"a{i}:ir_deck — {len(pages)}페이지 렌더링 완료")
             asset_dir = _pages_dir() / company_id
             asset_dir.mkdir(parents=True, exist_ok=True)
-            for page_no, png in enumerate(pages, start=1):
-                (asset_dir / f"a{i}_p{page_no}.png").write_bytes(png)
-                for item in vision.locate(png, _BBOX_TARGET_FIELDS, page_no):
-                    box = item.get("box_2d") or [0, 0, 0, 0]
-                    ev = VisualEvidence(
+            page_text = {}
+            api_pages = []
+            for p in pages:
+                (asset_dir / f"a{i}_p{p.page_no}.png").write_bytes(p.png)
+                page_text[p.page_no] = p.text
+                api_pages.append((p.page_no, p.api_image, p.api_mime))
+            batches = vision_module.make_batches(
+                api_pages, settings.vision_pages_per_call, settings.vision_batch_bytes)
+            progress.log("비전", f"a{i}:ir_deck — {len(pages)}페이지 → 배치 {len(batches)}건 "
+                                f"(호출당 ≤{settings.vision_pages_per_call}장·"
+                                f"≤{settings.vision_batch_bytes // 1024}KB)")
+            for batch in batches:
+                batch_page_nos = {n for n, _, _ in batch}
+                for item in vision.locate_batch(batch, questions):
+                    qi = item.get("question_index")
+                    if not isinstance(qi, int) or not (0 <= qi < len(questions)):
+                        rejected["index"] += 1
+                        continue
+                    page_no = item.get("page")
+                    if page_no not in batch_page_nos:   # 배치 밖 페이지 주장 = 폐기
+                        rejected["page"] += 1
+                        continue
+                    box = item.get("box_2d")
+                    if not vision_module.validate_box(box):
+                        rejected["geometry"] += 1
+                        continue
+                    quote = item.get("quote", "")
+                    g = vision_module.grounding_score(quote, page_text[page_no])
+                    if g is not None and g < vision_module.GROUND_THRESHOLD:
+                        rejected["grounding"] += 1
+                        continue
+                    r = float(item.get("relevance") or 0.0)
+                    if r < vision_module.REL_THRESHOLD:
+                        rejected["relevance"] += 1
+                        continue
+                    candidates.append(QuestionPin(
                         evidence_id=f"ev-{uuid.uuid4().hex[:8]}",
-                        field=item.get("field", ""), asset_index=i, page=page_no,
+                        question=questions[qi], asset_index=i, page=page_no,
                         box=BBox(ymin=box[0], xmin=box[1], ymax=box[2], xmax=box[3]),
-                        quote=item.get("quote", ""),
-                        confidence=item.get("confidence"),
-                        unclear=bool(item.get("unclear")),
-                        unclear_reason=item.get("unclear_reason"))
-                    evidence.append(ev)
-                    if ev.unclear:
-                        threads.append(CommentThread(
-                            thread_id=f"th-{uuid.uuid4().hex[:8]}",
-                            evidence_id=ev.evidence_id,
-                            comments=[ThreadComment(
-                                author="ai",
-                                text=f"'{ev.field}' 근거가 확실하지 않습니다 — "
-                                     f"{ev.unclear_reason or '표현이 모호합니다'}. "
-                                     f"이 부분이 맞는지 확인해 주세요.",
-                                ts=datetime.now(timezone.utc).isoformat())]))
-        progress.log("비전", f"완료 — 근거 {len(evidence)}건, "
-                            f"확인 필요 {len(threads)}건")
-    return evidence, threads
+                        quote=quote, relevance=r, grounding=g))
+
+        # 중복 제거: 같은 (질문, 자산, 페이지)는 결합 점수 최대 1개만
+        best: dict[tuple, QuestionPin] = {}
+        for c in candidates:
+            key = (c.question, c.asset_index, c.page)
+            if key not in best or vision_module.pin_score(c.relevance, c.grounding) \
+                    > vision_module.pin_score(best[key].relevance, best[key].grounding):
+                best[key] = c
+        # 질문당 상위 K개 (여러 페이지에 흩어진 핀 중 점수 높은 것만)
+        by_question: dict[str, list[QuestionPin]] = {}
+        for c in best.values():
+            by_question.setdefault(c.question, []).append(c)
+        pins: list[QuestionPin] = []
+        for q, group in by_question.items():
+            group.sort(key=lambda c: vision_module.pin_score(c.relevance, c.grounding),
+                       reverse=True)
+            pins.extend(group[:_PINS_PER_QUESTION])
+        pins.sort(key=lambda p: (p.asset_index, p.page))
+
+        threads = [CommentThread(
+            thread_id=f"th-{uuid.uuid4().hex[:8]}",
+            evidence_id=p.evidence_id,
+            comments=[ThreadComment(author="ai", text=p.question,
+                                    ts=datetime.now(timezone.utc).isoformat())])
+            for p in pins]
+
+        # 정직한 집계 — 폐기·비용을 숨기지 않는다 (측정과 자랑을 구분)
+        n_rej = sum(rejected.values())
+        n_dedup = len(candidates) - len(best)
+        n_capped = len(best) - len(pins)
+        unlocated = [q for q in questions if q not in by_question]
+        progress.log("비전",
+                     f"완료 — 후보 {len(candidates) + n_rej}건 중 핀 {len(pins)}건 채택 · "
+                     f"폐기 {n_rej}건(인덱스 {rejected['index']}/페이지 {rejected['page']}"
+                     f"/기하 {rejected['geometry']}/인용대조 {rejected['grounding']}"
+                     f"/저관련 {rejected['relevance']}) · 중복제거 {n_dedup}건 · "
+                     f"질문당 상위{_PINS_PER_QUESTION} 초과 {n_capped}건")
+        progress.log("비전", f"비용 — API 호출 {vision.calls}회 · "
+                            f"토큰 {vision.tokens_used:,}/{vision.token_budget:,} 사용"
+                            + (" ⚠ 예산 소진으로 일부 배치 생략" if vision.budget_exhausted else ""))
+        if unlocated:
+            progress.log("비전", f"위치 못 찾은 질문 {len(unlocated)}건 → 텍스트 보강질문으로 처리")
+    return pins, threads
 
 
 # ── 온보딩: 자료 → 프로필 (엔진 represent 호출) ─────────────────────
@@ -152,8 +215,14 @@ class OnboardRequest(BaseModel):
 @router.post("/onboard", status_code=202)
 def onboard(req: OnboardRequest, background: BackgroundTasks):
     def _run() -> dict:
+        # 소통 루프 되먹임 — 같은 회사 재분석이면, 지금까지 질문 핀에 단 답변을
+        # dialogue에 얹어 엑사원에게 전달한다. 답변이 프로필 개선으로 이어져야
+        # 핀이 진짜로 해소된다 (엑사원 질문 → 핀 → 답변 → 재분석 → 프로필 개선).
+        dialogue = list(req.dialogue)
+        if req.company_id:
+            dialogue += store.answered_dialogue(req.company_id)
         # 최소 프로필 미달이면 EngineError(409) → job.error로 수렴, 프론트가 보강 질문 표시
-        rep = represent(RepresentRequest(assets=req.assets, dialogue=req.dialogue))
+        rep = represent(RepresentRequest(assets=req.assets, dialogue=dialogue))
         rec = req.company_id and store.update_company(
             req.company_id, profile=rep.profile,
             private_state=PrivateState(items=req.private_state),
@@ -165,14 +234,16 @@ def onboard(req: OnboardRequest, background: BackgroundTasks):
             open_questions=rep.open_questions,
             evidence=rep.evidence,
             engine_mode=rep.engine_mode)
-        visual_evidence, threads = _run_visual_grounding(rec.company_id, req.assets)
-        store.set_visual_evidence(rec.company_id, visual_evidence, threads)
+        pins, threads = _run_question_pinning(
+            rec.company_id, req.assets, rep.open_questions)
+        store.set_question_pins(rec.company_id, pins, threads)
         return {"company_id": rec.company_id,
                 "profile": rep.profile.model_dump(mode="json"),
                 "ontology_anchors": [a.model_dump() for a in rep.ontology_anchors],
                 "open_questions": rep.open_questions,
                 "evidence": rep.evidence, "engine_mode": rep.engine_mode,
-                "visual_evidence_count": len(visual_evidence),
+                "sources": rep.sources, "mined": rep.mined,
+                "question_pin_count": len(pins),
                 "open_thread_count": sum(1 for t in threads if t.status == "open")}
     return _submit(background, _run)
 
@@ -184,15 +255,59 @@ def companies():
             for r in store.list()]
 
 
+# ── SQLite 인스펙터 (Phase 6) — 실제 저장 형태를 read-only로 노출 ────
+# 운영 상태가 로컬 어디에 어떤 raw 블롭으로 저장되는지 눈으로 확인하기 위함.
+
+@router.get("/db/inspect")
+def db_inspect():
+    import sqlite3
+    from .store import _db_path
+    path = _db_path()
+    info = {"db_path": str(path), "exists": path.exists(),
+            "size_bytes": path.stat().st_size if path.exists() else 0,
+            "journal_mode": None, "schema": [], "row_count": 0, "companies": []}
+    if not path.exists():
+        return info
+    conn = sqlite3.connect(path, timeout=10)
+    try:
+        info["journal_mode"] = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        info["schema"] = [
+            {"name": name, "sql": sql} for name, sql in conn.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%'").fetchall()]
+        rows = conn.execute(
+            "SELECT company_id, data FROM companies").fetchall()
+        info["row_count"] = len(rows)
+        for company_id, blob in rows:
+            d = json.loads(blob)
+            info["companies"].append({
+                "company_id": company_id,
+                "name": d.get("profile", {}).get("basic", {}).get("name"),
+                "engine_mode": d.get("engine_mode"),
+                "pins": len(d.get("question_pins", [])),
+                "threads": len(d.get("threads", [])),
+                "open_threads": sum(1 for t in d.get("threads", [])
+                                    if t.get("status") == "open"),
+                "answered": len(d.get("answered_questions", [])),
+                "bytes": len(blob),
+                # 실제 저장된 raw JSON 블롭 그대로 (예쁘게 들여쓰기만)
+                "raw": json.dumps(d, ensure_ascii=False, indent=2)})
+    finally:
+        conn.close()
+    return info
+
+
 # ── 근거 시각화 (bbox) 조회·페이지 이미지·댓글 답변 ─────────────────
 
 @router.get("/companies/{company_id}/evidence")
 def get_evidence(company_id: str):
     rec = _require_company(company_id)
-    return {"evidence": [e.model_dump(mode="json") for e in rec.visual_evidence],
+    return {"pins": [p.model_dump(mode="json") for p in rec.question_pins],
             "threads": [t.model_dump(mode="json") for t in rec.threads.values()],
             "open_thread_count": sum(1 for t in rec.threads.values()
-                                     if t.status == "open")}
+                                     if t.status == "open"),
+            # 소통 루프 상태 — 재분석에 실릴 대기 답변 수
+            "answered_count": len(rec.answered_questions)}
 
 
 @router.get("/pages/{company_id}/{filename}")
@@ -210,7 +325,13 @@ def reply_thread(company_id: str, thread_id: str, req: ThreadReplyRequest):
                                 datetime.now(timezone.utc).isoformat())
     if thread is None:
         raise EngineError(404, "not_found", f"스레드 {thread_id} 없음")
-    return thread.model_dump(mode="json")
+    # 카운트는 mutation 이후 fresh 조회로 — 영속 store는 매 get이 새 스냅샷이라
+    # reply 이전 레코드를 그대로 쓰면 낡은 값이 나온다.
+    rec = store.get(company_id)
+    return {"thread": thread.model_dump(mode="json"),
+            "open_thread_count": sum(1 for t in rec.threads.values()
+                                     if t.status == "open"),
+            "answered_count": len(rec.answered_questions)}
 
 
 # ── 컨설턴트 인터뷰 (CON-01~02) — 진단 대화로 아웃리치 가설 수립 ────
@@ -277,6 +398,30 @@ def match(req: MatchRequest, background: BackgroundTasks):
             })
         return {"candidates": enriched,
                 "synthesized_counterpart": result.synthesized_counterpart}
+    return _submit(background, _run)
+
+
+# ── 웹 스카우트 (엔진 scout 호출 — 풀 밖 후보 충원, JDG-09) ─────────
+
+class ScoutCallRequest(BaseModel):
+    company_id: str
+    intent: Intent
+    k: int = Field(default=6, ge=1, le=20)
+    explore_ratio: float = Field(default=0.34, ge=0.0, le=1.0)
+
+
+@router.post("/scout", status_code=202)
+def scout_partners(req: ScoutCallRequest, background: BackgroundTasks):
+    """명백지/암묵지 분리 → exploit(정석)·explore(모험) 가설 → 웹 검색 숏리스트."""
+    from ..engine.scout import scout as scout_engine
+    from ..schemas import ScoutRequest
+    rec = _require_company(req.company_id)
+
+    def _run() -> dict:
+        result = scout_engine(ScoutRequest(
+            profile=rec.profile, intent=req.intent,
+            k=req.k, explore_ratio=req.explore_ratio))
+        return result.model_dump(mode="json")
     return _submit(background, _run)
 
 

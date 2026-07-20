@@ -1,7 +1,11 @@
-"""근거 시각화(bbox) 테스트 — GEMINI_API_KEY 없이도 전부 오프라인.
+"""질문 위치 탐지(bbox) 테스트 — GEMINI_API_KEY 없이도 전부 오프라인.
 
-실제 Gemini 호출은 FakeVisionExtractor로 대체한다. render_pdf_pages/이미지
-저장/스레드 강제 응답 게이트는 전부 실제 코드 경로를 그대로 탄다.
+역할 분리: 엑사원(추론)이 질문을 만들고, VLM은 위치만 찾는다. 실제 Gemini
+호출은 FakeVisionExtractor로 대체하되, 엑사원 질문(open_questions)은 실제
+represent 파이프라인이 만든 것을 그대로 받는다. render_pdf_pages/이미지 저장/
+계약 검증기(기하·인용 그라운딩·관련도 임계)/스레드 강제 응답 게이트는 전부
+실제 코드 경로를 탄다 — 테스트 PDF에 텍스트 레이어를 실제로 넣어서
+quote 그라운딩 검증까지 진짜로 통과/실패시킨다.
 """
 import fitz
 import pytest
@@ -13,11 +17,15 @@ from tests.test_product import DIVEIN_TEXT, _run_job
 
 client = TestClient(app)
 
+# 테스트 PDF 텍스트 레이어 — quote 그라운딩 검증의 대조 원본
+PDF_LINES = ["DiveIn Group IR Deck", "매출 쉐어 구조로 협력합니다"]
+
 
 def _make_pdf(tmp_path) -> str:
     doc = fitz.open()
     page = doc.new_page()
-    page.insert_text((72, 72), "DiveIn Group IR Deck")
+    for k, line in enumerate(PDF_LINES):
+        page.insert_text((72, 72 + 24 * k), line, fontname="korea")
     path = tmp_path / "deck.pdf"
     doc.save(str(path))
     doc.close()
@@ -25,13 +33,31 @@ def _make_pdf(tmp_path) -> str:
 
 
 class FakeVisionExtractor:
+    """엑사원 질문을 받아 위치를 돌려주는 VLM 대역 (배치 인터페이스).
+
+    responses: {page_no: [location dict, ...]} — location에 page 필드가 없으면
+    해당 page_no로 채워준다 (실제 VLM은 page를 직접 기입).
+    batch_calls에 배치별 페이지 번호 목록을 기록해 배치 구성을 검증할 수 있다."""
     def __init__(self, responses: dict):
         self.responses = responses
-        self.calls: list[int] = []
+        self.batch_calls: list[list[int]] = []
+        self.seen_questions: list[str] = []
+        # 라우터가 비용 로그에 읽는 계측 필드 (실물 GeminiBBoxExtractor와 동일 계약)
+        self.calls = 0
+        self.tokens_used = 0
+        self.token_budget = 300_000
+        self.budget_exhausted = False
 
-    def locate(self, image_png, target_fields, page):
-        self.calls.append(page)
-        return self.responses.get(page, [])
+    def locate_batch(self, pages, questions):
+        page_nos = [n for n, _, _ in pages]
+        self.batch_calls.append(page_nos)
+        self.calls += 1
+        self.seen_questions = questions
+        out = []
+        for n in page_nos:
+            for item in self.responses.get(n, []):
+                out.append({**item, "page": item.get("page", n)})
+        return out
 
 
 def _onboard_with_deck(tmp_path, fake=None, monkeypatch=None):
@@ -46,46 +72,59 @@ def _onboard_with_deck(tmp_path, fake=None, monkeypatch=None):
 
 
 class TestVisionDisabledByDefault:
-    def test_no_key_means_no_grounding(self, tmp_path):
+    def test_no_key_means_no_pins(self, tmp_path):
         """GEMINI_API_KEY 없으면 아무 일도 안 하고 온보딩은 평소대로 성공한다."""
         result = _onboard_with_deck(tmp_path)
-        assert result["visual_evidence_count"] == 0
+        assert result["question_pin_count"] == 0
         assert result["open_thread_count"] == 0
 
 
-class TestVisionGrounding:
-    def test_evidence_and_unclear_thread_created(self, tmp_path, monkeypatch):
+class TestQuestionPinning:
+    def test_exaone_question_pinned_and_thread_created(self, tmp_path, monkeypatch):
+        """엑사원 질문이 VLM에 전달되고, 찾은 위치마다 핀 + 열린 스레드가 생긴다.
+        DIVEIN은 의향 미기재라 open_question이 정확히 1개('협력 의향...')다."""
         fake = FakeVisionExtractor({1: [
-            {"field": "problem_solved", "quote": "노후 호텔 객실 매출 정체",
-             "box_2d": [100, 100, 200, 400], "confidence": 0.9, "unclear": False},
-            {"field": "portrait.stage_narrative", "quote": "동남아 진출 준비",
-             "box_2d": [300, 100, 400, 500], "confidence": 0.4,
-             "unclear": True, "unclear_reason": "연도 표기가 없어 시점을 특정할 수 없음"},
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [300, 100, 400, 500], "relevance": 0.9},
         ]})
         result = _onboard_with_deck(tmp_path, fake, monkeypatch)
         company_id = result["company_id"]
-        assert result["visual_evidence_count"] == 2
+        assert result["question_pin_count"] == 1
         assert result["open_thread_count"] == 1
-        assert fake.calls == [1]        # 1페이지 PDF → 1회 호출
+        assert fake.batch_calls == [[1]]   # 1페이지 PDF → 배치 1건(페이지 1 포함)
+
+        # VLM이 받은 질문 = 엑사원이 만든 실제 open_question (VLM이 만든 게 아님)
+        assert fake.seen_questions == result["open_questions"]
+        assert any("의향" in q for q in fake.seen_questions)
 
         ev = client.get(f"/product/companies/{company_id}/evidence").json()
-        assert len(ev["evidence"]) == 2
+        assert len(ev["pins"]) == 1
         assert len(ev["threads"]) == 1
         thread = ev["threads"][0]
         assert thread["status"] == "open"
         assert thread["comments"][0]["author"] == "ai"
-        assert "연도 표기" in thread["comments"][0]["text"]
+        # 스레드 첫 댓글 = 엑사원 질문 원문 그대로
+        assert thread["comments"][0]["text"] == result["open_questions"][0]
 
-        # 박스 좌표가 그대로 보존됐는지 (ymin,xmin,ymax,xmax)
-        unclear_ev = next(e for e in ev["evidence"] if e["unclear"])
-        assert unclear_ev["box"] == {"ymin": 300, "xmin": 100, "ymax": 400, "xmax": 500}
+        # 핀에 질문 원문이 담기고, 박스 좌표가 그대로 보존됐는지 (ymin,xmin,ymax,xmax)
+        pin = ev["pins"][0]
+        assert pin["question"] == result["open_questions"][0]
+        assert pin["box"] == {"ymin": 300, "xmin": 100, "ymax": 400, "xmax": 500}
+
+    def test_out_of_range_index_dropped(self, tmp_path, monkeypatch):
+        """모델이 범위 밖 question_index를 주면 그 위치는 버린다 (질문 1개뿐인데 5번)."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 5, "quote": "엉뚱", "box_2d": [0, 0, 10, 10], "relevance": 0.9},
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 0
+        assert result["open_thread_count"] == 0
 
     def test_open_thread_blocks_match_until_answered(self, tmp_path, monkeypatch):
-        """강제 응답 — 불명확 스레드가 열려있으면 매칭이 막히고, 답하면 풀린다."""
+        """강제 응답 — 미응답 스레드가 열려있으면 매칭이 막히고, 답하면 풀린다."""
         fake = FakeVisionExtractor({1: [
-            {"field": "portrait.gaps", "quote": "해외 실행 경험 부재",
-             "box_2d": [10, 10, 50, 200], "confidence": 0.3,
-             "unclear": True, "unclear_reason": "표현이 모호함"},
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [10, 10, 50, 200], "relevance": 0.8},
         ]})
         result = _onboard_with_deck(tmp_path, fake, monkeypatch)
         company_id = result["company_id"]
@@ -100,15 +139,45 @@ class TestVisionGrounding:
 
         reply = client.post(
             f"/product/companies/{company_id}/threads/{thread_id}/reply",
-            json={"text": "맞습니다 — 첫 해외 레퍼런스입니다."})
+            json={"text": "판매 의향은 매우 적극적입니다."})
         assert reply.status_code == 200
-        assert reply.json()["status"] == "resolved"
-        assert reply.json()["comments"][-1]["author"] == "human"
+        body = reply.json()
+        assert body["thread"]["status"] == "resolved"
+        assert body["thread"]["comments"][-1]["author"] == "human"
+        assert body["open_thread_count"] == 0
+        assert body["answered_count"] == 1     # 소통 루프에 답변 1건 축적
 
         job = _run_job("/product/match", {
             "company_id": company_id,
             "intent": {"value_props": ["revenue_growth"], "target_region": "베트남"}})
         assert job["status"] == "done"
+
+    def test_answer_feeds_reanalysis(self, tmp_path, monkeypatch):
+        """소통 루프 — 핀에 단 답변이 재분석 때 엑사원에게 되먹임돼 프로필이 개선되고,
+        그 질문이 open_questions에서 사라진다 (핀 자동 해소)."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [10, 10, 50, 200], "relevance": 0.8},
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        company_id = result["company_id"]
+        assert any("의향" in q for q in result["open_questions"])
+
+        thread_id = client.get(f"/product/companies/{company_id}/evidence") \
+            .json()["threads"][0]["thread_id"]
+        # Mock 파서가 읽는 형태로 의향을 답한다 (질문↔필드 매핑은 백엔드가 처리)
+        client.post(f"/product/companies/{company_id}/threads/{thread_id}/reply",
+                    json={"text": "매우 적극적"})
+
+        # 같은 회사 재온보딩 → 서버가 답변을 dialogue로 병합해 엑사원에 전달
+        pdf_path = _make_pdf(tmp_path)
+        reanalyzed = _run_job("/product/onboard", {
+            "company_id": company_id,
+            "assets": [{"type": "ir_deck", "content": "", "url": pdf_path},
+                       {"type": "text", "content": DIVEIN_TEXT}]})
+        assert reanalyzed["status"] == "done"
+        # 의향 질문이 답변으로 채워져 open_questions에서 사라진다
+        assert not any("의향" in q for q in reanalyzed["result"]["open_questions"])
 
     def test_reply_unknown_thread_404(self, tmp_path):
         result = _onboard_with_deck(tmp_path)
@@ -131,3 +200,117 @@ class TestVisionGrounding:
 
         missing = client.get(f"/product/pages/{company_id}/a9_p9.png")
         assert missing.status_code == 404
+
+
+class TestPinContracts:
+    """계약 검증기 — VLM 출력은 후보일 뿐, 기하·인용·관련도 계약을 통과해야 핀이 된다.
+    프롬프트가 선언한 규칙을 코드가 실제로 집행하는지 확인한다."""
+
+    def test_geometry_contract_rejects_invalid_boxes(self, tmp_path, monkeypatch):
+        """기하 위반 4종 전부 폐기: 순서 역전 / 범위 밖 / 최소크기 미달 / 면적 50% 초과."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [400, 100, 300, 500], "relevance": 0.9},   # y_min > y_max
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [-10, 0, 100, 1200], "relevance": 0.9},    # 좌표 범위 밖
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [100, 100, 102, 500], "relevance": 0.9},   # 변 4 미만
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [0, 0, 1000, 999], "relevance": 0.9},      # 면적 > 50%
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 0
+
+    def test_grounding_contract_rejects_hallucinated_quote(self, tmp_path, monkeypatch):
+        """인용 계약 — PDF 텍스트 레이어에 없는 quote(환각)는 폐기된다."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "제주도 지사 설립 계획",   # PDF에 없음
+             "box_2d": [100, 100, 200, 500], "relevance": 0.95},
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 0
+
+    def test_relevance_contract_rejects_low_score(self, tmp_path, monkeypatch):
+        """관련도 계약 — r < 0.5(기권 임계)는 폐기. relevance 누락도 0으로 간주해 폐기."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [100, 100, 200, 500], "relevance": 0.3},
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [300, 100, 400, 500]},                     # relevance 누락
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 0
+
+    def test_dedup_keeps_best_per_page_and_pin_carries_scores(self, tmp_path, monkeypatch):
+        """같은 (질문, 페이지)에 후보 2개 → 결합 점수 s=r·g 높은 1개만 남고,
+        핀에 relevance·grounding 검증 결과가 실려 나온다."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [100, 100, 200, 500], "relevance": 0.6},
+            {"question_index": 0, "quote": "매출 쉐어 구조로 협력합니다",
+             "box_2d": [300, 100, 400, 500], "relevance": 0.95},
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 1
+        ev = client.get(f"/product/companies/{result['company_id']}/evidence").json()
+        pin = ev["pins"][0]
+        assert pin["relevance"] == 0.95                     # 점수 높은 후보가 생존
+        assert pin["box"]["ymin"] == 300
+        assert pin["grounding"] == 1.0                      # 정규화 부분문자열 → 완전 그라운딩
+
+
+class TestTransportLayer:
+    """VLM 전송 계층 (A2A 차용) — 배치 구성 이중 상한, 배치 밖 페이지 폐기,
+    capability discovery(Agent Card), Task lifecycle(input-required) 매핑."""
+
+    def test_make_batches_respects_both_caps(self):
+        from app.engine.vision import make_batches
+        # 페이지 수 상한: 6페이지 · 상한 4장 → [4, 2]
+        pages = [(n, b"x" * 100, "image/png") for n in range(1, 7)]
+        assert [[p[0] for p in b] for b in make_batches(pages, 4, 10**9)] \
+            == [[1, 2, 3, 4], [5, 6]]
+        # 바이트 상한: 각 400B · 배치 1000B → 2장씩 [2, 2, 2] (3장째 1200B > 1000B)
+        pages = [(n, b"x" * 400, "image/png") for n in range(1, 7)]
+        assert [[p[0] for p in b] for b in make_batches(pages, 4, 1000)] \
+            == [[1, 2], [3, 4], [5, 6]]
+        # 단일 페이지가 상한 초과여도 혼자 한 배치로는 나간다
+        pages = [(1, b"x" * 5000, "image/png")]
+        assert len(make_batches(pages, 4, 1000)) == 1
+
+    def test_location_claiming_foreign_page_dropped(self, tmp_path, monkeypatch):
+        """VLM이 배치에 없는 페이지 번호를 주장하면 폐기된다 (배치 계약)."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "page": 7,   # 1페이지 PDF인데 7페이지 주장
+             "quote": "매출 쉐어 구조", "box_2d": [100, 100, 200, 500],
+             "relevance": 0.9},
+        ]})
+        result = _onboard_with_deck(tmp_path, fake, monkeypatch)
+        assert result["question_pin_count"] == 0
+
+    def test_agent_card_served(self):
+        """A2A capability discovery — /.well-known/agent.json이 스킬을 광고한다."""
+        card = client.get("/.well-known/agent.json")
+        assert card.status_code == 200
+        body = card.json()
+        skill_ids = {s["id"] for s in body["skills"]}
+        assert {"represent", "judge", "question-pinning"} <= skill_ids
+        assert body["capabilities"]["stateTransitionHistory"] is True
+
+    def test_a2a_state_input_required_when_pins_open(self, tmp_path, monkeypatch):
+        """A2A Task lifecycle — 미응답 핀이 있으면 job이 input-required로 매핑된다."""
+        fake = FakeVisionExtractor({1: [
+            {"question_index": 0, "quote": "매출 쉐어 구조",
+             "box_2d": [100, 100, 200, 500], "relevance": 0.9},
+        ]})
+        monkeypatch.setattr(router_module, "get_vision_extractor", lambda s: fake)
+        pdf_path = _make_pdf(tmp_path)
+        res = client.post("/product/onboard", json={
+            "assets": [{"type": "ir_deck", "content": "", "url": pdf_path},
+                       {"type": "text", "content": DIVEIN_TEXT}]})
+        job_id = res.json()["job_id"]
+        for _ in range(50):
+            job = client.get(f"/product/jobs/{job_id}").json()
+            if job["status"] in ("done", "error"):
+                break
+        assert job["status"] == "done"
+        assert job["a2a_state"] == "input-required"   # 핀에 답해야 다음 진행 가능

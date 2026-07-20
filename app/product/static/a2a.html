@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A2A 흐름 시각화 · 매칭엔진</title>
+<link rel="stylesheet" href="/style.css?v=toss5">
+</head>
+<body>
+<header>
+  <h1>A2A B2B 매칭엔진 <span class="ver">v0</span></h1>
+  <nav class="topnav"><a href="/">매칭</a><a href="/a2a.html" class="active">A2A 흐름</a><a href="/db.html">DB 저장소</a></nav>
+</header>
+
+<main class="page">
+  <h2>A2A 프로토콜 흐름 <small>(JSON-RPC 2.0 + SSE 스트리밍을 실시간 DAG로)</small></h2>
+  <p class="hint">Google Agent2Agent 규약. 아래 스킬을 <code>message/stream</code>으로 호출하면
+  실제 <code>/a2a</code> SSE 스트림이 흘러들어오고, 각 이벤트(<b>task → status-update → artifact → final</b>)를
+  DAG 노드로 그립니다. 엣지가 흐르는 게 실제 프로토콜 이벤트 도착 순서예요.</p>
+
+  <div class="a2a-controls">
+    <label>스킬
+      <select id="skill">
+        <option value="represent">represent (프로필 구축 — 노드 다수)</option>
+        <option value="retrieve">retrieve (후보 발굴)</option>
+      </select>
+    </label>
+    <button id="run" class="primary">message/stream 실행 ▶</button>
+    <span id="rpc-state" class="badge"></span>
+  </div>
+
+  <!-- Task lifecycle 상태 바 -->
+  <div class="lifecycle" id="lifecycle">
+    <div class="lc-node" data-st="submitted"><span>submitted</span></div>
+    <div class="lc-edge"></div>
+    <div class="lc-node" data-st="working"><span>working</span><small id="lc-count"></small></div>
+    <div class="lc-edge"></div>
+    <div class="lc-node" data-st="terminal"><span id="lc-terminal">completed</span></div>
+  </div>
+
+  <!-- 이벤트 DAG (도착 순서대로 노드가 쌓임) -->
+  <h3>SSE 이벤트 스트림 <small>(각 노드 = JSON-RPC 응답 1건)</small></h3>
+  <div class="dag" id="dag"></div>
+
+  <!-- 선택 이벤트 원문 -->
+  <section id="detail-sec" class="hidden">
+    <h3>이벤트 원문 <small id="detail-label"></small></h3>
+    <pre id="detail" class="rawblob"></pre>
+  </section>
+  <div id="a2a-error" class="error hidden"></div>
+</main>
+
+<footer>Agent Card: <a href="/.well-known/agent.json"><code>/.well-known/agent.json</code></a> · 전송: <code>POST /a2a</code> (JSON-RPC 2.0)</footer>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let events = [];
+let statusCount = 0;
+
+function resetView() {
+  events = [];
+  statusCount = 0;
+  $("#dag").innerHTML = "";
+  $("#detail-sec").classList.add("hidden");
+  $("#lc-count").textContent = "";
+  $("#lc-terminal").textContent = "completed";
+  document.querySelectorAll(".lc-node").forEach((n) => n.classList.remove("on", "term-ok", "term-input", "term-fail"));
+  $("#a2a-error").classList.add("hidden");
+}
+
+function lightLifecycle(state) {
+  const map = { submitted: "submitted", working: "working" };
+  if (map[state]) $(`.lc-node[data-st="${map[state]}"]`).classList.add("on");
+  if (["completed", "input-required", "failed", "canceled"].includes(state)) {
+    const term = $('.lc-node[data-st="terminal"]');
+    term.classList.add("on");
+    $("#lc-terminal").textContent = state;
+    term.classList.add(state === "completed" ? "term-ok" : state === "input-required" ? "term-input" : "term-fail");
+  }
+}
+
+const KIND_LABEL = { "task": "task", "status-update": "status", "artifact-update": "artifact" };
+
+function addNode(ev, raw) {
+  const kind = ev.kind;
+  const idx = events.length;
+  events.push(raw);
+  let title = KIND_LABEL[kind] || kind;
+  let sub = "";
+  if (kind === "task") { sub = ev.status.state; }
+  else if (kind === "status-update") {
+    sub = (ev.status.message?.parts?.[0]?.text || ev.status.state).slice(0, 42);
+    if (ev.final) title = "final";
+  } else if (kind === "artifact-update") { sub = ev.artifact.artifactId; }
+
+  const isFinal = kind === "status-update" && ev.final;
+  const cls = kind === "task" ? "n-task"
+    : kind === "artifact-update" ? "n-artifact"
+    : isFinal ? "n-final" : "n-status";
+  const node = document.createElement("div");
+  node.className = `dagnode ${cls}`;
+  node.innerHTML = `<div class="dn-kind">${esc(title)}</div><div class="dn-sub">${esc(sub)}</div>`;
+  node.onclick = () => {
+    $("#detail").textContent = JSON.stringify(JSON.parse(raw), null, 2);
+    $("#detail-label").textContent = `#${idx + 1} ${kind}`;
+    $("#detail-sec").classList.remove("hidden");
+    document.querySelectorAll(".dagnode").forEach((n) => n.classList.remove("sel"));
+    node.classList.add("sel");
+  };
+  if (idx > 0) {
+    const edge = document.createElement("div");
+    edge.className = "dagedge";
+    $("#dag").appendChild(edge);
+  }
+  $("#dag").appendChild(node);
+  node.scrollIntoView({ behavior: "smooth", inline: "end", block: "nearest" });
+
+  // lifecycle 갱신
+  if (kind === "task") lightLifecycle(ev.status.state);
+  if (kind === "status-update") {
+    if (ev.final) lightLifecycle(ev.status.state);
+    else {
+      statusCount += 1;
+      $("#lc-count").textContent = `${statusCount} 이벤트`;
+      $('.lc-node[data-st="working"]').classList.add("on");
+    }
+  }
+}
+
+function skillInput(skill) {
+  if (skill === "represent") {
+    return { assets: [{ type: "text", content:
+      "이름: 다이브인그룹\n국가: 한국\n산업: hospitality\n설명: 노후 호텔 전환\n문제: 노후 객실 매출 정체\n솔루션: 저자본 예술 전환\n타겟: 중소 호텔 오너\n판매가치: 매출" }] };
+  }
+  return { requester_profile: {
+      basic: { name: "데모", country: "한국", industry: "x" }, description: "d",
+      problem_solved: { value: "p", provenance: "stated" },
+      solution: { value: "s", provenance: "stated" },
+      target_customer: { value: "t", provenance: "stated" },
+      sell_value_props: ["revenue_growth"] },
+    intent: { value_props: ["revenue_growth"] },
+    direction: "sell_outreach", pool: "external", k: 3 };
+}
+
+async function run() {
+  resetView();
+  const btn = $("#run"); btn.disabled = true;
+  const skill = $("#skill").value;
+  $("#rpc-state").textContent = "streaming…";
+  const body = { jsonrpc: "2.0", id: "viz-1", method: "message/stream",
+    params: { message: { role: "user", kind: "message", messageId: "m",
+      parts: [{ kind: "data", data: { skill, input: skillInput(skill) } }] } } };
+  try {
+    const res = await fetch("/a2a", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("text/event-stream")) {   // 검증 실패 등 → JSON-RPC 에러
+      const err = (await res.json()).error;
+      throw new Error(`${err.code} ${err.message}`);
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, sep); buf = buf.slice(sep + 2);
+        const line = chunk.split("\n").find((l) => l.startsWith("data: "));
+        if (!line) continue;
+        const raw = line.slice(6);
+        addNode(JSON.parse(raw).result, raw);
+      }
+    }
+    $("#rpc-state").textContent = "stream 종료";
+  } catch (e) {
+    $("#a2a-error").textContent = `실패: ${e.message}`;
+    $("#a2a-error").classList.remove("hidden");
+    $("#rpc-state").textContent = "에러";
+  } finally { btn.disabled = false; }
+}
+$("#run").onclick = run;
+</script>
+</body>
+</html>

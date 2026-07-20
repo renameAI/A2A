@@ -132,7 +132,7 @@ class Profile(BaseModel):
     purchase_value_props: list[ValueProp] = []
     willingness_sell: Optional[Willingness] = None
     willingness_purchase: Optional[Willingness] = None
-    portrait: Optional[CompanyPortrait] = None   # 회사의 상 (LLM 경로에서 생성)
+    portrait: Optional[CompanyPortrait] = None   # 회사의 상 — LLM 다층 독해 또는 mock 간이 합성. None은 구버전 저장 데이터뿐
 
 
 class PrivateStateItem(BaseModel):
@@ -205,6 +205,10 @@ class RepresentResponse(BaseModel):
     open_questions: list[str]        # ask 항목 + 저확신 추론 (REP-07)
     engine_mode: str = "mock"        # "llm" | "mock" — 조용한 degrade 금지 (ING-05)
     evidence: Optional[dict[str, list[str]]] = None   # 필드 → 근거 청크 ID (ING-04)
+    # 수집·채굴 투명성 — 크롤·파싱한 자료가 실제로 얼마나 쓰였는지 사용자가 본다.
+    # sources: 자산별 {label, type, url, chars, preview}. mined: 하드 팩트 마이너 결과.
+    sources: list[dict] = []
+    mined: Optional[dict] = None
 
 
 # ── /v1/retrieve (API §2) ───────────────────────────────────────────
@@ -304,6 +308,10 @@ class JudgeResult(BaseModel):
     match_summary: MatchSummary
     deal_structure: Optional[str] = None
     confidence_band: Optional[ConfidenceBand] = None
+    # 자기일관성 투표 (L2/L3) — k-표본 다수결 일치율과, 저합의 시 사람 라우팅 플래그.
+    # judge_samples=1이면 sample_agreement=1.0, needs_human=False (단일 표본, 기존 동작).
+    sample_agreement: Optional[float] = None
+    needs_human: bool = False
 
 
 # ── /v1/compose (API §4) ────────────────────────────────────────────
@@ -428,17 +436,18 @@ class BBox(BaseModel):
     xmax: float
 
 
-class VisualEvidence(BaseModel):
-    """페이지 이미지 위의 근거 위치 하나 — 필드 하나의 '출처'."""
+class QuestionPin(BaseModel):
+    """페이지 이미지 위에 꽂힌 엑사원 질문 하나. 질문은 추론 모델이 만들고,
+    VLM은 이 질문을 페이지 어디에 붙일지 위치(box)만 찾는다 (역할 분리).
+    핀은 검증기(vision.validate_box/grounding_score)를 통과한 것만 저장된다."""
     evidence_id: str
-    field: str                       # 예: "problem_solved", "portrait.stage_narrative"
+    question: str                    # 엑사원이 던진 질문 원문 (VLM이 만든 게 아님)
     asset_index: int                 # 몇 번째 자산(IR덱)인지
     page: int                        # 1-base 페이지 번호
     box: BBox
-    quote: str                       # 페이지에서 이 박스가 감싸는 근거 텍스트
-    confidence: Optional[float] = None
-    unclear: bool = False            # 모델이 스스로 불확실하다고 표시
-    unclear_reason: Optional[str] = None
+    quote: str                       # 페이지에서 이 박스가 감싸는 텍스트 (위치 근거)
+    relevance: float = 0.0           # VLM 자기채점 관련도 r∈[0,1] (임계 0.5 미만은 폐기됨)
+    grounding: Optional[float] = None  # 인용↔텍스트레이어 포함도 g∈[0,1]; None=검증불가(스캔 PDF)
 
 
 class ThreadComment(BaseModel):
@@ -448,8 +457,8 @@ class ThreadComment(BaseModel):
 
 
 class CommentThread(BaseModel):
-    """시트 댓글처럼 bbox 하나에 매달리는 스레드. unclear 근거는 자동 생성되고,
-    사람이 답하기 전까지 open으로 남아 매칭 진행을 막는다 (강제 응답)."""
+    """시트 댓글처럼 질문 핀 하나에 매달리는 스레드. 엑사원 질문이 자동으로 첫 댓글이
+    되고, 사람이 답하기 전까지 open으로 남아 매칭 진행을 막는다 (강제 응답)."""
     thread_id: str
     evidence_id: str
     status: str = "open"             # "open" | "resolved"
@@ -458,3 +467,61 @@ class CommentThread(BaseModel):
 
 class ThreadReplyRequest(BaseModel):
     text: str
+
+
+# ── Scout — 지식 분리 → 가설 → 웹 검색 숏리스트 (기획서 §1 가설수립·JDG-09) ──
+# Retrieve가 '이미 아는 풀' 안에서 찾는다면, Scout는 풀 밖(웹)에서 후보를 충원한다
+# (기획서 6.4 '외부 풀 충원' 트랙의 v0). exploit=명백지 기반 정석 가설,
+# explore=암묵지(회사의 상 — 역추론된 결핍·전략) 기반 모험 가설.
+
+class KnowledgeKind(str, Enum):
+    explicit = "explicit"    # 명백지 — 자료에 명시(stated)·자가신고
+    tacit = "tacit"          # 암묵지 — 역추론(inferred·portrait)
+
+
+class KnowledgeItem(BaseModel):
+    kind: KnowledgeKind
+    field: str               # 출처 필드 (예: "problem_solved", "portrait.gaps")
+    content: str
+    confidence: Optional[float] = None   # tacit만 (inferred 확신도)
+
+
+class HypothesisTrack(str, Enum):
+    exploit = "exploit"      # 정석 — 명백지가 가리키는 검증된 파트너 패턴
+    explore = "explore"      # 모험 — 암묵지에서 도출한 비자명 파트너 가설
+
+
+class PartnerHypothesis(BaseModel):
+    track: HypothesisTrack
+    hypothesis: str          # 어떤 파트너가 왜 맞는가 (한 문장)
+    grounded_in: list[str]   # 근거 지식 field 목록 — 가설의 출처 추적
+    search_query: str        # 웹 검색어
+    partner_type: str        # 기대 파트너 유형 (예: "동남아 중가 호텔 운영사")
+
+
+class ScoutCandidate(BaseModel):
+    track: HypothesisTrack
+    hypothesis: str          # 이 후보를 찾게 한 가설 원문
+    title: str
+    url: str
+    snippet: str
+    domain: str
+    relevance: float         # 결정적 스코어 (가설·검색어 ↔ 제목+스니펫 bigram overlap)
+
+
+class ScoutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    client_request_id: Optional[str] = None
+    profile: Profile
+    intent: Intent
+    k: int = Field(default=6, ge=1, le=20)
+    # explore 비율 — JDG-09 '파라미터로 조정 가능'(초기값 TBD·박사 몫이라 기본 1/3)
+    explore_ratio: float = Field(default=0.34, ge=0.0, le=1.0)
+
+
+class ScoutResponse(BaseModel):
+    knowledge: list[KnowledgeItem]
+    hypotheses: list[PartnerHypothesis]
+    shortlist: list[ScoutCandidate]
+    engine_mode: str                 # 가설 생성 경로 (llm | mock)
+    web_search_used: bool            # false면 검색 실패/차단 — 정직 표기

@@ -1,0 +1,85 @@
+{
+  "_meta": {
+    "version": "v0",
+    "authored_by": "CoT 샘플 #01~#04 케이스 역할(pool.py 설계 주석) + test_product 고정 케이스에서 저자 도출",
+    "honest_limits": [
+      "외부 검증된 골든 라벨이 아니라, 시드 풀의 '의도된 역할'을 라벨로 인코딩한 소량 v0 셋(7 케이스).",
+      "audit 로그(엔진 자기 출력)는 순환이라 라벨로 쓰지 않음.",
+      "anchor(divein×livi=conditional)와 deal-breaker/distractor 역할은 강한 근거, bangkok/casablanca 매칭 극성은 약한 근거.",
+      "decision 극성(engage/defer/reject)으로 채점 — 정확 decision보다 극성 일치가 1차 지표."
+    ],
+    "polarity_map": {"recommend": "engage", "conditional": "engage", "hold": "defer", "terminate": "reject"}
+  },
+  "retrieve_cases": [
+    {
+      "case_id": "R-cot01-divein-베트남",
+      "source": "CoT #01·#02 — divein 판매 아웃리치, 베트남 노후 객실 매칭",
+      "requester_ref": "mem-divein",
+      "intent": {"value_props": ["revenue_growth"], "target_region": "베트남"},
+      "direction": "sell_outreach",
+      "expected": {
+        "top_should_be": "ext-livi-hanoi",
+        "should_exclude": ["ext-competitor-interior", "ext-hanoi-luxury-new", "ext-global-aero"],
+        "note": "경쟁사(인테리어 시공)·distractor(신축 럭셔리, 노후 문제 없음)·타산업(항공)은 강한 후보에서 빠져야"
+      }
+    }
+  ],
+  "judge_cases": [
+    {
+      "case_id": "J-cot01-divein-livi",
+      "source": "CoT #01 전문가 결론: 조건부·PMS 선결·소규모 PoC (README:131, test_product 고정)",
+      "confidence": "high",
+      "self_ref": "mem-divein",
+      "counterpart_ref": "ext-livi-hanoi",
+      "vantage": "seller",
+      "objective": "exploration_budget",
+      "intent": {"value_props": ["revenue_growth"], "target_region": "베트남"},
+      "expected": {"decision": "conditional", "polarity": "engage"}
+    },
+    {
+      "case_id": "J-cot04-divein-casablanca",
+      "source": "CoT #04 — 인바운드(willingness_purchase=high) 매칭 타깃",
+      "confidence": "medium",
+      "self_ref": "mem-divein",
+      "counterpart_ref": "ext-casablanca-odyssee",
+      "vantage": "seller",
+      "objective": "exploration_budget",
+      "intent": {"value_props": ["revenue_growth"]},
+      "expected": {"polarity": "engage", "note": "상대 열림(high)이라 진행 극성 기대"}
+    },
+    {
+      "case_id": "J-dealbreaker-divein-aero",
+      "source": "JDG-04 결격 테스트 — 초기기업 × 글로벌 제조 대기업(단계 근본 부적합)",
+      "confidence": "high",
+      "self_ref": "mem-divein",
+      "counterpart_ref": "ext-global-aero",
+      "vantage": "seller",
+      "objective": "exploration_budget",
+      "intent": {"value_props": ["revenue_growth"]},
+      "expected": {"polarity": "reject", "deal_breaker_ok": true,
+                   "note": "deal-breaker 게이트 발화 또는 terminate — 둘 다 정답(추격 자원 회수)"}
+    },
+    {
+      "case_id": "J-distractor-divein-competitor",
+      "source": "RET-02 — 유사벡터 경쟁사(객실 인테리어 시공). 구매자 아닌 경쟁사라 진행 극성 아님",
+      "confidence": "medium",
+      "self_ref": "mem-divein",
+      "counterpart_ref": "ext-competitor-interior",
+      "vantage": "seller",
+      "objective": "exploration_budget",
+      "intent": {"value_props": ["revenue_growth"]},
+      "expected": {"polarity_not": "engage", "note": "경쟁사는 추천 극성이 아니어야(hold/terminate 허용)"}
+    },
+    {
+      "case_id": "J-distractor-divein-luxury",
+      "source": "온톨로지 배제 예시 — 신축 럭셔리(노후 객실 문제 없음). 보완성 약함",
+      "confidence": "medium",
+      "self_ref": "mem-divein",
+      "counterpart_ref": "ext-hanoi-luxury-new",
+      "vantage": "seller",
+      "objective": "exploration_budget",
+      "intent": {"value_props": ["revenue_growth"], "target_region": "베트남"},
+      "expected": {"polarity_not": "engage", "note": "노후 문제 없는 상대는 강한 진행이 아니어야"}
+    }
+  ]
+}

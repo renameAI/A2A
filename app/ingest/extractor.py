@@ -33,7 +33,8 @@ def extract_profile(chunks: list[Chunk], extractor: Extractor
                     ) -> tuple[Profile, list[str], dict[str, list[str]]]:
     """청크들 → (Profile, open_questions, evidence). evidence = 필드 → 근거 청크 ID."""
     user = extract_user(chunks)
-    # deep=True — 상(像)은 다층 독해(추론)에서 나온다. 속도보다 상의 품질 우선.
+    progress.log("추론", f"다층 독해 입력 — 청크 {len(chunks)}개 · {len(user):,}자")
+    # deep=True — 상(像)은 다층 독해(추론)에서 나온다. 프롬프트를 줄이지 않는다.
     data = extractor.extract_json(EXTRACT_SYSTEM, user, EXTRACT_SCHEMA, deep=True)
 
     profile = Profile(
@@ -58,9 +59,18 @@ def extract_profile(chunks: list[Chunk], extractor: Extractor
         progress.log("검증", f"⚠ 회사명 '{profile.basic.name}'이 자료에서 확인되지 "
                              f"않음 — 레퍼런스·고객사 오추출 가능성. 사람 확인 권장.")
 
-    evidence = {
-        name: data[name]["evidence_chunk_ids"]
-        for name in ("problem_solved", "solution", "target_customer")
-        if data[name]["evidence_chunk_ids"]
-    }
+    # 인용 계약 (R2) — evidence_chunk_ids가 실존 청크를 가리키는지 검증.
+    # bbox의 "배치 밖 페이지 폐기"와 동일 원리: 존재하지 않는 인용은 폐기 + 집계.
+    valid_ids = {c.chunk_id for c in chunks}
+    n_invalid = 0
+    evidence: dict[str, list[str]] = {}
+    for name in ("problem_solved", "solution", "target_customer"):
+        ids = data[name]["evidence_chunk_ids"]
+        kept = [i for i in ids if i in valid_ids]
+        n_invalid += len(ids) - len(kept)
+        if kept:
+            evidence[name] = kept
+    if n_invalid:
+        progress.log("검증", f"⚠ 실존하지 않는 근거 청크 인용 {n_invalid}건 폐기 "
+                             f"(환각 인용 — 유효 청크 {len(valid_ids)}개와 대조)")
     return profile, data["open_questions"], evidence

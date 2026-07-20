@@ -2,7 +2,8 @@
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);
-const state = { assets: [], dialogue: [], companyId: null, intent: null, judged: {} };
+const state = { assets: [], dialogue: [], companyId: null, intent: null, judged: {},
+  loopEvents: [] };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -38,63 +39,74 @@ async function api(path, options = {}) {
 
 const PIPELINES = {
   onboard: {
-    title: "Represent — 자료 → 프로필 + 상(像)",
+    title: "프로필 분석 — 자료에서 회사 정보 추출",
     nodes: [
-      { id: "fetch",       col: 0, row: 0, icon: "📥", label: "자료 수집·청킹",   desc: "URL 크롤(robots·캐시)·PDF·SNS → 출처 라벨 청크" },
-      { id: "llm.reason",  col: 1, row: 0, icon: "🧠", label: "다층 독해 (추론)", desc: "reasoning ON — 5층 독해로 회사의 상(像) 구축" },
-      { id: "llm.format",  col: 2, row: 0, icon: "🧩", label: "구조화",           desc: "스키마 강제 + sanitize 정화 + grounding 검증" },
-      { id: "mock.parse",  col: 1, row: 1, icon: "📋", label: "Mock 파서",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
-      { id: "gate",        col: 3, row: 0, icon: "🚧", label: "최소 프로필 게이트", desc: "REP-06 — 문제·솔루션·타겟·VP 미달 시 409" },
-      { id: "audit",       col: 4, row: 0, icon: "🗂", label: "감사 로그",        desc: "SYS-04 — audit/*.jsonl 축적" },
+      { id: "fetch",       col: 0, row: 0, label: "자료 수집·청킹",   desc: "URL 크롤(robots·캐시)·PDF·SNS → 출처 라벨 청크" },
+      { id: "llm.reason",  col: 1, row: 0, label: "다층 독해 (추론)", desc: "reasoning ON — 5층 독해로 회사의 상(像) 구축" },
+      { id: "llm.format",  col: 2, row: 0, label: "구조화",           desc: "스키마 강제 + sanitize 정화 + grounding 검증" },
+      { id: "mock.parse",  col: 1, row: 1, label: "간이 분석 (키 없음)",        desc: "LLM 키 없음 — '키: 값' 구조화 텍스트 파서" },
+      { id: "gate",        col: 3, row: 0, label: "최소 프로필 게이트", desc: "REP-06 — 문제·솔루션·타겟·VP 미달 시 409" },
+      { id: "audit",       col: 4, row: 0, label: "감사 로그",        desc: "SYS-04 — audit/*.jsonl 축적" },
     ],
     edges: [["fetch", "llm.reason"], ["llm.reason", "llm.format"], ["llm.format", "gate"],
             ["fetch", "mock.parse"], ["mock.parse", "gate"], ["gate", "audit"]],
   },
   match: {
-    title: "Retrieve — 보완성 검색 (유사도 아님)",
+    title: "후보 발굴 — 보완성 기반 검색",
     nodes: [
-      { id: "synth",  col: 0, row: 0, icon: "🎯", label: "이상적 상대상 합성", desc: "1단 — 내 솔루션이 푸는 문제를 '겪는' 상대의 상" },
-      { id: "search", col: 1, row: 0, icon: "🔍", label: "하이브리드 검색",   desc: "2단 — 벡터 유사 + 온톨로지 보정 + 경쟁사 강등" },
+      { id: "synth",  col: 0, row: 0, label: "이상적 상대상 합성", desc: "1단 — 내 솔루션이 푸는 문제를 '겪는' 상대의 상" },
+      { id: "search", col: 1, row: 0, label: "후보 검색",   desc: "2단 — 벡터 유사 + 온톨로지 보정 + 경쟁사 강등" },
     ],
     edges: [["synth", "search"]],
   },
   judge: {
-    title: "Judge — 점수가 아닌 구조화 판단",
+    title: "적합도 판단 — 근거·리스크 포함",
     nodes: [
-      { id: "gate.dealbreaker", col: 0, row: 0, icon: "🚫", label: "결격 게이트",   desc: "JDG-04 — deal-breaker 하드 차단 (항상 규칙)" },
-      { id: "llm.reason",       col: 1, row: 0, icon: "🧠", label: "깊은 추론",     desc: "reasoning ON — 상 재구성 → 차원 판정 → 딜 구조" },
-      { id: "llm.format",       col: 2, row: 0, icon: "🧩", label: "구조화",        desc: "스키마 강제 — 판단을 JudgeResult 계약으로" },
-      { id: "rules.judge",      col: 1, row: 1, icon: "📐", label: "규칙 판단",     desc: "Mock — bigram 보완성 + 온톨로지 규칙" },
-      { id: "validate",         col: 3, row: 0, icon: "✅", label: "차원 계약 검증", desc: "JDG-02 — sell 5차원 / buy 7차원 누락 검사" },
-      { id: "audit",            col: 4, row: 0, icon: "🗂", label: "감사 로그",     desc: "SYS-04 — 입력·궤적·결정 저장 (재학습용)" },
+      { id: "gate.dealbreaker", col: 0, row: 0, label: "결격 게이트",   desc: "JDG-04 — deal-breaker 하드 차단 (항상 규칙)" },
+      { id: "llm.reason",       col: 1, row: 0, label: "깊은 추론",     desc: "reasoning ON — 상 재구성 → 차원 판정 → 딜 구조" },
+      { id: "llm.format",       col: 2, row: 0, label: "구조화",        desc: "스키마 강제 — 판단을 JudgeResult 계약으로" },
+      { id: "rules.judge",      col: 1, row: 1, label: "규칙 기반 판단",     desc: "Mock — bigram 보완성 + 온톨로지 규칙" },
+      { id: "validate",         col: 3, row: 0, label: "차원 계약 검증", desc: "JDG-02 — sell 5차원 / buy 7차원 누락 검사" },
+      { id: "audit",            col: 4, row: 0, label: "감사 로그",     desc: "SYS-04 — 입력·궤적·결정 저장 (재학습용)" },
     ],
     edges: [["gate.dealbreaker", "llm.reason"], ["llm.reason", "llm.format"],
             ["llm.format", "validate"], ["validate", "audit"],
             ["gate.dealbreaker", "rules.judge"], ["rules.judge", "audit"]],
   },
   compose: {
-    title: "Compose — 수신자가 사는 가치의 언어로",
+    title: "제안 초안 — 수신자 가치 언어로",
     nodes: [
-      { id: "compose.llm",      col: 0, row: 0, icon: "✍️", label: "생성 (LLM)",    desc: "fit_reasons에서만 주장 — claim_trace 추적" },
-      { id: "llm.format",       col: 1, row: 0, icon: "🧩", label: "구조화",        desc: "스키마 강제 — 변형 A/B + 근거 매핑" },
-      { id: "compose.template", col: 0, row: 1, icon: "📋", label: "생성 (템플릿)", desc: "Mock — Judge 근거 기반 템플릿" },
-      { id: "sendgate",         col: 2, row: 0, icon: "🔒", label: "사람 승인 게이트", desc: "CMP-06 — send_blocked, 발송은 항상 사람" },
+      { id: "compose.llm",      col: 0, row: 0, label: "생성 (LLM)",    desc: "fit_reasons에서만 주장 — claim_trace 추적" },
+      { id: "llm.format",       col: 1, row: 0, label: "구조화",        desc: "스키마 강제 — 변형 A/B + 근거 매핑" },
+      { id: "compose.template", col: 0, row: 1, label: "생성 (템플릿)", desc: "Mock — Judge 근거 기반 템플릿" },
+      { id: "sendgate",         col: 2, row: 0, label: "사람 승인 게이트", desc: "CMP-06 — send_blocked, 발송은 항상 사람" },
     ],
     edges: [["compose.llm", "llm.format"], ["llm.format", "sendgate"],
             ["compose.template", "sendgate"]],
   },
-  negotiate: { title: "A2A 협상 — 제안 ↔ 검토 ↔ 재제안 (7-A)", dynamic: true },
-  consult: {
-    title: "Consultant — 진단 인터뷰 (기획서 9장)",
+  negotiate: { title: "협상 시뮬레이션 — 제안·검토·재제안", dynamic: true },
+  scout: {
+    title: "웹 파트너 탐색 — 지식 분리 → 가설 → 검색",
     nodes: [
-      { id: "consult",    col: 0, row: 0, icon: "🎙", label: "인터뷰 턴",  desc: "슬롯 공백 분석 → 질문·선택지 설계 (회사의 상에서 도출)" },
-      { id: "llm.format", col: 1, row: 0, icon: "🧩", label: "구조화",     desc: "질문·선택지·슬롯을 스키마로 강제" },
+      { id: "knowledge.split", col: 0, row: 0, label: "지식 분리",   desc: "명백지(stated) / 암묵지(inferred·상) 결정적 분리" },
+      { id: "hypothesize",     col: 1, row: 0, label: "파트너 가설", desc: "exploit=명백지 정석 / explore=암묵지 모험 — 계약 코드 집행" },
+      { id: "websearch",       col: 2, row: 0, label: "웹 검색",     desc: "가설별 검색어로 풀 밖 후보 충원 (키 없는 공개 웹)" },
+      { id: "shortlist",       col: 3, row: 0, label: "숏리스트",    desc: "도메인 dedup + explore 쿼터 배분 + 결정적 정렬" },
+    ],
+    edges: [["knowledge.split", "hypothesize"], ["hypothesize", "websearch"],
+            ["websearch", "shortlist"]],
+  },
+  consult: {
+    title: "AI 인터뷰 — 진단 대화",
+    nodes: [
+      { id: "consult",    col: 0, row: 0, label: "인터뷰 턴",  desc: "슬롯 공백 분석 → 질문·선택지 설계 (회사의 상에서 도출)" },
+      { id: "llm.format", col: 1, row: 0, label: "구조화",     desc: "질문·선택지·슬롯을 스키마로 강제" },
     ],
     edges: [["consult", "llm.format"]],
   },
 };
 
-const NODE_W = 170, NODE_H = 64, GAP_X = 56, GAP_Y = 30, PAD = 14;
+const NODE_W = 158, NODE_H = 64, GAP_X = 44, GAP_Y = 26, PAD = 14;
 
 function nodeInstances(logs) {
   /* node_start/node_end 이벤트 → 인스턴스 목록. 같은 id 반복 실행 지원(협상 라운드) +
@@ -131,20 +143,27 @@ function fmtElapsed(inst, job) {
 const STATUS_KO = { pending: "대기", running: "실행 중", ok: "완료",
                     error: "실패", skipped: "건너뜀" };
 
-function svgNode(x, y, node, inst, job) {
-  const status = inst ? inst.status
+function nodeStatus(inst, job) {
+  return inst ? inst.status
     : (job.status === "running" || job.status === "queued") ? "pending" : "skipped";
+}
+function nodeSub(inst, job) {
+  const status = nodeStatus(inst, job);
   const elapsed = inst ? fmtElapsed(inst, job) : "";
-  const sub = `${STATUS_KO[status]}${elapsed ? " · " + elapsed : ""}`;
+  return `${STATUS_KO[status]}${elapsed ? " · " + elapsed : ""}`;
+}
+
+function svgNode(x, y, node, inst, job) {
+  /* 계기판 노드 — 상태 점 + 라벨(Pretendard, 사람이 읽는 것) + 계기 수치(모노 tabular,
+     기계가 보고하는 것). 포트 점은 제거했다: 노드당 4개 × 노드 수만큼의 장식 노이즈였고
+     베지어 엣지가 이미 노드에 정확히 닿는다. */
+  const status = nodeStatus(inst, job);
   return `<g class="pnode pn-${status}" data-node="${esc(node.id)}" transform="translate(${x},${y})">
     <title>${esc(node.desc || node.label)}</title>
-    <rect width="${NODE_W}" height="${NODE_H}" rx="10"></rect>
-    <text x="12" y="24" class="pn-label">${node.icon || "▫"} ${esc(node.label)}</text>
-    <text x="12" y="46" class="pn-sub">${esc(sub)}</text>
-    <circle class="pn-port" cx="0" cy="${NODE_H / 2}" r="3.5"></circle>
-    <circle class="pn-port" cx="${NODE_W}" cy="${NODE_H / 2}" r="3.5"></circle>
-    <circle class="pn-port" cx="${NODE_W / 2}" cy="0" r="3.5"></circle>
-    <circle class="pn-port" cx="${NODE_W / 2}" cy="${NODE_H}" r="3.5"></circle>
+    <rect width="${NODE_W}" height="${NODE_H}" rx="12"></rect>
+    <circle class="pn-dot" cx="16" cy="21" r="3.5"></circle>
+    <text x="28" y="26" class="pn-label">${esc(node.label)}</text>
+    <text x="16" y="47" class="pn-sub">${esc(nodeSub(inst, job))}</text>
   </g>`;
 }
 
@@ -180,7 +199,7 @@ function renderPipeline(pipeBox, kind, job) {
       if (inst.parent) rowCounter[col] = row + 1;
       const id = `i${i}`;
       if (inst.parent) parentOf[id] = instances.indexOf(inst.parent);
-      return { id, col, row, icon: inst.parent ? "└" : "🔁", label: inst.label, inst };
+      return { id, col, row, label: inst.label, inst };
     });
     edges = [];
     const roots = nodes.filter((n) => n.row === 0);
@@ -205,13 +224,15 @@ function renderPipeline(pipeBox, kind, job) {
   }
 
   const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+  const edgeCls = [];   // 제자리 갱신에서 엣지 순서대로 클래스를 다시 입히기 위해 보관
   const edgeSvg = edges.map(([a, b, vertical]) => {
     const A = pos[a], B = pos[b];
-    if (!A || !B) return "";
+    if (!A || !B) return "";   // path 미생성 → edgeCls에도 넣지 않아야 인덱스가 정렬된다
     const sa = byId[a].inst?.status, sb = byId[b].inst?.status;
     const cls = (sa === "ok" && (sb === "ok" || sb === "error")) ? "pe-done"
       : (sa === "ok" || sa === "running") && sb === "running" ? "pe-active"
       : sa === "ok" && !sb && (job.status === "running") ? "pe-active" : "pe-idle";
+    edgeCls.push(cls);
     return vertical
       ? svgEdge(A.x + NODE_W / 2, A.y + NODE_H, B.x + NODE_W / 2, B.y, cls, true)
       : svgEdge(A.x + NODE_W, A.y + NODE_H / 2, B.x, B.y + NODE_H / 2, cls);
@@ -220,29 +241,57 @@ function renderPipeline(pipeBox, kind, job) {
   const nodeSvg = nodes.map((n) => svgNode(pos[n.id].x, pos[n.id].y, n, n.inst, job)).join("");
   const totalTime = job.status === "done" || job.status === "error"
     ? (job.logs.length ? job.logs[job.logs.length - 1].t.toFixed(1) : "0") : job.elapsed.toFixed(1);
+  const totalTxt = `총 ${totalTime}s · ${STATUS_KO[job.status === "queued" ? "pending" : job.status] || job.status}`;
 
   pipeBox.classList.remove("hidden");
-  pipeBox.innerHTML = `
-    <div class="pipe-head">
-      <span>⚙️ ${esc(def.title)}</span>
-      <span class="pipe-total">총 ${totalTime}s · ${STATUS_KO[job.status === "queued" ? "pending" : job.status] || job.status}</span>
-    </div>
-    <div class="pipe-scroll"><svg width="${maxX + PAD}" height="${maxY + PAD}"
-      viewBox="0 0 ${maxX + PAD} ${maxY + PAD}">${edgeSvg}${nodeSvg}</svg></div>
-    <div class="pipe-hint">노드를 클릭하면 해당 구간의 로그만 필터됩니다 · 점선 = 이번 실행에서 건너뜀</div>`;
 
-  /* 노드 클릭 → 로그 필터 */
-  const logBox = pipeBox._logBox;
-  pipeBox.querySelectorAll(".pnode").forEach((g) => {
-    g.addEventListener("click", () => {
-      const nodeId = def.dynamic
-        ? (nodes.find((n) => n.id === g.dataset.node)?.inst || {}).id
-        : g.dataset.node;
-      if (!logBox) return;
-      logBox._filter = logBox._filter === nodeId ? null : nodeId;
-      renderLogs(logBox, logBox._logs || [], logBox._status || "done");
+  /* 구조(노드·엣지 집합)가 그대로면 innerHTML을 갈아끼우지 않고 제자리 갱신한다.
+     폴링마다 재구성하면 CSS 애니메이션(전류 흐름·노드 호흡)이 매번 리셋돼 끊긴다 —
+     피치 영상에서 바로 티가 나는 부분. 구조가 바뀔 때(협상 라운드 추가 등)만 재구성. */
+  const sig = `${kind}|${nodes.map((n) => n.id).join(",")}|${edges.map((e) => e.join(">")).join(",")}`;
+  if (pipeBox._sig !== sig) {
+    pipeBox.innerHTML = `
+      <div class="pipe-head">
+        <span>${esc(def.title)}</span>
+        <span class="pipe-total">${esc(totalTxt)}</span>
+      </div>
+      <div class="pipe-scroll"><svg width="${maxX + PAD}" height="${maxY + PAD}"
+        viewBox="0 0 ${maxX + PAD} ${maxY + PAD}">${edgeSvg}${nodeSvg}</svg></div>
+      <div class="pipe-hint">단계를 클릭하면 해당 로그만 표시됩니다 · 점선은 이번 실행에서 건너뛴 단계</div>`;
+    pipeBox._sig = sig;
+
+    /* 노드 클릭 → 로그 필터 (구조 재구성 시에만 재바인딩) */
+    const logBox = pipeBox._logBox;
+    pipeBox.querySelectorAll(".pnode").forEach((g) => {
+      g.addEventListener("click", () => {
+        const nodeId = def.dynamic
+          ? (nodes.find((n) => n.id === g.dataset.node)?.inst || {}).id
+          : g.dataset.node;
+        if (!logBox) return;
+        logBox._filter = logBox._filter === nodeId ? null : nodeId;
+        renderLogs(logBox, logBox._logs || [], logBox._status || "done");
+      });
     });
-  });
+  } else {
+    /* 제자리 갱신 — 클래스·텍스트만 바꿔 진행 중인 애니메이션을 살려둔다 */
+    const svg = pipeBox.querySelector("svg");
+    nodes.forEach((n) => {
+      const g = svg?.querySelector(`.pnode[data-node="${CSS.escape(n.id)}"]`);
+      if (!g) return;
+      const cls = `pnode pn-${nodeStatus(n.inst, job)}`;
+      if (g.getAttribute("class") !== cls) g.setAttribute("class", cls);
+      const sub = g.querySelector(".pn-sub");
+      const txt = nodeSub(n.inst, job);
+      if (sub && sub.textContent !== txt) sub.textContent = txt;
+    });
+    const paths = svg?.querySelectorAll(".pedge") || [];
+    edgeCls.forEach((cls, i) => {
+      const p = paths[i];
+      if (p && p.getAttribute("class") !== `pedge ${cls}`) p.setAttribute("class", `pedge ${cls}`);
+    });
+    const total = pipeBox.querySelector(".pipe-total");
+    if (total && total.textContent !== totalTxt) total.textContent = totalTxt;
+  }
 }
 
 function ensurePipeline(logBox, kind) {
@@ -266,7 +315,7 @@ function renderLogs(logBox, logs, status) {
   const filter = logBox._filter;
   const shown = filter ? logs.filter((l) => l.node === filter) : logs;
   const filterChip = filter
-    ? `<span class="log-filter">노드 필터: ${esc(filter)} ✕</span>` : "";
+    ? `<span class="log-filter">단계 필터: ${esc(filter)} ✕</span>` : "";
   const lines = shown.map((l) => {
     const cls = l.type === "node_start" ? " log-nstart"
       : l.type === "node_end" ? (l.status === "ok" ? " log-nok" : " log-nerr") : "";
@@ -289,6 +338,8 @@ async function runJob(path, body, logBox, kind) {
   const { job_id } = await api(path, { method: "POST", body: JSON.stringify(body) });
   while (true) {
     const job = await api(`/product/jobs/${job_id}`);
+    renderA2ALoop(kind || path, job);
+    renderCanvasNode(kind || path, job);
     if (pipe) renderPipeline(pipe, kind, job);
     renderLogs(logBox, job.logs, job.status);
     if (job.status === "done") return job.result;
@@ -297,6 +348,435 @@ async function runJob(path, body, logBox, kind) {
     }
     await new Promise((r) => setTimeout(r, 1200));
   }
+}
+
+/* ── A2A 소통 루프 — product job을 A2A Task lifecycle로 같은 화면에 표시 ── */
+
+const A2A_STAGE = {
+  scout: "웹 파트너 탐색",
+  onboard: "프로필 분석",
+  consult: "AI 인터뷰",
+  match: "후보 발굴",
+  judge: "적합도 판단",
+  compose: "제안 초안",
+  negotiate: "협상 시뮬레이션",
+};
+
+function renderA2ALoop(kind, job) {
+  if (!$("#loop-current")) return;
+  const stateName = job.a2a_state || (job.status === "done" ? "completed" : job.status);
+  const label = A2A_STAGE[kind] || kind;
+  $("#loop-current").textContent = `${label}: ${stateName}`;
+  $("#loop-current").className = `badge loop-${stateName}`;
+
+  document.querySelectorAll("#loop-lifecycle span").forEach((el) => {
+    const st = el.dataset.st;
+    el.classList.toggle("on", st === stateName ||
+      (st === "working" && ["submitted", "working"].includes(stateName)) ||
+      (st === "completed" && stateName === "completed"));
+  });
+
+  const last = state.loopEvents[state.loopEvents.length - 1];
+  const sig = `${job.job_id}:${stateName}:${job.logs.length}`;
+  if (!last || last.sig !== sig) {
+    state.loopEvents.push({
+      sig,
+      t: new Date().toLocaleTimeString(),
+      jobId: job.job_id,
+      label,
+      state: stateName,
+      logs: job.logs.length,
+      elapsed: job.elapsed,
+    });
+    state.loopEvents = state.loopEvents.slice(-12);
+  } else if (last) {
+    last.elapsed = job.elapsed;   // 같은 상태여도 처리 시간은 최신으로
+  }
+
+  /* 성능 지표 — job별 최종 상태를 무제한 맵에 누적 (12개 이벤트 링버퍼로
+     집계하면 오래 쓸수록 완료 수가 조용히 줄어드는 거짓 카운터가 된다) */
+  state.jobFinals = state.jobFinals || {};
+  state.jobFinals[job.job_id] = { jobId: job.job_id, state: stateName,
+                                  elapsed: job.elapsed };
+  const runs = Object.values(state.jobFinals);
+  const doneRuns = runs.filter((e) => ["completed", "input-required"].includes(e.state));
+  const failRuns = runs.filter((e) => ["failed", "error"].includes(e.state));
+  const avg = doneRuns.length
+    ? (doneRuns.reduce((a, e) => a + (e.elapsed || 0), 0) / doneRuns.length) : 0;
+  const lastDone = doneRuns[doneRuns.length - 1];
+  $("#loop-stats").innerHTML = `
+    <div class="stat"><small>완료</small><b>${doneRuns.length}</b></div>
+    <div class="stat"><small>실패</small><b class="${failRuns.length ? "stat-bad" : ""}">${failRuns.length}</b></div>
+    <div class="stat"><small>최근 처리</small><b>${lastDone ? lastDone.elapsed.toFixed(1) + "s" : "–"}</b></div>
+    <div class="stat"><small>평균 처리</small><b>${doneRuns.length ? avg.toFixed(1) + "s" : "–"}</b></div>`;
+
+  $("#loop-events").innerHTML = state.loopEvents.map((e) =>
+    `<div class="loop-event loop-${esc(e.state)}">
+      <b>${esc(e.label)}</b><span>${esc(e.state)}</span>
+      <small>${e.elapsed != null ? e.elapsed.toFixed(1) + "s · " : ""}${esc(e.t)} · 로그 ${e.logs}</small>
+    </div>`).join("");
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   전체 화면 워크플로우 캔버스 — 서비스 단계 맵.
+   노드 = HTML 카드(리치 콘텐츠), 엣지 = 카드 뒤 SVG 한 장(2겹: 상시 배선 +
+   전류 오버레이). 상태 갱신은 제자리(클래스 비교 후 교체)로만 — 폴링이
+   호흡·전류 애니메이션을 리셋하지 않게 (renderPipeline과 같은 원칙).
+   ═══════════════════════════════════════════════════════════════ */
+
+const NODE_KO = { onboard: "자료 입력", profile: "프로필 분석", questions: "보강 질문",
+  consult: "AI 인터뷰", match: "후보 발굴", scout: "웹 파트너 탐색",
+  judge: "적합도 판단", compose: "제안 초안", negotiate: "협상 시뮬레이션" };
+const KIND_NODE = { onboard: "profile" };   // job kind → 캔버스 노드 (그 외 동일 이름)
+const WF_KO = { locked: "대기", ready: "실행 가능", running: "실행 중",
+  input: "응답 필요", done: "완료", error: "실패" };
+
+const CANVAS_EDGES = [
+  { from: "onboard", to: "profile" },
+  { from: "profile", to: "questions", type: "cond", axis: "v", ox: 26 },
+  { from: "questions", to: "profile", type: "feedback", axis: "v", ox: -26 },
+  { from: "profile", to: "consult", type: "opt" },
+  { from: "profile", to: "match" },
+  { from: "profile", to: "scout", type: "opt" },
+  { from: "consult", to: "match", type: "opt", axis: "v" },
+  { from: "match", to: "judge" },
+  { from: "judge", to: "compose" },
+  { from: "judge", to: "negotiate" },
+];
+
+/* 여기서 kind는 캔버스 노드 이름 그대로 — job kind→노드 매핑(KIND_NODE)은
+   renderCanvasNode에서만 적용한다 (전역 매핑이면 '자료 입력' 노드를 직접 못 만진다) */
+function nodeEl(kind) { return document.getElementById(`node-${kind}`); }
+function nodeSt(kind) { return nodeEl(kind)?.dataset.st || "locked"; }
+
+function announce(text) {   // aria-live 한 줄 — 접근성 + 상태 전이의 텍스트 증거
+  const live = $("#canvas-live");
+  if (live && live.textContent !== text) live.textContent = text;
+}
+
+function setNodeState(kind, status, meta) {
+  const el = nodeEl(kind);
+  if (!el) return;
+  if (el.dataset.st !== status) {
+    const wasRunning = el.dataset.st === "running";
+    el.dataset.st = status;
+    el.className = `wf-node wf-${status}`;
+    if (status === "running" && !wasRunning) {   // 실행 시작 1회 펄스 링
+      el.classList.add("wf-fire");
+      el.addEventListener("animationend",
+        () => el.classList.remove("wf-fire"), { once: true });
+    }
+    announce(`${NODE_KO[kind] || kind}: ${WF_KO[status] || status}`);
+    refreshEdges();
+    syncDrawerStatus();
+  }
+  if (meta != null) {
+    const m = el.querySelector(".wf-meta");
+    if (m && m.textContent !== meta) m.textContent = meta;
+  }
+}
+
+/* job 폴링 → 캔버스 노드 미러 (runJob 훅) */
+function renderTicker(job) {
+  const t = $("#log-ticker");
+  if (!t) return;
+  const running = job.status === "running" || job.status === "queued";
+  const lines = (job.logs || []).slice(-3).map((l) =>
+    `<div class="tick-line"><span class="tick-t">${l.t.toFixed(1)}s</span>` +
+    `<span class="tick-stage">${esc(l.stage)}</span>${esc(l.message)}</div>`);
+  const sig = lines.join("|") + (running ? ":r" : ":d");
+  if (t._sig === sig) return;          // 제자리 갱신 — 무의미한 재렌더 금지
+  t._sig = sig;
+  t.innerHTML = lines.join("");
+  t.classList.toggle("tick-live", running);
+}
+
+function renderCanvasNode(kind, job) {
+  renderTicker(job);
+  const node = KIND_NODE[kind] || kind;
+  if (!NODE_KO[node]) return;
+  let status = "running";
+  if (job.status === "done") status = "done";
+  else if (job.status === "error")
+    status = job.error?.code === "profile_below_minimum" ? "input" : "error";
+  else if (job.a2a_state === "input-required") status = "input";
+  const t = (job.status === "done" || job.status === "error")
+    ? (job.logs.length ? job.logs[job.logs.length - 1].t : job.elapsed) : job.elapsed;
+  const meta = status === "running" ? `${t.toFixed(1)}s 진행 중`
+    : status === "done" ? `${t.toFixed(1)}s 완료`
+    : status === "input" ? "응답 대기"
+    : `실패 — ${job.error?.code || ""}`;
+  setNodeState(node, status, meta);
+}
+
+/* 게이트 — 선행 조건 충족 시 잠긴 노드를 연다 */
+function refreshNodeGates() {
+  if (state.companyId) {
+    ["consult", "scout", "match"].forEach((k) => {
+      if (nodeSt(k) === "locked") setNodeState(k, "ready", "클릭해 실행");
+    });
+  }
+  const nCands = document.querySelectorAll("#candidates .cand").length;
+  if (nCands && nodeSt("judge") === "locked")
+    setNodeState("judge", "ready", `후보 ${nCands}건 대기`);
+  const nJudged = Object.keys(state.judged).length;
+  if (nJudged) {
+    if (!["running", "error"].includes(nodeSt("judge")))
+      setNodeState("judge", "done", `판단 ${nJudged}건 완료`);
+    ["compose", "negotiate"].forEach((k) => {
+      if (nodeSt(k) === "locked") setNodeState(k, "ready", "후보 카드에서 실행");
+    });
+  }
+  refreshEdges();
+}
+
+/* ── 엣지 — 경로는 리사이즈 때만 재생성, 상태는 클래스만 교체 ── */
+
+function edgeD(e, ra, rb) {
+  if (e.axis === "v") {
+    const down = rb.top >= ra.bottom;
+    const x1 = ra.left + ra.width / 2 + (e.ox || 0);
+    const y1 = down ? ra.bottom : ra.top;
+    const x2 = rb.left + rb.width / 2 + (e.ox || 0);
+    const y2 = down ? rb.top : rb.bottom;
+    const my = (y1 + y2) / 2;
+    return `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+  }
+  const x1 = ra.right, y1 = ra.top + ra.height / 2;
+  const x2 = rb.left, y2 = rb.top + rb.height / 2;
+  const mx = (x1 + x2) / 2;
+  return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+}
+
+function _candEdges() {
+  /* 동적 엣지 — 발굴 노드 → 후보 칩 → 판단 노드. 칩이 렌더된 뒤에만 존재한다. */
+  return [...document.querySelectorAll("#cand-lane .wf-cand")].flatMap((chip) => {
+    const cid = chip.dataset.cid;
+    return [
+      { from: "match", to: `cand-${cid}`, el: chip, side: "in" },
+      { from: `cand-${cid}`, to: "judge", el: chip, side: "out" },
+    ];
+  });
+}
+
+function drawEdges() {
+  const layer = $("#edge-layer"), canvas = $("#canvas");
+  if (!layer || !canvas) return;
+  const cb = canvas.getBoundingClientRect();
+  if (!cb.width) return;
+  const rel = (el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left - cb.left, right: r.right - cb.left,
+             top: r.top - cb.top, bottom: r.bottom - cb.top,
+             width: r.width, height: r.height };
+  };
+  layer.setAttribute("viewBox", `0 0 ${cb.width} ${cb.height}`);
+  const staticSvg = CANVAS_EDGES.map((e) => {
+    const a = document.getElementById(`node-${e.from}`);
+    const b = document.getElementById(`node-${e.to}`);
+    if (!a || !b) return "";
+    const d = edgeD(e, rel(a), rel(b));
+    return `<g class="medge me-idle${e.type ? " me-" + e.type : ""}" data-e="${e.from}>${e.to}">
+      <path class="me-base" d="${d}"></path>
+      <path class="me-flow" d="${d}"></path>
+    </g>`;
+  }).join("");
+  const dynSvg = _candEdges().map((e) => {
+    const match = document.getElementById("node-match");
+    const judgeN = document.getElementById("node-judge");
+    if (!match || !judgeN) return "";
+    const rc = rel(e.el);
+    // 발굴(위 행) → 칩: 아래로. 칩 → 판단(위 행): 위로.
+    const d = e.side === "in"
+      ? edgeD({ axis: "v" }, rel(match), rc)
+      : edgeD({ axis: "v" }, rc, rel(judgeN));
+    return `<g class="medge me-idle me-cand" data-e="${e.from}>${e.to}">
+      <path class="me-base" d="${d}"></path>
+      <path class="me-flow" d="${d}"></path>
+    </g>`;
+  }).join("");
+  layer.innerHTML = staticSvg + dynSvg;
+  refreshEdges();
+}
+
+function edgeState(e) {
+  const sa = nodeSt(e.from), sb = nodeSt(e.to);
+  if (e.type === "feedback")   // 답변이 분석으로 되먹임되는 순간에만 전류
+    return sa === "done" && sb === "running" ? "active" : "idle";
+  if (e.type === "cond")       // 엔진이 멈춰 사람에게 묻는 순간
+    return sb === "input" ? "active" : sb === "done" ? "done" : "idle";
+  if (sb === "running" && (sa === "done" || sa === "running")) return "active";
+  if (sa === "done" && sb === "done") return "done";
+  return "idle";
+}
+
+function refreshEdges() {
+  const layer = $("#edge-layer");
+  if (!layer) return;
+  CANVAS_EDGES.forEach((e) => {
+    const g = layer.querySelector(`[data-e="${e.from}>${e.to}"]`);
+    if (!g) return;
+    const cls = `medge me-${edgeState(e)}${e.type ? " me-" + e.type : ""}`;
+    if (g.getAttribute("class") !== cls) g.setAttribute("class", cls);
+  });
+  document.querySelectorAll("#cand-lane .wf-cand").forEach((chip) => {
+    const cid = chip.dataset.cid;
+    const st = chip.dataset.st;   // pending | running | done | error
+    const inCls = `medge me-cand me-${st === "pending" ? "done" : "done"}`;
+    const outCls = `medge me-cand me-${st === "running" ? "active"
+      : st === "done" ? "done" : "idle"}`;
+    const gi = layer.querySelector(`[data-e="match>cand-${cid}"]`);
+    const go = layer.querySelector(`[data-e="cand-${cid}>judge"]`);
+    if (gi && gi.getAttribute("class") !== inCls) gi.setAttribute("class", inCls);
+    if (go && go.getAttribute("class") !== outCls) go.setAttribute("class", outCls);
+  });
+}
+
+/* ── 드로어 — 결과·엔진 과정 (비모달, 뒤 캔버스가 계속 보인다) ── */
+
+const PANE_OF = { profile: "profile", questions: "profile", onboard: "profile",
+  match: "match", judge: "match", compose: "match", negotiate: "match",
+  consult: "consult", scout: "scout" };
+const ENGINE_LOG = { profile: "onboard-log", match: "match-log",
+  scout: "scout-log", consult: "consult-log" };
+
+function selectDrawerTab(tab) {
+  const drawer = $("#drawer");
+  drawer.dataset.tab = tab;
+  drawer.querySelectorAll(".drawer-tabs button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.tab === tab));
+  const pane = PANE_OF[drawer.dataset.kind] || "profile";
+  drawer.querySelectorAll(".drawer-body .pane").forEach((p) =>
+    p.classList.toggle("on",
+      tab === "engine" ? p.dataset.pane === "engine" : p.dataset.pane === pane));
+}
+
+function filterEngine(pane) {
+  const keep = ENGINE_LOG[pane];
+  Object.values(ENGINE_LOG).forEach((id) => {
+    const box = document.getElementById(id);
+    if (!box) return;
+    const off = keep && id !== keep;
+    box.classList.toggle("eng-off", off);
+    if (box._pipe) box._pipe.classList.toggle("eng-off", off);
+  });
+}
+
+function syncDrawerStatus() {
+  const drawer = $("#drawer");
+  if (!drawer || !drawer.classList.contains("open")) return;
+  const st = nodeSt(drawer.dataset.kind);
+  const badge = $("#drawer-status");
+  badge.textContent = WF_KO[st] || st;
+  badge.className = `badge ds-${st}`;
+}
+
+function openDrawer(kind, tab) {
+  const drawer = $("#drawer");
+  drawer.dataset.kind = kind;
+  drawer.classList.add("open");
+  drawer.inert = false;                       // 닫힌 동안 걸어둔 포커스 차단 해제
+  drawer.setAttribute("aria-hidden", "false");
+  $("#drawer-title").textContent = NODE_KO[kind] || kind;
+  filterEngine(PANE_OF[kind] || "profile");
+  selectDrawerTab(tab || (nodeSt(kind) === "running" ? "engine" : "result"));
+  syncDrawerStatus();
+}
+
+function closeDrawer() {
+  const drawer = $("#drawer");
+  if (drawer.contains(document.activeElement)) {
+    // 포커스가 안에 남은 채 aria-hidden을 걸면 브라우저가 적용을 차단한다
+    const back = nodeEl(drawer.dataset.kind || "profile");
+    (back || document.body).focus?.();
+    document.activeElement?.blur?.();
+  }
+  drawer.classList.remove("open");
+  drawer.inert = true;                        // 화면 밖 드로어를 탭 순서에서 제거
+  drawer.setAttribute("aria-hidden", "true");
+}
+
+function openQuestionsModal() {
+  const mq = document.getElementById("modal-questions");
+  if (mq && !mq.open) mq.showModal();
+}
+
+const DEC_KO = { recommend: "추천", conditional: "조건부", hold: "보류",
+                 terminate: "결렬" };
+
+function renderCandLane(candidates) {
+  const lane = $("#cand-lane");
+  if (!lane) return;
+  lane.innerHTML = candidates.slice(0, 4).map((c) => `
+    <button type="button" class="wf-cand" data-cid="${esc(c.company_id)}" data-st="pending"
+            title="${esc(c.summary || c.name)}">
+      <span class="wf-cand-dot"></span>
+      <span class="wf-cand-name">${esc(c.name)}</span>
+      <i class="wf-cand-score"><b style="width:${Math.min(c.retrieval_score * 100, 100)}%"></b></i>
+      <small class="wf-cand-dec">판단 대기</small>
+    </button>`).join("");
+  lane.querySelectorAll(".wf-cand").forEach((chip) => {
+    chip.onclick = () => {
+      openDrawer("match", "result");
+      const card = document.getElementById(`cand-${CSS.escape(chip.dataset.cid)}`);
+      if (card) {
+        card.scrollIntoView({ block: "center", behavior: "smooth" });
+        card.classList.add("cand-focus");
+        card.addEventListener("animationend",
+          () => card.classList.remove("cand-focus"), { once: true });
+      }
+    };
+  });
+  drawEdges();   // 칩 좌표가 생겼으니 동적 엣지 재생성
+}
+
+function setCandState(candidateId, st, decision) {
+  const chip = document.querySelector(
+    `#cand-lane .wf-cand[data-cid="${CSS.escape(candidateId)}"]`);
+  if (!chip) return;
+  chip.dataset.st = st;
+  const dec = chip.querySelector(".wf-cand-dec");
+  if (dec) dec.textContent = st === "running" ? "판단 중..."
+    : st === "error" ? "결격·오류"
+    : decision ? DEC_KO[decision] || decision : "판단 대기";
+  if (decision) chip.dataset.decision = decision;
+  refreshEdges();
+}
+
+/* 노드 클릭 — 입력형은 팝업, 실행·결과형은 드로어 */
+function initCanvas() {
+  document.querySelectorAll(".wf-node").forEach((el) => {
+    el.dataset.st = el.classList.contains("wf-ready") ? "ready" : "locked";
+  });
+  $("#node-onboard").onclick = () => document.getElementById("modal-onboard").showModal();
+  $("#node-profile").onclick = () => {
+    if (nodeSt("profile") === "input" && $("#questions").children.length) {
+      openQuestionsModal(); return;
+    }
+    if (state.companyId) openDrawer("profile");
+  };
+  $("#node-questions").onclick = () => {
+    if ($("#questions").children.length) openQuestionsModal();
+  };
+  $("#node-consult").onclick = () => { if (nodeSt("consult") !== "locked") openDrawer("consult"); };
+  $("#node-scout").onclick = () => { if (nodeSt("scout") !== "locked") openDrawer("scout"); };
+  $("#node-match").onclick = () => {
+    const st = nodeSt("match");
+    if (st === "locked") return;
+    if (document.querySelectorAll("#candidates .cand").length
+        || st === "running" || st === "error") openDrawer("match");
+    else document.getElementById("modal-intent").showModal();
+  };
+  ["judge", "compose", "negotiate"].forEach((k) => {
+    $(`#node-${k}`).onclick = () => { if (nodeSt(k) !== "locked") openDrawer("match"); };
+  });
+  $("#drawer").inert = true;                  // 초기 상태: 닫힘 — 포커스 불가
+  $("#drawer-close").onclick = closeDrawer;
+  document.querySelectorAll(".drawer-tabs button").forEach((b) =>
+    b.onclick = () => selectDrawerTab(b.dataset.tab));
+  drawEdges();
+  if (window.ResizeObserver)
+    new ResizeObserver(() => drawEdges()).observe($("#canvas"));
 }
 
 /* ── ① 자료 입력 ─────────────────────────────────────────────── */
@@ -357,6 +837,16 @@ function collectDialogue() {
   document.querySelectorAll("#questions input").forEach((input) => {
     if (input.value.trim()) upsertDialogue(input.dataset.q, input.value.trim());
   });
+  // 사전 입력(기업명·핵심 정보) — 정규 키로 보내면 간이 분석이 그대로 읽고,
+  // LLM 경로에선 [보강 대화 답변]으로 최우선 신뢰(stated) 처리된다
+  const core = { 이름: "#core-name", 국가: "#core-country", 산업: "#core-industry",
+                 문제: "#core-problem", 솔루션: "#core-solution", 타겟: "#core-target" };
+  for (const [key, sel] of Object.entries(core)) {
+    const v = $(sel)?.value.trim();
+    if (v) upsertDialogue(key, v);
+  }
+  const vps = [...document.querySelectorAll(".core-vp input:checked")].map((c) => c.value);
+  if (vps.length) upsertDialogue("판매가치", vps.join(","));
   const dialogue = [...state.dialogue];
   const ws = $("#w-sell").value, wb = $("#w-buy").value;
   if (ws) dialogue.push({ q: "판매의향", a: ws });
@@ -375,8 +865,20 @@ function collectPrivateState() {
 
 async function onboard() {
   const assets = collectAssets();
-  if (!assets.length) { showError("#onboard-error", "자료를 1건 이상 입력해주세요."); return; }
+  if (!assets.length) { showError("#modal-onboard-error", "자료를 1건 이상 입력해주세요."); return; }
+  if (!$("#core-name").value.trim() && !state.companyId) {
+    showError("#modal-onboard-error", "기업명을 입력해주세요 — 자료에서 회사명을 확정할 수 없을 때의 기준값입니다.");
+    return;
+  }
   hideError("#onboard-error");
+  hideError("#modal-onboard-error");
+  document.getElementById("modal-onboard")?.close();
+  document.getElementById("modal-questions")?.close();
+  setNodeState("onboard", "done", "자료 제출됨");
+  const hadAnswers = state.dialogue.length
+    || document.querySelectorAll("#questions input").length;
+  if (hadAnswers)
+    setNodeState("questions", "done", "답변 제출됨");   // 되먹임 엣지가 전류를 띤다
   const btn = $("#btn-onboard"); btn.disabled = true;
   try {
     // content 없는 URL 자산은 서버가 수집(fetch)한다
@@ -388,30 +890,38 @@ async function onboard() {
     };
     const data = await runJob("/product/onboard", body, $("#onboard-log"), "onboard");
     state.companyId = data.company_id;
-    $("#questions-panel").classList.add("hidden");
     renderProfile(data);
-    $("#step2").classList.remove("hidden");
-    $("#step-consult").classList.remove("hidden");
-    $("#step3").classList.remove("hidden");
     $("#engine-mode").textContent = `engine: ${data.engine_mode}`;
     $("#engine-mode").className = `badge mode-${data.engine_mode}`;
     updateChecklist(data.profile);
     computeMinStatus(data.open_questions);
-    if (data.open_questions.length) showQuestions(data.open_questions);
-    renderMinProgress();
-    if (data.visual_evidence_count > 0) {
-      $("#step-evidence").classList.remove("hidden");
+    refreshNodeGates();
+    if (data.open_questions.length) {
+      showQuestions(data.open_questions);   // 팝업 자동 오픈 포함
+      renderMinProgress();
+      setNodeState("questions", "input", `질문 ${data.open_questions.length}건`);
+    } else {
+      setNodeState("questions", "done", hadAnswers ? "답변 반영됨" : "질문 없음");
+    }
+    if (data.question_pin_count > 0) {
+      $("#evidence-block").classList.remove("hidden");
       await loadEvidence();
     }
+    openDrawer("profile", "result");   // 완성된 상(像)을 바로 보여준다
   } catch (err) {
     if (err.code === "profile_below_minimum") {
       computeMinStatus(err.details.open_questions);
       showQuestions(err.details.open_questions, err.details.clarify);
       renderMinProgress();
+      setNodeState("questions", "input",
+                   `질문 ${err.details.open_questions.length}건`);
       showError("#onboard-error",
-        "최소 프로필 기준 미달 — 아래 보강 질문에 답하면 매칭 풀에 들어갈 수 있어요.");
+        "최소 프로필 기준 미달 — 위 질문에 답하면 매칭 풀에 들어갈 수 있어요.");
     } else {
-      showError("#onboard-error", `${err.code || ""} ${err.message}`);
+      setNodeState("onboard", "ready", "클릭해 재시도");   // 낙관 선반영 되돌림
+      const mo = document.getElementById("modal-onboard");
+      if (mo && !mo.open) mo.showModal();
+      showError("#modal-onboard-error", `${err.code || ""} ${err.message}`);
     }
   } finally { btn.disabled = false; }
 }   // eslint-disable-line
@@ -451,7 +961,7 @@ function showQuestions(questions, clarify) {
       renderMinProgress();
     };
   });
-  $("#questions-panel").classList.remove("hidden");
+  openQuestionsModal();   // 엔진이 멈춰 사람에게 묻는 순간 — 팝업으로
 }
 
 /* ── 최소 프로필 진행바 (무엇이 채워지고 무엇이 남았는지) ─────────── */
@@ -522,35 +1032,45 @@ async function loadEvidence() {
 }
 
 function renderEvidencePages(data) {
-  const { evidence, threads } = data;
+  const { pins, threads } = data;
   const openCount = threads.filter((t) => t.status === "open").length;
+  const answered = data.answered_count || 0;
+  // 소통 루프 — 답한 게 있으면 재분석 유도(답변을 엑사원에 되먹임해 프로필 개선)
+  const reanalyze = answered > 0
+    ? ` · <button type="button" id="btn-evidence-reanalyze" class="link-btn">답변 ${answered}개 반영해서 재분석 →</button>`
+    : "";
   $("#evidence-summary").innerHTML =
-    `근거 <b>${evidence.length}</b>건 표시 중` +
+    `AI 질문 <b>${pins.length}</b>개가 원문 위에 표시됨` +
     (openCount > 0
-      ? ` · <span class="ev-warn">확인 필요 ${openCount}건 — 답하기 전엔 후보 발굴이 막혀요</span>`
-      : ` · <span class="ev-ok">전부 확인됨 — 후보 발굴 가능</span>`);
+      ? ` · <span class="ev-warn">미응답 ${openCount}개 — 답하기 전엔 후보 발굴이 막혀요</span>`
+      : ` · <span class="ev-ok">전부 답변됨 — 후보 발굴 가능</span>`) +
+    reanalyze;
+  const reBtn = $("#btn-evidence-reanalyze");
+  if (reBtn) reBtn.onclick = onboard;   // 같은 company_id 재온보딩 → 서버가 답변 병합
+  if (["locked", "ready"].includes(nodeSt("match")))
+    setNodeState("match", "ready",
+      openCount > 0 ? `AI 질문 ${openCount}건 응답 후 가능` : "클릭해 실행");
 
   const threadByEvidence = {};
   threads.forEach((t) => { threadByEvidence[t.evidence_id] = t; });
 
-  // asset_index·page별로 묶어 페이지 한 장에 박스 여러 개를 겹쳐 그린다
+  // asset_index·page별로 묶어 페이지 한 장에 질문 핀 여러 개를 겹쳐 그린다
   const byPage = {};
-  evidence.forEach((e) => {
-    const key = `${e.asset_index}:${e.page}`;
-    (byPage[key] = byPage[key] || []).push(e);
+  pins.forEach((p) => {
+    const key = `${p.asset_index}:${p.page}`;
+    (byPage[key] = byPage[key] || []).push(p);
   });
 
   $("#evidence-pages").innerHTML = Object.entries(byPage).map(([key, boxes]) => {
     const [assetIdx, page] = key.split(":");
-    const boxesHtml = boxes.map((e) => {
-      const thread = threadByEvidence[e.evidence_id];
-      const unresolved = thread && thread.status === "open";
-      const style = `left:${e.box.xmin / 10}%;top:${e.box.ymin / 10}%;` +
-        `width:${(e.box.xmax - e.box.xmin) / 10}%;height:${(e.box.ymax - e.box.ymin) / 10}%;`;
-      return `<div class="ev-box ${e.unclear ? "ev-unclear" : "ev-clear"} ${unresolved ? "" : "ev-resolved"}"
-        style="${style}" data-evidence-id="${esc(e.evidence_id)}"
-        data-thread-id="${thread ? esc(thread.thread_id) : ""}"
-        title="${esc(e.field)}: ${esc(e.quote)}">${e.unclear ? "?" : ""}</div>`;
+    const boxesHtml = boxes.map((p, idx) => {
+      const thread = threadByEvidence[p.evidence_id];
+      const resolved = thread && thread.status === "resolved";
+      const style = `left:${p.box.xmin / 10}%;top:${p.box.ymin / 10}%;` +
+        `width:${(p.box.xmax - p.box.xmin) / 10}%;height:${(p.box.ymax - p.box.ymin) / 10}%;`;
+      return `<div class="ev-box ${resolved ? "ev-resolved" : "ev-open"}"
+        style="${style}" data-evidence-id="${esc(p.evidence_id)}"
+        title="${esc(p.question)}">${resolved ? "✓" : "?"}</div>`;
     }).join("");
     return `<div class="ev-page" data-asset="${assetIdx}" data-page="${page}">
       <div class="ev-page-frame">
@@ -561,7 +1081,7 @@ function renderEvidencePages(data) {
     </div>`;
   }).join("");
 
-  document.querySelectorAll(".ev-box.ev-unclear").forEach((box) => {
+  document.querySelectorAll(".ev-box").forEach((box) => {
     box.onclick = () => openThreadPanel(box, threadByEvidence);
   });
 }
@@ -575,10 +1095,10 @@ function openThreadPanel(box, threadByEvidence) {
   panel.innerHTML =
     `<div class="ev-thread-comments">` +
     thread.comments.map((c) =>
-      `<div class="ev-comment ev-${c.author}"><b>${c.author === "ai" ? "AI" : "사람"}</b> ${esc(c.text)}</div>`
+      `<div class="ev-comment ev-${c.author}"><b>${c.author === "ai" ? "AI 질문" : "내 답변"}</b> ${esc(c.text)}</div>`
     ).join("") + `</div>` +
     (isResolved ? "" :
-      `<div class="ev-reply"><textarea rows="2" placeholder="이 부분에 대해 답변해 주세요"></textarea>
+      `<div class="ev-reply"><textarea rows="2" placeholder="이 질문에 답변해 주세요 — 답하면 재분석에 반영됩니다"></textarea>
        <button type="button" class="ev-reply-btn">답변 등록</button></div>`);
   panel.classList.remove("hidden");
   if (!isResolved) {
@@ -587,7 +1107,7 @@ function openThreadPanel(box, threadByEvidence) {
       if (!text) return;
       await api(`/product/companies/${state.companyId}/threads/${thread.thread_id}/reply`,
         { method: "POST", body: JSON.stringify({ text }) });
-      await loadEvidence();   // 상태 갱신 — 박스 색·요약·매칭 게이트 전부 재렌더
+      await loadEvidence();   // 상태 갱신 — 핀 색·요약·매칭 게이트 전부 재렌더
     };
   }
 }
@@ -599,6 +1119,9 @@ function provBadge(field) {
   const label = { stated: "확인됨", inferred: "추론됨" + conf, ask: "질문필요" }[field.provenance];
   return `<span class="prov ${field.provenance}">${label}</span>`;
 }
+
+const WILLING_KO = { very_high: "매우 적극적", high: "적극적", medium: "중간",
+                     low: "소극적", very_low: "매우 소극적" };
 
 function renderProfile(data) {
   const p = data.profile;
@@ -615,9 +1138,44 @@ function renderProfile(data) {
       <dt>타겟 고객</dt><dd>${esc(p.target_customer.value) || "—"} ${provBadge(p.target_customer)}${evChips("target_customer")}</dd>
       <dt>가치 제안</dt><dd>판매: ${vp(p.sell_value_props)} / 구매: ${vp(p.purchase_value_props)}</dd>
       <dt>레퍼런스</dt><dd>${p.references.map(esc).join(", ") || "없음 (첫 사례)"}</dd>
-      <dt>협력 의향</dt><dd>판매: ${p.willingness_sell || "미상"} / 구매: ${p.willingness_purchase || "미상"}</dd>
+      <dt>협력 의향</dt><dd>판매: ${WILLING_KO[p.willingness_sell] || "미상"} / 구매: ${WILLING_KO[p.willingness_purchase] || "미상"}</dd>
       <dt>온톨로지</dt><dd>${data.ontology_anchors.map((a) => `<span class="points"><span>${esc(a.category)}: ${esc(a.value)}</span></span>`).join(" ")}</dd>
-    </dl>` + renderPortrait(p.portrait);
+    </dl>` + renderSources(data.sources, data.mined) + renderPortrait(p.portrait);
+}
+
+const SRC_KO = { website: "웹사이트", article: "기사", instagram: "인스타그램",
+                 text: "직접 입력", ir_deck: "IR덱 PDF" };
+
+function renderSources(sources, mined) {
+  /* 수집·채굴 투명성 — 넣은 자료가 실제로 얼마나 읽혔고 무엇이 캐졌는지 */
+  if (!sources || !sources.length) return "";
+  const chips = sources.map((s) => `
+    <details class="src">
+      <summary><span class="src-type">${SRC_KO[s.type] || esc(s.type)}</span>
+        ${s.url ? `<span class="src-url">${esc(s.url)}</span>` : ""}
+        <span class="src-chars">${s.chars.toLocaleString()}자 수집</span></summary>
+      <p class="src-preview">${esc(s.preview)}…</p>
+    </details>`).join("");
+  let minedHtml = "";
+  if (mined) {
+    const row = (label, items) => items && items.length ? `
+      <div class="mine-row"><b>${label}</b>
+        <ul>${items.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : "";
+    const facts = [
+      mined.founded_year ? `<div class="mine-row"><b>설립</b><ul><li>${mined.founded_year}년</li></ul></div>` : "",
+      row("수치 신호", mined.metric_sentences),
+      row("고객·파트너 신호", mined.client_sentences),
+      row("인증·수상", mined.cert_sentences),
+    ].join("");
+    if (facts) minedHtml = `
+      <div class="mine-card">
+        <h4>자료에서 캐낸 하드 팩트 <small>전부 원문 그대로 — 요약·생성 없음</small></h4>
+        ${facts}
+      </div>`;
+  }
+  return `<div class="src-block">
+    <h4>수집한 자료 ${sources.length}건</h4>${chips}${minedHtml}
+  </div>`;
 }
 
 const PORTRAIT_KO = { identity: "정체성", business_model: "수익 구조", edge: "차별화",
@@ -625,9 +1183,9 @@ const PORTRAIT_KO = { identity: "정체성", business_model: "수익 구조", ed
   risk_signals: "리스크 신호" };
 
 function renderPortrait(pt) {
-  if (!pt) return "";   // mock 모드에서는 상이 생성되지 않는다
+  if (!pt) return "";   // 상이 없는 경우는 구버전 저장 데이터뿐
   return `<div class="panel info" style="margin-top:16px">
-    <h3 style="margin:0 0 8px">🔭 회사의 상(像) — 자료의 '결과'에서 역추론한 전략·처지 <small>(전체 추론됨 — 확인·교정해주세요)</small></h3>
+    <h3 style="margin:0 0 8px">회사의 상(像) — 자료의 '결과'에서 역추론한 전략·처지 <small>(추론은 「추정:」 표기 — 확인·교정해주세요)</small></h3>
     <dl class="profile-grid">${Object.entries(PORTRAIT_KO).map(([k, label]) =>
       `<dt>${label}</dt><dd>${esc(pt[k])}</dd>`).join("")}
     </dl></div>`;
@@ -646,6 +1204,7 @@ function collectIntent() {
 
 $("#btn-match").onclick = async () => {
   hideError("#match-error");
+  document.getElementById("modal-intent")?.close();
   const btn = $("#btn-match"); btn.disabled = true;
   state.intent = collectIntent();
   updateChecklist();
@@ -655,14 +1214,27 @@ $("#btn-match").onclick = async () => {
       $("#match-log"), "match");
     $("#synth").innerHTML = `<b>합성된 이상적 상대상</b> (검색어가 된 문장): ${esc(data.synthesized_counterpart)}`;
     $("#synth").classList.remove("hidden");
+    state.judged = {};   // 새 후보군 — 이전 후보의 판단 수를 이어받지 않는다
     renderCandidates(data.candidates);
+    renderCandLane(data.candidates);
+    setNodeState("judge", "ready", `후보 ${data.candidates.length}건 대기`);
+    ["compose", "negotiate"].forEach((k) =>
+      setNodeState(k, "locked", "판단 후"));
+    refreshNodeGates();
+    openDrawer("match", "result");
   } catch (err) {
     showError("#match-error", err.code === "no_strong_candidate"
       ? "강한 후보 없음 — 엔진이 약한 후보를 억지로 채우지 않았어요. 의도(지역·가치제안)를 바꿔보세요."
       : err.code === "unclear_evidence_unresolved"
-      ? "근거 시각화에 확인 필요한 항목이 남아있어요 — 위 '②++ 근거 시각화' 섹션에서 답변해 주세요."
+      ? "AI 질문에 아직 답하지 않은 항목이 있어요 — 프로필 분석 카드의 'AI 질문 위치'에서 답변해 주세요."
       : `${err.code || ""} ${err.message}`);
     $("#candidates").innerHTML = "";
+    if (err.code === "unclear_evidence_unresolved") {
+      setNodeState("profile", "input", "AI 질문 미응답");
+      openDrawer("profile", "result");
+    } else {
+      openDrawer("match", "result");
+    }
   } finally { btn.disabled = false; }
 };
 
@@ -671,7 +1243,7 @@ function renderCandidates(candidates) {
     <div class="cand" id="cand-${esc(c.company_id)}">
       <div class="cand-head">
         <h3>${esc(c.name)} <small>(${esc(c.country)} · ${esc(c.pool)} 풀)</small></h3>
-        <div class="score-bar" title="retrieval score ${c.retrieval_score}"><i style="width:${Math.min(c.retrieval_score * 100, 100)}%"></i></div>
+        <div class="score-bar" title="적합 신호 ${c.retrieval_score}"><i style="width:${Math.min(c.retrieval_score * 100, 100)}%"></i></div>
         <button class="j-btn" data-id="${esc(c.company_id)}">판단 실행 (Judge)</button>
       </div>
       <div class="points">${c.match_points.map((p) => `<span>${esc(p)}</span>`).join("")}</div>
@@ -695,6 +1267,7 @@ function ensureLogBox(parent) {
 
 async function judgeCandidate(candidateId, btn) {
   btn.disabled = true; btn.textContent = "판단 중...";
+  setCandState(candidateId, "running");
   const area = $(`#cand-${CSS.escape(candidateId)} .judge-area`);
   const logBox = ensureLogBox(area);
   try {
@@ -702,6 +1275,7 @@ async function judgeCandidate(candidateId, btn) {
       { company_id: state.companyId, candidate_id: candidateId,
         intent: state.intent || collectIntent() }, logBox, "judge");
     state.judged[candidateId] = data.judge_result;
+    setCandState(candidateId, "done", data.judge_result.decision);
     area.innerHTML = renderJudgment(data.judge_result, candidateId);
     if (logBox._pipe) area.prepend(logBox._pipe);   // 파이프박스도 함께 복원 (innerHTML로 유실 방지)
     area.prepend(logBox);                       // 로그는 결과 위에 유지 (접힘)
@@ -710,11 +1284,16 @@ async function judgeCandidate(candidateId, btn) {
     area.querySelector(".c-btn").onclick = (e) => composeDraft(candidateId, e.target);
     area.querySelector(".n-btn").onclick = (e) => negotiateSim(candidateId, e.target);
   } catch (err) {
+    setCandState(candidateId, "error",
+                 err.code === "deal_breaker" ? "terminate" : null);
     const msg = err.code === "deal_breaker"
-      ? `🚫 deal-breaker 결렬 — ${esc(err.details?.reason || err.message)} (사람에게 비노출 처리되는 매칭입니다)`
+      ? `deal-breaker 결렬 — ${esc(err.details?.reason || err.message)} (사람에게 비노출 처리되는 매칭입니다)`
       : esc(`${err.code || ""} ${err.message}`);
     area.insertAdjacentHTML("beforeend", `<div class="error">${msg}</div>`);
-  } finally { btn.disabled = false; btn.textContent = "판단 실행 (Judge)"; }
+  } finally {
+    btn.disabled = false; btn.textContent = "판단 실행 (Judge)";
+    refreshNodeGates();
+  }
 }
 
 const DIM_KO = { industry_fit: "산업 적합성", purpose_alignment: "협업목적 정합",
@@ -738,7 +1317,7 @@ function renderJudgment(jr, candidateId) {
     ${jr.deal_structure ? `<p style="font-size:13px"><b>딜 구조:</b> ${esc(jr.deal_structure)}</p>` : ""}
     <details><summary>추론 궤적 (CoT)</summary><pre>${esc(jr.trajectory)}</pre></details>
     <div style="margin-top:12px">
-      <button class="c-btn primary">⑤ 콜드메일 초안 (Compose)</button>
+      <button class="c-btn primary">콜드메일 초안 (Compose)</button>
       <button class="n-btn">A2A 협상 시뮬레이션</button>
     </div>
     <div class="output-area"></div>`;
@@ -761,13 +1340,16 @@ async function composeDraft(candidateId, btn) {
         <small>레퍼런스: ${esc(m.reference_used)} · 주장→근거 추적 ${m.claim_trace.length}건</small>
         <button onclick="navigator.clipboard.writeText(this.previousElementSibling.previousElementSibling.textContent)">복사</button>
       </div>`).join("") +
-      `<div class="send-blocked">🔒 send_blocked — 엔진은 초안까지만 생성합니다. 발송은 검토 후 사람이 직접.</div>`;
+      `<div class="send-blocked">send_blocked — 엔진은 초안까지만 생성합니다. 발송은 검토 후 사람이 직접.</div>`;
     if (logBox._pipe) area.prepend(logBox._pipe);
     area.prepend(logBox);
     logBox.classList.add("log-collapsed");
     logBox.onclick = () => logBox.classList.toggle("log-collapsed");
   } catch (err) { area.insertAdjacentHTML("beforeend", `<div class="error">${esc(err.message)}</div>`); }
-  finally { btn.disabled = false; btn.textContent = "⑤ 콜드메일 초안 (Compose)"; }
+  finally {
+    btn.disabled = false; btn.textContent = "콜드메일 초안 (Compose)";
+    refreshNodeGates();
+  }
 }
 
 async function negotiateSim(candidateId, btn) {
@@ -779,7 +1361,7 @@ async function negotiateSim(candidateId, btn) {
       { company_id: state.companyId, candidate_id: candidateId,
         intent: state.intent || collectIntent(), max_rounds: 3 }, logBox, "negotiate");
     const neg = data.negotiation;
-    const RESP_KO = { accept: "✅ 수락", reject: "🚫 거절", counter: "↩ 거절+사유 → 재제안" };
+    const RESP_KO = { accept: "수락", reject: "거절", counter: "거절+사유 → 재제안" };
     area.innerHTML = `
       <div class="draft">
         <h4>협상 결과 <span class="term t-${neg.termination}">${{ agreement: "합의", breakdown: "결렬", round_limit: "라운드 상한" }[neg.termination]}</span>
@@ -789,14 +1371,17 @@ async function negotiateSim(candidateId, btn) {
             <span>${RESP_KO[r.response]}${r.rejection ? ` — 막힌 차원: <b>${DIM_KO[r.rejection.dimension]}</b> (${r.rejection.recoverable ? "풀리는 거절" : "못 푸는 거절"})` : ""}
             ${r.knobs_adjusted.length ? `<br><small>손잡이 조정: ${r.knobs_adjusted.map((k) => `${esc(k.knob)}→${esc(k.to)}`).join(" · ")}</small>` : ""}</span>
           </div>`).join("")}
-        ${data.buyer_simulated ? `<div class="sim-note">⚠ 구매자 사전정보는 시뮬레이션 가상 부여 [시뮬] — 실증은 파일럿에서 (정직 프레이밍)</div>` : ""}
+        ${data.buyer_simulated ? `<div class="sim-note">구매자 사전정보는 시뮬레이션 가상 부여 [시뮬] — 실증은 파일럿에서 (정직 프레이밍)</div>` : ""}
       </div>`;
     if (logBox._pipe) area.prepend(logBox._pipe);
     area.prepend(logBox);
     logBox.classList.add("log-collapsed");
     logBox.onclick = () => logBox.classList.toggle("log-collapsed");
   } catch (err) { area.insertAdjacentHTML("beforeend", `<div class="error">${esc(err.message)}</div>`); }
-  finally { btn.disabled = false; btn.textContent = "A2A 협상 시뮬레이션"; }
+  finally {
+    btn.disabled = false; btn.textContent = "A2A 협상 시뮬레이션";
+    refreshNodeGates();
+  }
 }
 
 /* ── ②+ AI 컨설턴트 인터뷰 (CON-01~02) ─────────────────────────
@@ -837,13 +1422,13 @@ function renderConsultTurn(data) {
                     "싱가포르", "인도", "중국", "독일", "프랑스", "영국", "MENA"]
       .find((r) => market.includes(r));
     $("#consult-result").innerHTML =
-      `<h3>🧭 최종 아웃리치 가설</h3><pre>${esc(data.hypothesis || "")}</pre>` +
+      `<h3>최종 아웃리치 가설</h3><pre>${esc(data.hypothesis || "")}</pre>` +
       (region ? `<button id="btn-apply-hypo" class="primary">이 가설로 의도 채우기 (지역: ${esc(region)})</button>` : "");
     const apply = $("#btn-apply-hypo");
     if (apply) apply.onclick = () => {
       $("#intent-region").value = region;
       updateChecklist();
-      document.querySelector("#step3").scrollIntoView({ block: "start" });
+      document.getElementById("modal-intent").showModal();
     };
     return;
   }
@@ -854,7 +1439,7 @@ function renderConsultTurn(data) {
   qa.classList.remove("hidden");
   qa.innerHTML = `
     <h3>Q${consultState.history.length + 1}. ${esc(data.question)}</h3>
-    <div class="consult-why">💡 ${esc(data.why)}${data.allow_multi ? " (복수 선택 가능)" : ""}</div>
+    <div class="consult-why">${esc(data.why)}${data.allow_multi ? " (복수 선택 가능)" : ""}</div>
     <div class="consult-opts">${data.options.map((o, i) =>
       `<span class="opt-chip" data-i="${i}" data-label="${esc(o.label)}">${esc(o.label)}<small>${esc(o.hint)}</small></span>`).join("")}
     </div>
@@ -896,7 +1481,7 @@ $("#btn-consult").onclick = consultNext;
 /* ── 체크리스트 라이브 갱신 ─────────────────────────────────── */
 
 function setCheck(name, ok) {
-  const li = document.querySelector(`#checklist [data-check="${name}"]`);
+  const li = document.querySelector(`#checklist-inline [data-check="${name}"]`);
   if (li) li.classList.toggle("ok", !!ok);
 }
 
@@ -921,3 +1506,64 @@ function updateChecklist(profile) {
 /* 초기 상태: 웹사이트 + 텍스트 입력 한 줄씩 */
 addAssetRow("website");
 addAssetRow("text");
+
+/* ── 모달 (기업 자료 입력 · 의도 설정) ─────────────────────────── */
+
+$("#open-onboard").onclick = () => document.getElementById("modal-onboard").showModal();
+$("#open-intent").onclick = () => document.getElementById("modal-intent").showModal();
+initCanvas();
+
+/* ── 3+ 웹 파트너 스카우트 — explore/exploit 가설 → 웹 검색 (JDG-09) ── */
+
+const TRACK_KO = { exploit: "정석", explore: "모험" };
+
+function renderScout(data) {
+  const hyps = data.hypotheses || [];
+  $("#scout-hypotheses").innerHTML = hyps.length ? `
+    <h3 class="scout-h">가설 ${hyps.length}건
+      <small>명백지 ${data.knowledge.filter((k) => k.kind === "explicit").length} ·
+      암묵지 ${data.knowledge.filter((k) => k.kind === "tacit").length}건에서 도출</small></h3>
+    ${hyps.map((h) => `
+      <div class="hyp hyp-${esc(h.track)}">
+        <span class="track track-${esc(h.track)}">${TRACK_KO[h.track] || h.track}</span>
+        <div class="hyp-body">
+          <div class="hyp-text">${esc(h.hypothesis)}</div>
+          <div class="hyp-meta">근거: ${h.grounded_in.map(esc).join(", ")} ·
+            검색어 "${esc(h.search_query)}"</div>
+        </div>
+      </div>`).join("")}` : "";
+
+  const list = data.shortlist || [];
+  $("#scout-shortlist").innerHTML = list.length ? `
+    <h3 class="scout-h">웹 숏리스트 ${list.length}건
+      <small>정석 ${list.filter((c) => c.track === "exploit").length} ·
+      모험 ${list.filter((c) => c.track === "explore").length}</small></h3>
+    ${list.map((c) => `
+      <div class="cand scout-cand">
+        <div class="cand-head">
+          <span class="track track-${esc(c.track)}">${TRACK_KO[c.track] || c.track}</span>
+          <h3><a href="${esc(c.url)}" target="_blank" rel="noreferrer">${esc(c.title)}</a>
+            <small>${esc(c.domain)}</small></h3>
+          <div class="score-bar" title="관련도 ${c.relevance}"><i style="width:${Math.min(c.relevance * 100, 100)}%"></i></div>
+        </div>
+        <div class="summary">${esc(c.snippet)}</div>
+        <details><summary>이 후보를 찾게 한 가설</summary><pre>${esc(c.hypothesis)}</pre></details>
+      </div>`).join("")}`
+    : (data.web_search_used === false
+       ? `<div class="panel warn">웹 검색이 차단·실패했습니다 — 가설은 위에 유효하게 남아 있어요.
+          네트워크 상태를 확인하거나 잠시 후 다시 시도해 주세요.</div>` : "");
+}
+
+$("#btn-scout").onclick = async () => {
+  hideError("#scout-error");
+  if (!state.companyId) { showError("#scout-error", "먼저 기업 자료를 입력해 프로필을 만들어 주세요."); return; }
+  const btn = $("#btn-scout"); btn.disabled = true;
+  try {
+    const data = await runJob("/product/scout",
+      { company_id: state.companyId, intent: state.intent || collectIntent(), k: 6 },
+      $("#scout-log"), "scout");
+    renderScout(data);
+  } catch (err) {
+    showError("#scout-error", `${err.code || ""} ${err.message}`);
+  } finally { btn.disabled = false; }
+};

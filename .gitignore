@@ -16,3 +16,7 @@ uploads/
 cache/
 audit/
 pages/
+# SQLite 영속 상태 (a2a.db·-wal·-shm)
+data/
+# Phase 4 CoT 데이터셋 산출물 (train/heldout/seal)
+dataset/

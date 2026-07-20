@@ -180,6 +180,98 @@ def _reasoning_moves(req: JudgeRequest, dims: list[CategoryJudgment],
     return moves
 
 
+_SOFT_YES = {DecisionType.recommend, DecisionType.conditional}
+
+
+def _apply_consistency_gate(result: JudgeResult, agreement: "float | None",
+                            settings) -> None:
+    """소프트 판단 → 하드 코드 게이트 이전 (L3). in-place로 result를 조인다.
+
+    두 이전:
+    (a) confidence_band를 일치율에서 결정적으로 도출 — LLM 자가보고 신뢰도(미보정)를
+        코드 규칙으로 대체. high≥0.8 / medium≥임계 / low<임계.
+    (b) 일치율 < 임계 → needs_human=True + 자동 '추천'을 hold로 캡. 저합의 추천이 사람
+        검토 없이 나가는 것을 결정적으로 차단(deal-breaker 게이트와 같은 하드 성격)."""
+    if agreement is None:      # 미계측(단일 표본) — 신호 없으면 게이트 발동 안 함
+        return
+    tau = settings.judge_agreement_threshold
+    result.confidence_band = (
+        ConfidenceBand.high if agreement >= 0.8
+        else ConfidenceBand.medium if agreement >= tau
+        else ConfidenceBand.low)
+    if agreement < tau:
+        result.needs_human = True
+        if result.decision in _SOFT_YES:
+            result.decision = DecisionType.hold
+            result.decision_rationale = (
+                f"자기일관성 일치율 {agreement:.2f} < 임계 {tau:.2f} — "
+                f"저합의 자동추천 차단, 사람 검토로 보류 (L3 게이트). "
+                f"원 판정 근거: {result.decision_rationale}")
+        progress.log("Judge", f"⚠ L3 게이트 — 일치율 {agreement:.2f}<{tau:.2f}: "
+                              f"needs_human=True, decision→{result.decision.value}")
+
+
+def _vote_llm_judge(req: JudgeRequest, extractor, deep: bool, samples: int
+                    ) -> tuple[JudgeResult, "float | None"]:
+    """자기일관성 투표 (L2) — LLM 판단을 k회 표집해 범주형 decision을 다수결.
+
+    범주형 결정의 재현성은 σ²/n이 아니라 지수적 집중이 기대되는 축이라(FORMALIZATION.md §4.3),
+    평균이 아니라 '다수결 + 일치율'을 쓴다. k=1이면 투표 없음 — 일치율은 None(미계측)이며,
+    L3 게이트도 신호가 없으면 발동하지 않는다(측정 없는 확신을 만들지 않는다)."""
+    from ..eval.variance import mode
+    if samples <= 1:
+        return _llm_judge(req, extractor, deep=deep), None
+
+    from collections import Counter
+    results: list[JudgeResult] = []
+    for i in range(samples):
+        progress.log("Judge", f"자기일관성 표본 {i + 1}/{samples}")
+        results.append(_llm_judge(req, extractor, deep=deep))
+    decisions = [r.decision for r in results]
+    winner, count = mode(decisions)
+    agreement = count / len(decisions)
+
+    # 동점 = 합의 실패 (적대적 검토 확정 F2) — 예전엔 표본 도착 순서가 승자를 정해
+    # {hold×2, terminate×2}가 순서에 따라 '보류'/'매칭 종료'로 갈렸고, terminate는
+    # L3 캡 대상도 아니었다. 동점이면 결정을 유보(hold)하고 사람에게 강제 라우팅한다:
+    # recommend(행동)도 terminate(포기)도 코인플립으로 확정할 결정이 아니다.
+    tie = sum(1 for c in Counter(decisions).values() if c == count) > 1
+    if tie:
+        chosen = next((r for r in results if r.decision == DecisionType.hold), results[0])
+        if chosen.decision != DecisionType.hold:
+            chosen.decision = DecisionType.hold
+        chosen.needs_human = True
+        chosen.decision_rationale = (
+            f"자기일관성 동점({count}/{samples}) — 합의 실패로 결정 유보, 사람 검토 필요. "
+            f"표본 분포: {dict(Counter(d.value for d in decisions))}. "
+            f"원 근거: {chosen.decision_rationale}")
+        progress.log("Judge", f"⚠ 다수결 동점 — hold로 유보 + 사람 라우팅 "
+                              f"(분포 {dict(Counter(d.value for d in decisions))})")
+        return chosen, agreement
+
+    # 승리 결정을 낸 대표 표본을 채택 (그 근거·차원판정이 다수와 정합)
+    chosen = next(r for r in results if r.decision == winner)
+    progress.log("Judge", f"다수결 결정: {winner.value} · 일치율 "
+                          f"{agreement:.2f} ({count}/{samples})")
+    return chosen, agreement
+
+
+def _ontology_hint(req: JudgeRequest) -> "str | None":
+    """실 산업 협상 사례에서 뽑은 참고 힌트 (app/ontology, 선택·결정적).
+
+    judge_user(req)와 별개 함수에서 각각 호출돼도 같은 req면 항상 같은 문자열이
+    나온다(순수 함수 + 캐시) — _audit_judge가 재호출해도 실제 전송 프롬프트와
+    감사 로그의 input_text가 어긋나지 않는다.
+    """
+    try:
+        from ..ontology.retrieve import domain_hint
+    except Exception:                             # 재료 파일 문제로 판단을 막지 않는다
+        return None
+    p1, p2 = req.self_profile, req.counterpart_profile
+    return domain_hint(p1.basic.industry, p1.description,
+                       p2.basic.industry, p2.description)
+
+
 def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     """LLM 판단 경로 — 프롬프트가 판단 구조를, 스키마가 출력 계약을 강제한다.
     출력 계약은 규칙 경로와 동일하므로 API·테스트 구조는 그대로다."""
@@ -187,7 +279,10 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     progress.log("Judge", f"{req.self_profile.basic.name} → "
                           f"{req.counterpart_profile.basic.name} 판단 시작 "
                           f"({req.vantage.value} 렌즈 · {'깊은 추론' if deep else '표준'} 경로)")
-    data = extractor.extract_json(JUDGE_SYSTEM, judge_user(req), JUDGE_SCHEMA,
+    hint = _ontology_hint(req)
+    if hint:
+        progress.log("Judge", f"온톨로지 참고 힌트 적용 — {hint[:70]}...")
+    data = extractor.extract_json(JUDGE_SYSTEM, judge_user(req, hint), JUDGE_SCHEMA,
                                   deep=deep)   # 판단은 기본 깊은 추론 (7장 크라운 주얼)
     if not data.get("fit_reasons"):
         data["fit_reasons"] = ["판단 근거 부족 — 접촉으로 확인 필요"]
@@ -210,19 +305,37 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     return result
 
 
-def _audit_judge(req: JudgeRequest, result: JudgeResult) -> None:
-    """감사 가능 로그 (SYS-04) — 입력·추론 궤적·결정 저장 (HITL 검토·재학습용)."""
+def _audit_judge(req: JudgeRequest, result: JudgeResult,
+                 pre_gate_decision: "str | None" = None,
+                 engine_mode: str = "llm") -> None:
+    """감사 가능 로그 (SYS-04) — 입력·추론 궤적·결정 저장 (HITL 검토·재학습용).
+
+    적대적 검토 확정(F3): L3 게이트가 decision을 덮어쓴 뒤 감사가 기록돼 LLM의
+    원 결정이 소실됐다 — 재학습 라벨·HITL 검토에 필요한 값이라 pre-gate 결정과
+    투표 신호를 함께 남긴다.
+
+    engine_mode: 적대적 검토 추가 확정(C2) — 이게 없으면 규칙 기반(mock) 판단이
+    to_sft()에서 '전문가 판단'으로 둔갑한다. mock 경로는 명시적으로 "mock"을 넘긴다."""
     from .. import audit
     audit.record("judge", {
+        "engine_mode": engine_mode,
         "self": req.self_profile.basic.name,
         "counterpart": req.counterpart_profile.basic.name,
         "vantage": req.vantage.value, "objective": req.objective.value,
         "intent": req.intent.model_dump(mode="json"),
         "decision": result.decision.value,
+        "decision_pre_gate": pre_gate_decision or result.decision.value,
+        "decision_rationale": result.decision_rationale,
+        "sample_agreement": result.sample_agreement,
+        "needs_human": result.needs_human,
         "verdicts": {d.dimension.value: d.verdict.value
                      for d in result.category_judgments},
         "risks": [f"{r.type.value}: {r.description}" for r in result.risks],
         "trajectory": result.trajectory,
+        # SFT 학습 자산화 — 판단 입력 프롬프트 전문 + 전체 결과 JSON (재학습 쌍).
+        # _ontology_hint(req)는 결정적이라 _llm_judge가 실제로 보낸 것과 동일하다.
+        "input_text": judge_user(req, _ontology_hint(req)),
+        "result_json": result.model_dump(mode="json"),
     })
 
 
@@ -232,11 +345,16 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         check_deal_breakers(req.self_profile, req.counterpart_profile)
         progress.log("게이트", "deal-breaker 없음 — 판단 진행")
 
-    extractor = get_extractor(get_settings())
+    settings = get_settings()
+    extractor = get_extractor(settings)
     if extractor is not None:
-        result = _llm_judge(req, extractor, deep=deep)
+        result, agreement = _vote_llm_judge(
+            req, extractor, deep, settings.judge_samples)   # L2 자기일관성 투표
+        result.sample_agreement = agreement
+        pre_gate = result.decision.value                    # 감사용 원 결정 보존 (F3)
+        _apply_consistency_gate(result, agreement, settings)   # L3 하드 게이트
         with progress.node("audit", "감사 로그 (SYS-04)"):
-            _audit_judge(req, result)
+            _audit_judge(req, result, pre_gate_decision=pre_gate, engine_mode="llm")
         return result
 
     with progress.node("rules.judge", "규칙 기반 판단 (Mock)"):
@@ -288,5 +406,5 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         confidence_band=band,
     )
     with progress.node("audit", "감사 로그 (SYS-04)"):
-        _audit_judge(req, result)
+        _audit_judge(req, result, engine_mode="mock")
     return result
