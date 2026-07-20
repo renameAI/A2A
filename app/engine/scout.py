@@ -115,11 +115,13 @@ def _mock_hypotheses(knowledge: list[KnowledgeItem],
             partner_type="같은 문제를 겪는 수요처"))
     gaps = ta.get("portrait.gaps")
     if gaps:
+        # 검색어는 첫 절만 — 괄호 부기·후속 문장(메타 서술)이 들어가면 검색이 무의미해진다
+        gap_core = gaps.split("(")[0].split(".")[0].strip()[:24]
         out.append(PartnerHypothesis(
             track=HypothesisTrack.explore,
             hypothesis=f"결핍({gaps[:40]}…)을 메워줄 수 있는 인접 업계 파트너가 비자명 후보다.",
             grounded_in=["portrait.gaps"],
-            search_query=f"{region} {gaps[:24]} 파트너",
+            search_query=f"{region} {gap_core} 파트너",
             partner_type="결핍 보완형 파트너"))
     else:
         out.append(PartnerHypothesis(

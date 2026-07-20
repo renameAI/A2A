@@ -132,7 +132,7 @@ class Profile(BaseModel):
     purchase_value_props: list[ValueProp] = []
     willingness_sell: Optional[Willingness] = None
     willingness_purchase: Optional[Willingness] = None
-    portrait: Optional[CompanyPortrait] = None   # 회사의 상 (LLM 경로에서 생성)
+    portrait: Optional[CompanyPortrait] = None   # 회사의 상 — LLM 다층 독해 또는 mock 간이 합성. None은 구버전 저장 데이터뿐
 
 
 class PrivateStateItem(BaseModel):

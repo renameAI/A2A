@@ -175,6 +175,9 @@ _VP_KO = {ValueProp.revenue_growth: "매출 증대", ValueProp.cost_reduction: "
           ValueProp.impact: "임팩트", ValueProp.problem_solving: "문제 해결"}
 _STAGE_KO = {"enterprise": "대기업", "chain": "체인·프랜차이즈", "seed": "시드 단계",
              "startup": "스타트업", "sme": "중소기업"}
+_W_KO = {Willingness.very_high: "매우 적극적", Willingness.high: "적극적",
+         Willingness.medium: "중간", Willingness.low: "소극적",
+         Willingness.very_low: "매우 소극적"}
 
 
 def _mock_portrait(profile: Profile) -> CompanyPortrait:
@@ -202,15 +205,21 @@ def _mock_portrait(profile: Profile) -> CompanyPortrait:
                                if not v) + " 미확인.")
 
     # business_model — mock 자료엔 돈 구조 필드가 없다: 가치 축만 정직하게
-    vp = [_VP_KO[v] for v in p.sell_value_props + p.purchase_value_props]
+    # (판매·구매 양쪽에 같은 축이 있으면 중복 — 순서 유지 dedup)
+    vp = list(dict.fromkeys(
+        _VP_KO[v] for v in p.sell_value_props + p.purchase_value_props))
     business_model = ((f"가치 축: {', '.join(vp)}. " if vp else "")
                       + "수익 구조(과금 주체·단가·계약 형태)는 자료에 없음 — 미상.")
 
-    # edge — 간이 파서는 해자를 판별할 수 없다: 레퍼런스만 잠재 신호로
-    edge = (f"자료상 뚜렷한 해자 신호 없음. 추정: 레퍼런스 "
-            f"{len(p.references)}건({', '.join(p.references[:3])} 등)이 "
-            f"진입장벽의 간접 신호일 수 있음."
-            if has_refs else "자료상 뚜렷한 해자 신호 없음.")
+    # edge — 간이 파서는 해자를 판별할 수 없다: 레퍼런스만 잠재 신호로.
+    # '등'은 다 나열하지 못했을 때만 — 3건 이하 전량 나열에 붙이면 없는 건수를 암시한다.
+    if has_refs:
+        listed = ", ".join(p.references[:3]) \
+            + (" 등" if len(p.references) > 3 else "")
+        edge = (f"자료상 뚜렷한 해자 신호 없음. 추정: 레퍼런스 "
+                f"{len(p.references)}건({listed})이 진입장벽의 간접 신호일 수 있음.")
+    else:
+        edge = "자료상 뚜렷한 해자 신호 없음."
 
     # stage_narrative — 기존 결정적 단계 추정기 재사용 + 부재 신호 해석
     stage = _STAGE_KO.get(infer_stage(p), "중소기업")
@@ -229,15 +238,24 @@ def _mock_portrait(profile: Profile) -> CompanyPortrait:
     assets = ("; ".join(asset_parts) + " — 보완성 판단의 재료."
               if asset_parts else "자료에서 확인된 자산 없음.")
 
-    # gaps — 부재 필드 자체가 결핍 목록이다 + 사는 쪽 얼굴(5층)
+    # gaps — 실질 결핍(단계 추정)을 앞세운다: Scout mock 가설·검색어가 이 문장의
+    # 앞부분을 그대로 소비하므로, 메타 서술("자료가 답하지 않은 것")로 시작하면
+    # 검색어가 무의미해진다. 부재 필드 목록은 뒤에 부기.
     missing = [k for k, v in [("문제 정의", prob), ("솔루션", sol),
                               ("타겟", tgt), ("레퍼런스", has_refs),
                               ("트랙션", has_traction)] if not v]
-    buy_face = ("구매 의향 표명 있음 — 사는 쪽 니즈 구체화 필요."
-                if p.willingness_purchase is not None
-                else "사는 쪽 얼굴(구매 니즈)은 자료에 없음 — 미상.")
-    gaps = ((f"자료가 답하지 않은 것: {', '.join(missing)}. " if missing else "")
-            + buy_face)
+    wp = p.willingness_purchase
+    if wp is None:
+        buy_face = "사는 쪽 얼굴(구매 니즈)은 자료에 없음 — 미상."
+    elif wp in (Willingness.low, Willingness.very_low):
+        # 소극적 표명을 '표명 있음'으로 뭉개면 자료 왜곡 — 수준을 그대로 서술
+        buy_face = (f"구매 의향은 {_W_KO[wp]}으로 표명됨 — "
+                    "사는 쪽 니즈는 크지 않다고 읽힌다.")
+    else:
+        buy_face = (f"구매 의향 표명 있음({_W_KO[wp]}) — "
+                    "사는 쪽 니즈 구체화 필요.")
+    gaps = (f"{urgent} (추정 — 단계 신호 기반). {buy_face}"
+            + (f" 자료가 답하지 않은 것: {', '.join(missing)}." if missing else ""))
 
     # risk_signals — 부재도 신호다 (EXTRACT_SYSTEM 독해 규칙과 동일)
     signals = ([f"{m} 부재 — 초기 단계 또는 자료 미비 신호" for m in missing]

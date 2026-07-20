@@ -315,7 +315,7 @@ function renderLogs(logBox, logs, status) {
   const filter = logBox._filter;
   const shown = filter ? logs.filter((l) => l.node === filter) : logs;
   const filterChip = filter
-    ? `<span class="log-filter">노드 필터: ${esc(filter)} ✕</span>` : "";
+    ? `<span class="log-filter">단계 필터: ${esc(filter)} ✕</span>` : "";
   const lines = shown.map((l) => {
     const cls = l.type === "node_start" ? " log-nstart"
       : l.type === "node_end" ? (l.status === "ok" ? " log-nok" : " log-nerr") : "";
@@ -393,10 +393,12 @@ function renderA2ALoop(kind, job) {
     last.elapsed = job.elapsed;   // 같은 상태여도 처리 시간은 최신으로
   }
 
-  /* 성능 지표 — 종료 상태별 집계 + 처리 시간 (같은 job의 최종 상태 기준) */
-  const finals = {};
-  for (const e of state.loopEvents) finals[e.jobId] = e;
-  const runs = Object.values(finals);
+  /* 성능 지표 — job별 최종 상태를 무제한 맵에 누적 (12개 이벤트 링버퍼로
+     집계하면 오래 쓸수록 완료 수가 조용히 줄어드는 거짓 카운터가 된다) */
+  state.jobFinals = state.jobFinals || {};
+  state.jobFinals[job.job_id] = { jobId: job.job_id, state: stateName,
+                                  elapsed: job.elapsed };
+  const runs = Object.values(state.jobFinals);
   const doneRuns = runs.filter((e) => ["completed", "input-required"].includes(e.state));
   const failRuns = runs.filter((e) => ["failed", "error"].includes(e.state));
   const avg = doneRuns.length
@@ -621,6 +623,7 @@ function openDrawer(kind, tab) {
   const drawer = $("#drawer");
   drawer.dataset.kind = kind;
   drawer.classList.add("open");
+  drawer.inert = false;                       // 닫힌 동안 걸어둔 포커스 차단 해제
   drawer.setAttribute("aria-hidden", "false");
   $("#drawer-title").textContent = NODE_KO[kind] || kind;
   filterEngine(PANE_OF[kind] || "profile");
@@ -630,7 +633,14 @@ function openDrawer(kind, tab) {
 
 function closeDrawer() {
   const drawer = $("#drawer");
+  if (drawer.contains(document.activeElement)) {
+    // 포커스가 안에 남은 채 aria-hidden을 걸면 브라우저가 적용을 차단한다
+    const back = nodeEl(drawer.dataset.kind || "profile");
+    (back || document.body).focus?.();
+    document.activeElement?.blur?.();
+  }
   drawer.classList.remove("open");
+  drawer.inert = true;                        // 화면 밖 드로어를 탭 순서에서 제거
   drawer.setAttribute("aria-hidden", "true");
 }
 
@@ -666,6 +676,7 @@ function initCanvas() {
   ["judge", "compose", "negotiate"].forEach((k) => {
     $(`#node-${k}`).onclick = () => { if (nodeSt(k) !== "locked") openDrawer("match"); };
   });
+  $("#drawer").inert = true;                  // 초기 상태: 닫힘 — 포커스 불가
   $("#drawer-close").onclick = closeDrawer;
   document.querySelectorAll(".drawer-tabs button").forEach((b) =>
     b.onclick = () => selectDrawerTab(b.dataset.tab));
@@ -756,8 +767,10 @@ async function onboard() {
   document.getElementById("modal-onboard")?.close();
   document.getElementById("modal-questions")?.close();
   setNodeState("onboard", "done", "자료 제출됨");
-  if (state.dialogue.length || document.querySelectorAll("#questions input").length)
-    setNodeState("questions", "done", "답변 반영됨");   // 되먹임 엣지가 전류를 띤다
+  const hadAnswers = state.dialogue.length
+    || document.querySelectorAll("#questions input").length;
+  if (hadAnswers)
+    setNodeState("questions", "done", "답변 제출됨");   // 되먹임 엣지가 전류를 띤다
   const btn = $("#btn-onboard"); btn.disabled = true;
   try {
     // content 없는 URL 자산은 서버가 수집(fetch)한다
@@ -780,7 +793,7 @@ async function onboard() {
       renderMinProgress();
       setNodeState("questions", "input", `질문 ${data.open_questions.length}건`);
     } else {
-      setNodeState("questions", "done", "질문 없음");
+      setNodeState("questions", "done", hadAnswers ? "답변 반영됨" : "질문 없음");
     }
     if (data.question_pin_count > 0) {
       $("#evidence-block").classList.remove("hidden");
@@ -797,7 +810,9 @@ async function onboard() {
       showError("#onboard-error",
         "최소 프로필 기준 미달 — 위 질문에 답하면 매칭 풀에 들어갈 수 있어요.");
     } else {
-      document.getElementById("modal-onboard")?.showModal();
+      setNodeState("onboard", "ready", "클릭해 재시도");   // 낙관 선반영 되돌림
+      const mo = document.getElementById("modal-onboard");
+      if (mo && !mo.open) mo.showModal();
       showError("#modal-onboard-error", `${err.code || ""} ${err.message}`);
     }
   } finally { btn.disabled = false; }
@@ -924,6 +939,9 @@ function renderEvidencePages(data) {
     reanalyze;
   const reBtn = $("#btn-evidence-reanalyze");
   if (reBtn) reBtn.onclick = onboard;   // 같은 company_id 재온보딩 → 서버가 답변 병합
+  if (["locked", "ready"].includes(nodeSt("match")))
+    setNodeState("match", "ready",
+      openCount > 0 ? `AI 질문 ${openCount}건 응답 후 가능` : "클릭해 실행");
 
   const threadByEvidence = {};
   threads.forEach((t) => { threadByEvidence[t.evidence_id] = t; });
@@ -1019,9 +1037,9 @@ const PORTRAIT_KO = { identity: "정체성", business_model: "수익 구조", ed
   risk_signals: "리스크 신호" };
 
 function renderPortrait(pt) {
-  if (!pt) return "";   // mock 모드에서는 상이 생성되지 않는다
+  if (!pt) return "";   // 상이 없는 경우는 구버전 저장 데이터뿐
   return `<div class="panel info" style="margin-top:16px">
-    <h3 style="margin:0 0 8px">회사의 상(像) — 자료의 '결과'에서 역추론한 전략·처지 <small>(전체 추론됨 — 확인·교정해주세요)</small></h3>
+    <h3 style="margin:0 0 8px">회사의 상(像) — 자료의 '결과'에서 역추론한 전략·처지 <small>(추론은 「추정:」 표기 — 확인·교정해주세요)</small></h3>
     <dl class="profile-grid">${Object.entries(PORTRAIT_KO).map(([k, label]) =>
       `<dt>${label}</dt><dd>${esc(pt[k])}</dd>`).join("")}
     </dl></div>`;
@@ -1050,7 +1068,11 @@ $("#btn-match").onclick = async () => {
       $("#match-log"), "match");
     $("#synth").innerHTML = `<b>합성된 이상적 상대상</b> (검색어가 된 문장): ${esc(data.synthesized_counterpart)}`;
     $("#synth").classList.remove("hidden");
+    state.judged = {};   // 새 후보군 — 이전 후보의 판단 수를 이어받지 않는다
     renderCandidates(data.candidates);
+    setNodeState("judge", "ready", `후보 ${data.candidates.length}건 대기`);
+    ["compose", "negotiate"].forEach((k) =>
+      setNodeState(k, "locked", "판단 후"));
     refreshNodeGates();
     openDrawer("match", "result");
   } catch (err) {
@@ -1074,7 +1096,7 @@ function renderCandidates(candidates) {
     <div class="cand" id="cand-${esc(c.company_id)}">
       <div class="cand-head">
         <h3>${esc(c.name)} <small>(${esc(c.country)} · ${esc(c.pool)} 풀)</small></h3>
-        <div class="score-bar" title="retrieval score ${c.retrieval_score}"><i style="width:${Math.min(c.retrieval_score * 100, 100)}%"></i></div>
+        <div class="score-bar" title="적합 신호 ${c.retrieval_score}"><i style="width:${Math.min(c.retrieval_score * 100, 100)}%"></i></div>
         <button class="j-btn" data-id="${esc(c.company_id)}">판단 실행 (Judge)</button>
       </div>
       <div class="points">${c.match_points.map((p) => `<span>${esc(p)}</span>`).join("")}</div>
@@ -1371,7 +1393,7 @@ function renderScout(data) {
           <span class="track track-${esc(c.track)}">${TRACK_KO[c.track] || c.track}</span>
           <h3><a href="${esc(c.url)}" target="_blank" rel="noreferrer">${esc(c.title)}</a>
             <small>${esc(c.domain)}</small></h3>
-          <div class="score-bar" title="relevance ${c.relevance}"><i style="width:${Math.min(c.relevance * 100, 100)}%"></i></div>
+          <div class="score-bar" title="관련도 ${c.relevance}"><i style="width:${Math.min(c.relevance * 100, 100)}%"></i></div>
         </div>
         <div class="summary">${esc(c.snippet)}</div>
         <details><summary>이 후보를 찾게 한 가설</summary><pre>${esc(c.hypothesis)}</pre></details>

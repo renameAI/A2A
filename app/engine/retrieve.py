@@ -58,7 +58,8 @@ def synthesize_counterpart(req: RetrieveRequest) -> str:
             # 여태 직렬화가 없어 죽은 지시였다 — 상을 실제로 전달한다
             profile_text += (f"\n결핍(사는 쪽 얼굴): {p.portrait.gaps}"
                              f"\n단계와 절실함: {p.portrait.stage_narrative}")
-        intent_text = (f"가치제안 {[v.value for v in req.intent.value_props]}, "
+        from .prompts import vp_ko
+        intent_text = (f"가치제안 {vp_ko(req.intent.value_props)}, "
                        f"지역 {req.intent.target_region or '미지정'}, "
                        f"유형 {req.intent.proposal_type or '미지정'}")
         return extractor.complete_text(

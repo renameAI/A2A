@@ -385,6 +385,16 @@ JUDGE_SCHEMA = {
 }
 
 
+# LLM 프롬프트용 가치제안 한국어 라벨 — Python 리스트 repr(['revenue_growth'])가
+# 한국어 산문 프롬프트에 그대로 박히는 것을 막는다 (enum 토큰 누출 방지)
+_VP_LABEL = {"revenue_growth": "매출 증대", "cost_reduction": "비용 절감",
+             "impact": "임팩트", "problem_solving": "문제 해결"}
+
+
+def vp_ko(props) -> str:
+    return ", ".join(_VP_LABEL.get(v.value, v.value) for v in props) or "미상"
+
+
 def _profile_block(label: str, profile, private_state=None) -> str:
     p = profile
     lines = [f"[{label}]",
@@ -397,8 +407,8 @@ def _profile_block(label: str, profile, private_state=None) -> str:
              f"타겟: {p.target_customer.value or '(미상)'}",
              f"레퍼런스: {', '.join(p.references) or '없음'}",
              f"트랙션: {p.traction or '미상'}",
-             f"판매 가치제안: {[v.value for v in p.sell_value_props] or '미상'}",
-             f"구매 가치제안: {[v.value for v in p.purchase_value_props] or '미상'}",
+             f"판매 가치제안: {vp_ko(p.sell_value_props)}",
+             f"구매 가치제안: {vp_ko(p.purchase_value_props)}",
              f"Willingness(판매/구매): "
              f"{p.willingness_sell.value if p.willingness_sell else '미상'} / "
              f"{p.willingness_purchase.value if p.willingness_purchase else '미상'}"]
@@ -428,7 +438,7 @@ def judge_user(req) -> str:
                  "구매자 렌즈 — self가 수용 안전·이득을 판단. 공통 5차원 + "
                  "substitute_comparison·opportunity_cost 2차원 반드시 추가 판정.")
     intent = req.intent
-    intent_text = (f"가치제안: {[v.value for v in intent.value_props]} / "
+    intent_text = (f"가치제안: {vp_ko(intent.value_props)} / "
                    f"타겟 지역: {intent.target_region or '미지정'} / "
                    f"제안 유형: {intent.proposal_type or '미지정'} / "
                    f"노트: {intent.notes or '없음'}")
