@@ -31,13 +31,14 @@ from ..engine.vision import get_vision_extractor
 from ..errors import EngineError
 from ..ingest.fetchers import fetch_pdf_bytes
 from ..ingest.pdf_render import render_pdf_pages
-from ..schemas import (Asset, AssetType, BBox, CommentThread, ComposeMode,
-                       ComposeRequest, DialogueTurn, Intent, JudgeRequest,
-                       JudgeResult, Lens, NegotiateRequest, Objective,
-                       PoolChoice, PrivateState, PrivateStateItem, Profile,
-                       QuestionPin, RepresentRequest, RetrieveDirection,
-                       RetrieveRequest, SourceTag, ThreadComment,
-                       ThreadReplyRequest, Vantage, ValueProp, Willingness)
+from ..schemas import (Asset, AssetType, BasicInfo, BBox, CommentThread,
+                       ComposeMode, ComposeRequest, DialogueTurn, Intent,
+                       JudgeRequest, JudgeResult, Lens, NegotiateRequest,
+                       Objective, PoolChoice, PrivateState, PrivateStateItem,
+                       Profile, ProvField, Provenance, QuestionPin,
+                       RepresentRequest, RetrieveDirection, RetrieveRequest,
+                       SourceTag, ThreadComment, ThreadReplyRequest, Vantage,
+                       ValueProp, Willingness)
 from .store import store
 
 router = APIRouter(prefix="/product", tags=["product"])
@@ -446,6 +447,54 @@ def judge_candidate(req: JudgeCallRequest, background: BackgroundTasks):
             self_profile=rec.profile, self_private_state=rec.private_state,
             counterpart_profile=cand.profile, intent=req.intent))
         return {"candidate_id": req.candidate_id,
+                "judge_result": result.model_dump(mode="json")}
+    return _submit(background, _run)
+
+
+# ── 발굴 기업 판단 — Scout 웹 후보를 Judge에 태운다 ─────────────────
+# 웹 발굴 후보는 프로필이 얇다(이름·요약·국가뿐). 얇은 대로 정직하게 ask 위주
+# 프로필을 구성해 판단한다 — Judge 루브릭이 '정보 부재=caution+확인 방법'을
+# 보장하고, stage_compatibility가 초대형 기업(폭스콘류)을 자연스럽게 거른다.
+
+class JudgeScoutRequest(BaseModel):
+    company_id: str
+    intent: Intent
+    name: str
+    summary: str = ""
+    country: str | None = None
+    source_url: str = ""
+    hypothesis: str = ""
+
+
+def _scout_counterpart_profile(req: "JudgeScoutRequest") -> Profile:
+    """ScoutCompany → 얇은 counterpart 프로필. 아는 것만 채우고 나머지는 ask —
+    지어내지 않는다. summary는 검색 원문 실재 검증을 통과한 문장이라 stated."""
+    ask = ProvField(value="", provenance=Provenance.ask)
+    # '미기재=부재 확인'으로 오독하면 demonstrability가 unfit으로 굳는다(실측) —
+    # 접촉 전 미확인임을 프로필 서술에 명시해 루브릭(모름=caution)이 작동하게 한다.
+    note = " [웹 발굴 후보 — 접촉 전. 미기재 항목은 '부재 확인'이 아니라 '미확인'이다]"
+    return Profile(
+        basic=BasicInfo(name=req.name, country=req.country or "미상",
+                        city=None, founded_year=None, industry="unknown"),
+        description=(req.summary or "").strip() + note,
+        problem_solved=ask.model_copy(), solution=ask.model_copy(),
+        target_customer=ask.model_copy(),
+        references=[], traction=None,
+        sell_value_props=[], purchase_value_props=[],
+        willingness_sell=None, willingness_purchase=None)
+
+
+@router.post("/judge-scout", status_code=202)
+def judge_scout_company(req: JudgeScoutRequest, background: BackgroundTasks):
+    rec = _require_company(req.company_id)
+    counterpart = _scout_counterpart_profile(req)
+
+    def _run() -> dict:
+        result = judge(JudgeRequest(
+            vantage=Vantage.seller, objective=Objective.exploration_budget,
+            self_profile=rec.profile, self_private_state=rec.private_state,
+            counterpart_profile=counterpart, intent=req.intent))
+        return {"scout_company": req.name,
                 "judge_result": result.model_dump(mode="json")}
     return _submit(background, _run)
 

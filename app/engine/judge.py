@@ -272,6 +272,49 @@ def _ontology_hint(req: JudgeRequest) -> "str | None":
                        p2.basic.industry, p2.description)
 
 
+import re as _re
+
+_NUM_TOKEN = _re.compile(r"\d[\d,.]*\s*(?:%|억|천만|만\s*원|만원|명|개사|건|배|호점)?")
+_LATIN_TOKEN = _re.compile(r"[A-Za-z][A-Za-z&.-]{2,}")
+# 판단 어휘(스키마 enum·차원명)는 입력이 아니라 판단 언어에서 온다 — 환각 아님
+_JUDGE_VOCAB = {"fit", "caution", "unfit", "recommend", "conditional", "hold",
+                "terminate", "industry_fit", "purpose_alignment",
+                "resource_complementarity", "stage_compatibility",
+                "demonstrability", "substitute_comparison", "opportunity_cost",
+                "poc", "mou", "esg", "oem", "odm", "b2b"}
+
+
+def _strip_ungrounded_claims(result: JudgeResult, req: JudgeRequest,
+                             hint: "str | None") -> int:
+    """fit_reasons의 환각 주장 코드 집행 (reference-guided grading의 사후 검증판).
+
+    좁고 안전한 규칙만 쓴다: fit_reason 안의 '수치'와 '영문 고유명사'가 판단 입력
+    (두 프로필 + 의도 + 온톨로지 힌트) 어디에도 없으면, 그 주장은 입력에서 나올 수
+    없는 것 — 제거하고 센다. 패러프레이즈 자체를 벌하지 않도록 일반 한국어 서술은
+    검사하지 않는다 (과잉 폐기가 과소 폐기보다 위험한 지점).
+
+    fit_reasons만 대상 — compose가 claim_trace로 이 목록을 인용하므로, 환각 주장이
+    남으면 콜드메일에 근거 없는 수치가 실린다(가장 비싼 실패). 반환: 제거 수.
+    """
+    haystack = " ".join(judge_user(req, hint).split()).lower()
+    kept, removed = [], 0
+    for reason in result.fit_reasons:
+        tokens = ([t.strip() for t in _NUM_TOKEN.findall(reason)]
+                  + [t for t in _LATIN_TOKEN.findall(reason)
+                     if t.lower() not in _JUDGE_VOCAB])
+        bad = [t for t in tokens
+               if t and " ".join(t.split()).lower() not in haystack]
+        if bad:
+            removed += 1
+            progress.log("검증", f"⚠ 근거 없는 주장 제거 — fit_reason에 입력에 없는 "
+                                 f"토큰 {bad[:3]}: \"{reason[:50]}…\"")
+            continue
+        kept.append(reason)
+    if removed:
+        result.fit_reasons = kept or ["판단 근거 부족 — 접촉으로 확인 필요"]
+    return removed
+
+
 def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     """LLM 판단 경로 — 프롬프트가 판단 구조를, 스키마가 출력 계약을 강제한다.
     출력 계약은 규칙 경로와 동일하므로 API·테스트 구조는 그대로다."""
@@ -299,9 +342,12 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
             from ..errors import EngineError
             raise EngineError(502, "llm_error",
                               f"판단 차원 누락: {[d.value for d in missing]} — 재시도 필요")
+        n_stripped = _strip_ungrounded_claims(result, req, hint)
         progress.log("Judge", f"판단 완료 — 결정: {result.decision.value} "
                               f"({len(result.category_judgments)}차원 · "
-                              f"리스크 {len(result.risks)}건)")
+                              f"리스크 {len(result.risks)}건"
+                              + (f" · 환각 주장 제거 {n_stripped}건" if n_stripped
+                                 else "") + ")")
     return result
 
 

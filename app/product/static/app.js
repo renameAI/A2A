@@ -1304,7 +1304,8 @@ const DIM_KO = { industry_fit: "산업 적합성", purpose_alignment: "협업목
 const VERDICT_KO = { fit: "적합", caution: "주의", unfit: "부적합" };
 const DECISION_KO = { recommend: "추천", conditional: "조건부 추천", hold: "보류", terminate: "결렬" };
 
-function renderJudgment(jr, candidateId) {
+function renderJudgment(jr, candidateId, opts = {}) {
+  const actions = opts.actions !== false;
   return `
     <p><span class="decision d-${jr.decision}">${DECISION_KO[jr.decision]}</span>
        <small>${esc(jr.decision_rationale)}</small></p>
@@ -1317,11 +1318,11 @@ function renderJudgment(jr, candidateId) {
       <div class="risk-item"><span class="risk-tag rt-${r.type}">${{ precondition: "선결", profitability: "수익성", dismissed: "기각" }[r.type]}</span>${esc(r.description)}</div>`).join("")}</div>` : ""}
     ${jr.deal_structure ? `<p style="font-size:13px"><b>딜 구조:</b> ${esc(jr.deal_structure)}</p>` : ""}
     <details><summary>추론 궤적 (CoT)</summary><pre>${esc(jr.trajectory)}</pre></details>
-    <div style="margin-top:12px">
+    ${actions ? `<div style="margin-top:12px">
       <button class="c-btn primary">콜드메일 초안 (Compose)</button>
       <button class="n-btn">A2A 협상 시뮬레이션</button>
     </div>
-    <div class="output-area"></div>`;
+    <div class="output-area"></div>` : ""}`;
 }
 
 /* ── ⑤ 초안 · 협상 ──────────────────────────────────────────── */
@@ -1540,19 +1541,26 @@ function renderScout(data) {
       <small>기업명은 검색 원문 실재 검증 통과분만 · 정석 ${comps.filter((c) => c.track === "exploit").length} ·
       모험 ${comps.filter((c) => c.track === "explore").length}</small></h3>
     ${comps.map((c) => `
-      <div class="cand scout-comp">
+      <div class="cand scout-comp" data-comp="${esc(c.name)}">
         <div class="cand-head">
           <span class="track track-${esc(c.track)}">${TRACK_KO[c.track] || c.track}</span>
           <h3>${esc(c.name)}${c.country ? ` <small>(${esc(c.country)})</small>` : ""}</h3>
+          <button class="js-btn" data-name="${esc(c.name)}">판단 실행</button>
         </div>
         <div class="summary">${esc(c.summary)}</div>
         <div class="comp-src">근거: <a href="${esc(c.source_url)}" target="_blank" rel="noreferrer">${esc(c.source_title)}</a>
           <small>${esc(c.source_domain)}</small></div>
         <details><summary>이 기업을 찾게 한 가설</summary><pre>${esc(c.hypothesis)}</pre></details>
+        <div class="judge-area"></div>
       </div>`).join("")}`
     : (data.engine_mode === "mock" ? `
     <div class="panel warn">기업 발굴은 LLM 경로에서만 동작합니다 — 지금은 간이 분석(키 없음)
     모드라 웹 출처 링크만 제공돼요.</div>` : "");
+
+  document.querySelectorAll("#scout-companies .js-btn").forEach((b) => {
+    const comp = comps.find((c) => c.name === b.dataset.name);
+    if (comp) b.onclick = () => judgeScoutCompany(comp, b);
+  });
 
   const list = data.shortlist || [];
   $("#scout-shortlist").innerHTML = list.length ? `
@@ -1573,6 +1581,31 @@ function renderScout(data) {
     : (data.web_search_used === false
        ? `<div class="panel warn">웹 검색이 차단·실패했습니다 — 가설은 위에 유효하게 남아 있어요.
           네트워크 상태를 확인하거나 잠시 후 다시 시도해 주세요.</div>` : "");
+}
+
+async function judgeScoutCompany(comp, btn) {
+  btn.disabled = true; btn.textContent = "판단 중...";
+  const card = document.querySelector(`#scout-companies [data-comp="${CSS.escape(comp.name)}"]`);
+  const area = card.querySelector(".judge-area");
+  const logBox = ensureLogBox(area);
+  try {
+    const data = await runJob("/product/judge-scout", {
+      company_id: state.companyId, intent: state.intent || collectIntent(),
+      name: comp.name, summary: comp.summary || "", country: comp.country,
+      source_url: comp.source_url || "", hypothesis: comp.hypothesis || "",
+    }, logBox, "judge");
+    // 웹 발굴 후보는 정보가 얇다 — compose/negotiate 없이 판단 카드만 (정직)
+    area.innerHTML = renderJudgment(data.judge_result, null, { actions: false });
+    if (logBox._pipe) area.prepend(logBox._pipe);
+    area.prepend(logBox);
+    logBox.classList.add("log-collapsed");
+    logBox.onclick = () => logBox.classList.toggle("log-collapsed");
+  } catch (err) {
+    const msg = err.code === "deal_breaker"
+      ? `deal-breaker 결렬 — ${esc(err.details?.reason || err.message)}`
+      : esc(`${err.code || ""} ${err.message}`);
+    area.insertAdjacentHTML("beforeend", `<div class="error">${msg}</div>`);
+  } finally { btn.disabled = false; btn.textContent = "판단 실행"; }
 }
 
 $("#btn-scout").onclick = async () => {
