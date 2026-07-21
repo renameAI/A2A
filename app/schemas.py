@@ -509,6 +509,20 @@ class ScoutCandidate(BaseModel):
     relevance: float         # 결정적 스코어 (가설·검색어 ↔ 제목+스니펫 bigram overlap)
 
 
+class ScoutCompany(BaseModel):
+    """웹 히트에서 LLM이 발굴한 기업 후보 — 기사도 '단서'로 소비하되, 기업명은
+    히트 원문에 실재해야 한다(코드가 대조 검증). 다이브인그룹 데모의 후보 카드처럼
+    '기업'이 보이게 하는 층."""
+    name: str
+    track: HypothesisTrack
+    hypothesis: str          # 이 기업을 찾게 한 가설 원문
+    summary: str             # 히트 원문 범위 안의 한 줄 소개
+    country: Optional[str] = None
+    source_url: str          # 근거 히트 (실제 검색 결과 URL)
+    source_domain: str
+    source_title: str
+
+
 class ScoutRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     client_request_id: Optional[str] = None
@@ -523,5 +537,6 @@ class ScoutResponse(BaseModel):
     knowledge: list[KnowledgeItem]
     hypotheses: list[PartnerHypothesis]
     shortlist: list[ScoutCandidate]
+    companies: list[ScoutCompany] = []   # LLM 기업 발굴 (mock 경로에선 빈 리스트 — 정직)
     engine_mode: str                 # 가설 생성 경로 (llm | mock)
     web_search_used: bool            # false면 검색 실패/차단 — 정직 표기
