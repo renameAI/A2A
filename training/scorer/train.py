@@ -88,8 +88,7 @@ def run(cfg: ScorerConfig, pairs_path: str):
         lr_scheduler_type="cosine", bf16=cfg.bf16, logging_steps=10,
         save_strategy="epoch", report_to=[], seed=cfg.seed,
         deepspeed=cfg.deepspeed_config or None,
-        remove_unused_columns=False, group_by_length=True,
-        length_column_name="length")
+        remove_unused_columns=False)
 
     trainer = Trainer(model=model, args=args, train_dataset=ds,
                       data_collator=_Collator(pad_id))
