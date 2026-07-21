@@ -121,3 +121,30 @@ class TestData:
     def test_histogram(self):
         h = histogram([_pair("a", "b", 3), _pair("c", "d", 3), _pair("e", "f", 7)])
         assert h[3] == 2 and h[7] == 1 and h[0] == 0
+
+
+class TestSynthPairs:
+    """합성 페어 — 결정적 + 학습 가능한 구조(보완=높음, 동종/무관=낮음)."""
+
+    def test_deterministic(self):
+        from training.scorer.synth_pairs import generate
+        a = generate(50, 200, seed=1)
+        b = generate(50, 200, seed=1)
+        assert [(p.a_id, p.b_id, p.score) for p in a] == \
+               [(p.a_id, p.b_id, p.score) for p in b]
+
+    def test_has_learnable_structure(self):
+        """보완 도메인 쌍의 평균 점수가 무관 쌍보다 유의미하게 높아야 학습이 된다."""
+        from training.scorer.synth_pairs import generate
+        pairs = generate(300, 4000, seed=7)
+        hi = [p.score for p in pairs if p.score >= 8]
+        lo = [p.score for p in pairs if p.score <= 2]
+        assert len(hi) > 100 and len(lo) > 100      # 양쪽 다 충분
+        assert sum(hi) / len(hi) - sum(lo) / len(lo) > 6   # 분리 뚜렷
+
+    def test_valid_schema(self):
+        from training.scorer.data import validate
+        from training.scorer.synth_pairs import generate
+        rep = validate(generate(100, 500, seed=3))
+        assert len(rep["errors"]) == 0
+        assert all(0 <= p.score <= 10 for p in rep["valid"])
