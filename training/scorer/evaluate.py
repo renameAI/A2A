@@ -6,8 +6,6 @@
 import argparse
 import json
 
-from .infer import RelatednessScorer
-
 
 def _spearman(xs, ys):
     def rank(v):
@@ -31,6 +29,7 @@ def main():
     a = ap.parse_args()
 
     held = json.loads(open(a.held).read())[:a.limit]
+    from .infer import RelatednessScorer   # 지연 — torch 없는 환경에서 _spearman 재사용 가능
     scorer = RelatednessScorer(a.base_model, a.run_dir)
 
     true_s, pred_s = [], []

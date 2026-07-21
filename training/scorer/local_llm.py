@@ -9,10 +9,9 @@
 
 모델은 무겁게 한 번만 로드해 재사용한다(LocalExaone 싱글턴처럼 쓴다).
 """
-import json
-import re
-
 import torch
+
+from .pair_protocol import PAIR_SYSTEM, pair_user, parse_score
 
 
 class LocalExaone:
@@ -52,19 +51,6 @@ class LocalExaone:
 
     def score_pair(self, a_name, a_text, b_name, b_text) -> "dict | None":
         """두 기업 → 0~10 보완 관련도 (JSON)."""
-        sys = ("너는 B2B 매칭 애널리스트다. 두 기업이 '사업 파트너로서 얼마나 "
-               "관련(보완) 있는가'를 0~10으로 매긴다. 유사도가 아니라 보완성 기준 — "
-               "한쪽의 산출물/역량이 다른 쪽의 결핍/수요를 메우면 높다. 동종 경쟁사는 낮다.\n"
-               "0~2=무관/경쟁, 3~5=약한 접점, 6~7=뚜렷한 보완, 8~10=강한 보완.\n"
-               '반드시 JSON 하나로만 답하라: {"score": <0~10 정수>, "reason": "<한 문장>"}')
-        user = (f"[기업 A: {a_name}]\n{a_text[:1200]}\n\n"
-                f"[기업 B: {b_name}]\n{b_text[:1200]}\n\nJSON으로 답하라.")
-        raw = self._chat(sys, user, max_new=150, temperature=0.2)
-        try:
-            s = raw.find("{"); e = raw.rfind("}")
-            d = json.loads(raw[s:e + 1])
-            return {"score": max(0, min(10, int(d["score"]))),
-                    "reason": str(d.get("reason", ""))[:200]}
-        except Exception:                          # noqa: BLE001
-            m = re.search(r"\b([0-9]|10)\b", raw)   # JSON 실패 시 숫자 폴백
-            return {"score": int(m.group(1)), "reason": raw[:120]} if m else None
+        raw = self._chat(PAIR_SYSTEM, pair_user(a_name, a_text, b_name, b_text),
+                         max_new=150, temperature=0.2)
+        return parse_score(raw)
