@@ -1,0 +1,305 @@
+# EXAONE 관련도 스코어러 — 실험 노트 (논문용)
+
+> 특수 토큰 + 선택적 unfreeze + LoRA로 EXAONE 4.0을 "두 기업의 보완 관련도(0–10)를
+> 매기는 스코어러"로 파인튜닝하는 방법의 설계·구현·실증 기록. 모든 수치는 실제
+> 서버(H100×2)에서 EXAONE 4.0 실모델로 측정한 값이며, 재현 절차와 사용자 의사결정
+> 이력(provenance)을 함께 남긴다.
+
+- **작성 맥락**: 2026 AI-Champion 대회 / 팀 리네임 글로벌 / A2A B2B 매칭엔진의 `retrieve` 랭킹 프리필터
+- **하드웨어**: NVIDIA H100 80GB × 2 (Ubuntu 24.04.1, driver 580.105.08, CUDA 12.8)
+- **소프트웨어**: torch 2.6.0+cu124, transformers 5.14.1, peft 0.19.1, trl 1.8.0, python 3.11
+- **모델(로컬)**: EXAONE 4.0-32B, EXAONE 4.0-1.2B (LG AI Research)
+
+---
+
+## 1. 배경과 목적
+
+### 1.1 문제
+
+A2A B2B 매칭엔진의 `retrieve` 단계는 후보를 거르는데, 초기 구현은 bigram overlap
+휴리스틱이었다. 이를 **학습된 관련도 스코어러**로 대체한다. 스코어러는 두 기업의
+텍스트(리서치 결과 또는 represent 온톨로지)를 받아 **보완 관련도 0–10**을 낸다.
+여기서 관련도는 유사도가 아니라 **보완성**이다 — 한쪽의 산출물이 다른 쪽의 결핍을
+메우면 높고, 동종 경쟁사는 낮다.
+
+이 스코어러는 판단 엔진(Judge)을 대체하지 않는다. Judge는 "점수 폐기" 원칙(근거·
+리스크가 달린 구조화 판단)을 따르며, 스코어러는 그 **앞단의 랭킹 프리필터**다.
+
+### 1.2 원 설계 (스펙)
+
+학습 방법의 원안은 다음과 같다(디렉터 스펙):
+
+1. **점수의 특수 토큰화**: 0–10점을 EXAONE voca의 **미학습 토큰 11개**에 지정.
+   예: `<sp1>`=3점이면, A·B의 관련도가 3점일 때 라벨을 `A-B-<sp1>`로 기록.
+2. **선택적 unfreeze**: 전체 파라미터를 얼리고, **11개 점수 토큰 + 새 구조 토큰
+   6개(총 17개)** 의 token embedding 행벡터만 unfreeze.
+3. **LoRA는 FFN에만** (attention 제외).
+4. **입력/타겟 프레이밍**:
+   - 입력 = `<t1> A_리서치 <t2> <t3> B_리서치 <t4>`
+   - 타겟 = (프롬프트 전체 마스킹) + `<t5> <점수토큰> <t6>`
+5. 리서치 결과 대신 **represent 온톨로지**를 넣으면 온톨로지 기반 스코어러가 된다.
+
+본 연구는 이 방법을 실제 EXAONE 4.0에서 검증하고, 설계 가정(특히 "FFN에만 LoRA")을
+ablation으로 실측한다.
+
+---
+
+## 2. 방법론
+
+### 2.1 특수 토큰 스코어링
+
+점수를 텍스트("3점")가 아니라 **전용 토큰**으로 두면 토크나이즈 모호성 없이 단일
+토큰 예측이 되고, 추론 시 그 토큰들의 로짓만으로 점수를 읽을 수 있다.
+
+EXAONE tokenizer(vocab 102,400)에는 `[unused0]`~`[unused99]` 100개의 미학습 토큰이
+실재한다(id 62–161, 각 단일 id로 인코딩됨 — 분할되지 않음을 검증). 이 중 앞 17개를:
+
+- **점수 토큰 11개**: `[unused0]`(0점) ~ `[unused10]`(10점), id 62–72
+- **구조 토큰 6개**: `[unused11]`~`[unused16]` = t1~t6, id 73–78
+
+새 토큰을 vocab에 추가하지 않고 **기존 미학습 슬롯을 재사용**하므로 임베딩 리사이즈가
+없다(사전학습 체크포인트와 정합).
+
+### 2.2 선택적 unfreeze — tie 인식 (핵심)
+
+디렉터 스펙은 "token embedding 행렬(= lmhead와 동일)"을 가정하나, **EXAONE 4.0-32B는
+`tie_word_embeddings=false`** (입력 임베딩과 lm_head가 별개)이다. 1.2B은 `true`(단일
+행렬). 예측 작업이므로:
+
+- **점수 토큰**은 *예측*되므로 **lm_head(출력) 행**이 학습돼야 한다.
+- **구조 토큰**은 *읽히므로* **입력 임베딩 행**이 학습돼야 한다.
+
+안전하게 **17개 특수 토큰의 입력·출력 행을 모두 unfreeze**한다(32B은 두 행렬, 1.2B은
+tied라 한 행렬 — config로 자동 분기).
+
+**행 단위 unfreeze의 구현**: `requires_grad`는 텐서 단위라 "일부 행만" 풀 수 없다.
+그래서 전체 임베딩(및 untied면 lm_head)을 `requires_grad=True`로 두고, **backward
+훅으로 특수 토큰 외 모든 행의 gradient를 0으로 마스킹**한다. 실서버 스모크에서 이
+메커니즘이 실제로 작동함을 확인했다(특수 17행 외 임베딩 grad = 0).
+
+미학습 토큰 임베딩은 노이즈이므로 **기존 임베딩 평균으로 초기화**해 수렴을 돕는다.
+
+### 2.3 입력/타겟 프레이밍
+
+```
+전체 시퀀스 = <t1> A <t2> <t3> B <t4> <t5> <점수> <t6>
+labels     = [-100 …(프롬프트)…] + [<t5>, <점수>, <t6>]   (완결 구간만 loss)
+```
+
+teacher forcing에서 loss는 `<t4> 다음 → <t5>`, `<t5> 다음 → <점수>`, `<점수> 다음 →
+<t6>` 위치에 붙는다. 즉 모델은 "두 리서치를 다 읽은 직후 점수를 내는" 능력을 배운다.
+시퀀스 절단 시 완결 구간(구조·점수 토큰)은 절대 자르지 않고 리서치 본문만 줄인다.
+
+**패킹은 쓰지 않는다** — 완결 구간이 시퀀스 끝에 정렬돼야 하는데 패킹이 그 경계를
+흐트러뜨린다.
+
+### 2.4 LoRA
+
+기본 타겟은 **FFN(SwiGLU)의 `gate_proj/up_proj/down_proj`** (스펙 원안). ablation을
+위해 `--include-attention`으로 `q/k/v/o_proj`를 추가할 수 있다. LoRA를 먼저 씌운 뒤
+특수 행 unfreeze를 적용한다(순서 중요 — peft가 베이스를 다시 얼리므로).
+
+### 2.5 추론 — 기댓값 readout
+
+11개 점수 토큰을 독립 분류로 두면 cross-entropy가 순서성을 버린다("6 대신 7"과 "0
+대신 7"을 동일하게 벌줌). 추론 시 프롬프트를 `<t5>`까지 넣고 **다음 위치에서 11개
+점수 토큰 로짓만 softmax → 기댓값 Σ p_k·k**로 연속·보정 점수를 얻는다.
+
+### 2.6 데이터 규율
+
+- **계층 샘플링**: 점수 버킷별 상한. 랜덤이면 99%가 저득점(무관)이라 모델이 "무조건
+  낮게" 찍고도 정확해 보인다.
+- **회사 단위 held-out 분할**: 양쪽 회사가 모두 train 버킷일 때만 train, 모두 held면
+  held, 교차 쌍은 폐기(누수 0). 회사명 암기가 아닌 **판단 구조 전이**를 측정.
+
+---
+
+## 3. 실험 데이터
+
+### 3.1 합성 데이터 (파이프라인 검증용)
+
+실데이터 전에 학습 스택 전체를 실증하려면 "학습 가능한 구조"를 가진 데이터가 필요하다.
+`synth_pairs.py`는 **도메인 보완 그래프**(공급→수요 엣지: 감속기→로봇, 배터리소재→
+전기차 등)에서 점수를 결정적으로 유도한다. 랜덤이 아니라 구조가 있어 "스코어러가
+실제로 학습했는지" 판별 가능.
+
+- 회사 300개 → 페어 4,000개, 점수 분포: 0:463 · 1:950 · 2:612 · 3:204 · 4:271 ·
+  5:354 · 6:175 · 8:233 · 9:490 · 10:248 (이봉분포 — 저득점 다수 + 8~10 보완 클러스터)
+- 분할: train 2,770 (샘플링 후) · held 107 · 교차폐기 1,123 · 누수 0
+
+### 3.2 실데이터 (완전 무API)
+
+외부 API(Gemini·Claude)는 대회 정책·비용 제약이 있어, **공개 데이터 + 로컬 EXAONE**로
+자립 파이프라인을 구성한다.
+
+- **시드**: HuggingFace `ThunderDrag/South-Korea-Stock-Symbols-and-Metadata` — 실제
+  KOSPI/KOSDAQ 상장사 **2,618개** (name, ticker, market, sector 20종), **CC0(퍼블릭
+  도메인)**.
+- **중대한 실측 발견 (§5.4)**: EXAONE으로 기업 리서치를 *생성*하면 웹검색 부재로
+  **32B도 환각**한다(Seoul Viosys→배터리, 하이트진로→일본기업). → **facts-only**로
+  전환: 실사실(기업명·실제 섹터·시장)만 EXAONE-32B에 주고 채점. 환각 0, 섹터 보완성은
+  실신호.
+
+---
+
+## 4. 실험 결과
+
+### 4.1 메커니즘 검증 (스모크, 1.2B)
+
+Trainer 없이 model_setup+framing 통합을 3스텝만 실행:
+
+- 특수 토큰 등록: score `[62–72]`, struct `[73–78]` ✓
+- FFN LoRA 적용 + 행 마스킹 unfreeze ✓ → **특수 17행 외 임베딩 grad = 0 확인**
+- loss 하강: 13.83 → 13.73 → 13.13 (3스텝)
+- trainable 218,562,560 / 1,288,238,848 (16.97% — tied 임베딩 전체가 requires_grad로
+  집계되나 실제 갱신은 17행 + LoRA)
+
+### 4.2 주 결과 표
+
+held-out(처음 보는 회사쌍, company-disjoint) 60쌍, 기댓값 readout 평가. `분리` =
+고관련(true≥8) 예측 평균 − 저관련(true≤2) 예측 평균.
+
+| # | 모델 | 데이터 | LoRA | epoch | 학습시간 | train_loss* | 스피어만 ρ | 고관련 평균 | 저관련 평균 | 분리 | 판정 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| E1 | 1.2B | 합성 | FFN | 1 | 388s | 2.53 | **0.238** | 3.95 | 3.82 | 0.13 | 미학습 |
+| E2 | 1.2B | 합성 | FFN+Attn | 3 | 1,670s | 1.21 | **0.698** | 8.73 | 1.20 | 7.53 | 배웠음 |
+| E3 | 32B | 합성 | FFN+Attn | 3 | 3,848s | 0.95 | **0.668** | 8.98 | 1.17 | 7.82 | 배웠음 |
+| E4 | 1.2B | 합성 | FFN | 3 | — | — | *(진행 중)* | — | — | — | — |
+| E5 | 1.2B | 실데이터(facts) | FFN+Attn | 3 | — | — | *(진행 중)* | — | — | — | — |
+
+\* `train_loss`는 학습 전체 평균(초기 고손실 포함)이라 절대값 비교 지표가 아님. 판정은
+held-out 스피어만·분리로 한다.
+
+### 4.3 관찰
+
+- **E1 vs E2**: FFN-only·1epoch은 예측이 3.8~4.2에 뭉쳐 "평균만 예측"(미학습).
+  attention 추가 + 3epoch에서 `1→1.08`, `3→3.04`, `5→5.17`, `8~10→8.73`으로 실제
+  점수를 거의 정확히 예측. **단, E1은 epoch=1, E2는 epoch=3이라 교란**되어 있다 →
+  E4(FFN-only·3epoch)로 attention 기여분과 epoch 기여분을 분리한다. *(진행 중)*
+- **E2 vs E3 (1.2B vs 32B)**: 합성 태스크에선 1.2B(ρ=0.698)와 32B(ρ=0.668)가 거의
+  동급. 이 태스크가 32B의 표현력을 다 쓸 만큼 어렵지 않다는 뜻 →
+  **온디바이스(1.2B)로도 충분하다는 근거**. 32B는 tie=false 경로(입력행+lm_head행
+  둘 다 unfreeze)로 trainable 3.678%(1,182,007,296 / 32,136,647,680), device_map=auto로
+  62GB를 GPU 2장에 분산(각 ~36GB).
+
+---
+
+## 5. 발견 (findings)
+
+### 5.1 행 단위 selective-unfreeze는 실제로 작동한다
+텐서 단위 `requires_grad`의 한계를 backward 훅의 행 마스킹으로 우회하는 방식이 실모델
+학습에서 특수 17행만 갱신함을 검증. 스펙의 가장 까다로운 부분이 성립.
+
+### 5.2 tie=false 모델은 lm_head 행도 풀어야 한다
+"임베딩=lm_head" 가정은 1.2B(tied)에만 맞다. 32B(untied)는 점수 토큰의 lm_head
+출력행을 반드시 unfreeze해야 예측을 학습한다 — config 기반 자동 분기로 처리.
+
+### 5.3 기댓값 readout이 순서성을 살린다
+11개 점수 토큰 로짓의 softmax 기댓값으로 연속 점수를 얻어 held-out에서 실점수와
+정합(ρ up to 0.70). argmax만 쓰면 순서 정보가 버려진다.
+
+### 5.4 로컬 LLM "리서치 생성"은 웹검색 없이는 환각한다 (중대)
+EXAONE은 검색 그라운딩이 없어, 유명하지 않은 기업의 소개를 **32B도 지어낸다**
+(Seoul Viosys를 배터리사로, 하이트진로를 일본기업으로 오생성; Dentium은 이름에서
+유추 가능해 정답). → 모델 크기가 아니라 **웹검색 부재가 근본 한계**. 생성 리서치로
+학습하면 "가짜 프로필의 관련도"를 배운다. **해법: 실사실(공개 섹터 데이터)만 쓰는
+facts-only** — 환각 0. 프로덕션 품질은 실제 기업 소개(웹/DART)가 필요하며 이는 별도
+API·정책 gate.
+
+### 5.5 자기증류(self-distillation)의 위치
+실데이터 라벨은 EXAONE-32B가 매긴다(EXAONE 채점 → EXAONE 스코어러 학습). 상한이
+EXAONE 판단 품질이고 실제 성사 outcome 앵커가 없다(에코 챔버 특성). 실기업·실섹터
+앵커로 완화하되, 절대점수보다 **순위(랭킹)**로 쓰는 것이 강건하다.
+
+---
+
+## 6. 정직한 한계
+
+- **합성 데이터의 구조는 우리가 심은 규칙**이다. E1~E4의 "학습됨"은 파이프라인·방법의
+  검증이지, 실전 매칭 성능의 증거가 아니다.
+- **facts-only 실데이터는 섹터 수준**이라 판단이 coarse하다. 세부 제품군 정보가 없다.
+- **outcome 앵커 부재**: 어떤 매칭이 실제로 성사됐는지의 정답이 0. 라벨은 EXAONE의
+  제로샷 판단을 증류한 것.
+- **selective-unfreeze의 메모리 비효율**: 전체 임베딩을 requires_grad로 두어 AdamW가
+  전 행의 옵티마이저 상태를 잡는다(32B에서 ~8GB 낭비, 80GB×2엔 수용 가능). 17행만
+  별도 파라미터로 빼는 최적화는 후속 과제.
+
+---
+
+## 7. 의사결정 로그 (provenance)
+
+방법·데이터의 방향은 아래 사용자(팀) 결정과 엔지니어링 판단의 상호작용으로 정해졌다.
+논문의 방법론 재현·귀속을 위해 남긴다.
+
+### 7.1 사용자 지시(핵심 프롬프트)
+- "학습데이터 주면 증강하고 풀 파인튜닝 준비" → 학습 인프라 선제 구축.
+- (디렉터 스펙 원문 제시) "이것부터 최우선으로 해봐" → 특수토큰+unfreeze+FFN-LoRA
+  스펙을 실모델 검증의 최우선 목표로.
+- "팀원 공용이라 우선 진행해야 할 것들만" → 공용 서버 정책 반영(초기 비번 변경은 팀
+  조율로 유보), 키 인증만 등록.
+- "데이터 증강, 생성도 진행" → 무API로 가능한 범위(증강·합성 학습)를 먼저, 실데이터
+  API는 협의 gate로 분리.
+- "4천개를 GPU나 엑사원 API로 만들 방법은?" → (선택) **공개 기업 데이터셋 + 로컬
+  EXAONE-32B 채점**으로 완전 무API 파이프라인 확정.
+- "빠른 검증으로 오늘 실데이터 학습까지 완주하자" → 300사·2000쌍 규모로 축소.
+- "이게 실데이터인지 별로 중요하지 않을걸? FFN-only도 3ep 돌리면?" → **공정
+  ablation**(E4) 추가 — epoch 교란 제거.
+- "GPU 병렬로 쓰면 되잖아 무제한인데" → 실데이터 생성(32B, GPU 분산 여유분)과
+  FFN-only 3ep(1.2B)를 **동일 GPU에 병렬** 배치.
+
+### 7.2 엔지니어링 판단(설계 결정)
+- **attention ablation을 설계 단계에서 예고**: "두 기업 비교는 본질적으로 attention
+  연산이므로 FFN-only는 실측하라" — E1의 실패로 부분 확인, E4로 확정 예정.
+- **기댓값 readout·계층 샘플링·회사 분할**: 순서성·불균형·누수 방어를 코드 계약으로.
+- **facts-only 전환**: 생성 리서치의 환각을 실측한 뒤, 지어내지 않고 실사실만 쓰도록
+  정직성 우선 전환(§5.4).
+- **합성 우선 → 실데이터**: API 예산을 태우기 전에 합성으로 "어떤 config가 학습하는가"를
+  먼저 규명(E1의 실패가 여기서 저비용으로 드러남).
+
+---
+
+## 8. 재현 절차
+
+```bash
+# 0) 환경 (H100, conda env)
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install "transformers>=4.54" "peft>=0.11" "trl>=0.9" accelerate datasets
+
+# 1) 미학습 토큰 17개 확정 → tokens.json  (model_setup.find_unused_token_candidates)
+# 2) 데이터
+python -m training.scorer.synth_pairs --pairs 4000            # 합성
+python -m training.scorer.build_real_data --facts-only \
+  --score-model <EXAONE-32B> --companies 300 --pairs 2000     # 실데이터(무API)
+# 3) dry-run (GPU 없이 규모·누수 검증)
+python -m training.scorer.dry_run --pairs dataset/scorer_pairs_synth.jsonl
+# 4) 학습 (ablation은 --include-attention / --epochs 조절)
+python -m training.scorer.train --pairs <jsonl> --model-id <EXAONE> \
+  --tokens-json tokens.json --output-dir runs/<name> --epochs 3 [--include-attention]
+# 5) 평가 (기댓값 readout, held-out)
+python -m training.scorer.evaluate --base-model <EXAONE> \
+  --run-dir runs/<name> --held runs/<name>/held_pairs.json
+```
+
+호출(배포): 원본 모델 고정 + `adapter/`(LoRA) + `special_token_weights.pt`(17행)만
+저장. `RelatednessScorer(base_model, run_dir).score(a_text, b_text)` → 연속 점수.
+
+---
+
+## 부록 A. transformers 5.x 호환 이슈 (실서버에서 발견)
+
+- `TrainingArguments`에서 `group_by_length` 인자 제거됨 → 삭제(길이 정렬은 데이터에
+  이미 반영).
+- `tokenizer.apply_chat_template(..., return_tensors="pt")`가 텐서가 아니라
+  `BatchEncoding(dict)` 반환 → `return_dict=True` + `**inputs`로 `generate` 호출.
+
+## 부록 B. 모델 스펙 (config.json 실측)
+
+| | EXAONE 4.0-32B | EXAONE 4.0-1.2B |
+|---|---|---|
+| tie_word_embeddings | **false** | true |
+| vocab_size | 102,400 | 102,400 |
+| hidden_size | 5,120 | 2,048 |
+| intermediate_size | 27,392 | 4,096 |
+| num_hidden_layers | 64 | 30 |
+| FFN | SwiGLU (gate/up/down_proj) | 동일 |
+| 미학습 토큰 | `[unused0..99]` (id 62–161) | 동일 |

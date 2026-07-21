@@ -3,6 +3,9 @@
 두 기업의 리서치 결과(또는 represent 온톨로지)를 입력하면 **관련도 0–10점**을 내는
 경량 파인튜닝 모델. EXAONE 4.0에 **특수 토큰 + 선택적 unfreeze + FFN LoRA**로 학습한다.
 
+> 📄 **실험 결과·방법론 상세(논문용)**: [EXPERIMENTS.md](./EXPERIMENTS.md) — 실측 수치
+> 표, ablation, 발견(findings), 의사결정 로그, 재현 절차.
+
 ## 이게 무엇을 대체하나 (정직한 프레이밍)
 
 Judge를 대체하지 **않는다.** 기획서·`judge_cases` README가 "점수 폐기"를 명시한다 —
