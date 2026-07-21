@@ -86,15 +86,16 @@ const PIPELINES = {
   },
   negotiate: { title: "협상 시뮬레이션 — 제안·검토·재제안", dynamic: true },
   scout: {
-    title: "웹 파트너 탐색 — 지식 분리 → 가설 → 검색",
+    title: "웹 파트너 탐색 — 지식 분리 → 가설 → 검색 → 기업 발굴",
     nodes: [
       { id: "knowledge.split", col: 0, row: 0, label: "지식 분리",   desc: "명백지(stated) / 암묵지(inferred·상) 결정적 분리" },
-      { id: "hypothesize",     col: 1, row: 0, label: "파트너 가설", desc: "exploit=명백지 정석 / explore=암묵지 모험 — 계약 코드 집행" },
+      { id: "hypothesize",     col: 1, row: 0, label: "파트너 가설", desc: "HyDE·시드확장·ABC 연결 — 계약 코드 집행" },
       { id: "websearch",       col: 2, row: 0, label: "웹 검색",     desc: "가설별 검색어로 풀 밖 후보 충원 (키 없는 공개 웹)" },
-      { id: "shortlist",       col: 3, row: 0, label: "숏리스트",    desc: "도메인 dedup + explore 쿼터 배분 + 결정적 정렬" },
+      { id: "extract",         col: 3, row: 0, label: "기업 발굴",   desc: "히트에서 사업자 추출 — 기업명 원문 실재 검증" },
+      { id: "shortlist",       col: 3, row: 1, label: "웹 출처 정리", desc: "도메인 dedup + explore 쿼터 + 결정적 정렬" },
     ],
     edges: [["knowledge.split", "hypothesize"], ["hypothesize", "websearch"],
-            ["websearch", "shortlist"]],
+            ["websearch", "extract"], ["websearch", "shortlist"]],
   },
   consult: {
     title: "AI 인터뷰 — 진단 대화",
@@ -1532,6 +1533,26 @@ function renderScout(data) {
             검색어 "${esc(h.search_query)}"</div>
         </div>
       </div>`).join("")}` : "";
+
+  const comps = data.companies || [];
+  $("#scout-companies").innerHTML = comps.length ? `
+    <h3 class="scout-h">발굴된 기업 ${comps.length}건
+      <small>기업명은 검색 원문 실재 검증 통과분만 · 정석 ${comps.filter((c) => c.track === "exploit").length} ·
+      모험 ${comps.filter((c) => c.track === "explore").length}</small></h3>
+    ${comps.map((c) => `
+      <div class="cand scout-comp">
+        <div class="cand-head">
+          <span class="track track-${esc(c.track)}">${TRACK_KO[c.track] || c.track}</span>
+          <h3>${esc(c.name)}${c.country ? ` <small>(${esc(c.country)})</small>` : ""}</h3>
+        </div>
+        <div class="summary">${esc(c.summary)}</div>
+        <div class="comp-src">근거: <a href="${esc(c.source_url)}" target="_blank" rel="noreferrer">${esc(c.source_title)}</a>
+          <small>${esc(c.source_domain)}</small></div>
+        <details><summary>이 기업을 찾게 한 가설</summary><pre>${esc(c.hypothesis)}</pre></details>
+      </div>`).join("")}`
+    : (data.engine_mode === "mock" ? `
+    <div class="panel warn">기업 발굴은 LLM 경로에서만 동작합니다 — 지금은 간이 분석(키 없음)
+    모드라 웹 출처 링크만 제공돼요.</div>` : "");
 
   const list = data.shortlist || [];
   $("#scout-shortlist").innerHTML = list.length ? `

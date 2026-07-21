@@ -242,3 +242,57 @@ class TestNoiseAndQueryCore:
         out, n_noise = _shortlist([(hyp, hits)], k=6, explore_ratio=0)
         assert n_noise == 1
         assert [c.domain for c in out] == ["good-co.com"]
+
+
+class TestCompanyExtraction:
+    """기업 발굴 실재성 집행 — 히트 원문에 없는 기업명(환각)은 반드시 폐기."""
+
+    def _hyp(self):
+        from app.schemas import HypothesisTrack, PartnerHypothesis
+        return PartnerHypothesis(track=HypothesisTrack.exploit,
+                                 hypothesis="테스트 가설", grounded_in=["target_customer"],
+                                 search_query="q", partner_type="수요처")
+
+    def _hits(self):
+        return [{"title": "政茂企業 — 대만 로봇 제조", "url": "https://chengmao.com.tw/",
+                 "snippet": "대만 전문 로봇 제조업체 政茂企業", "domain": "chengmao.com.tw"},
+                {"title": "LIG넥스원 고스트로보틱스 대만 진출", "url": "https://news.example/a",
+                 "snippet": "고스트로보틱스가 대만 공급망과 협력", "domain": "v.daum.net"}]
+
+    def test_grounded_names_kept_hallucinated_dropped(self):
+        from app.engine.scout import _enforce_company_grounding
+        raw = [
+            {"name": "政茂企業", "summary": "대만 로봇 제조업체", "country": "대만", "source_hit": 0},
+            {"name": "고스트로보틱스", "summary": "로봇 플랫폼", "country": None, "source_hit": 1},
+            {"name": "존재하지않는가공기업", "summary": "…", "country": None, "source_hit": 0},
+            {"name": "잘못된인덱스", "summary": "…", "country": None, "source_hit": 9},
+        ]
+        kept, rej = _enforce_company_grounding(raw, self._hits(), self._hyp(), "에스피지")
+        assert [c.name for c in kept] == ["政茂企業", "고스트로보틱스"]
+        assert rej["hallucinated_name"] == 1 and rej["bad_hit_index"] == 1
+        # 뉴스 히트의 기업도 '단서'로 발굴됨 — source_url은 실제 히트 URL
+        assert kept[1].source_url == "https://news.example/a"
+
+    def test_self_company_excluded(self):
+        from app.engine.scout import _enforce_company_grounding
+        hits = [{"title": "에스피지 감속기", "url": "https://spg.co.kr/",
+                 "snippet": "에스피지는 감속기 제조", "domain": "spg.co.kr"}]
+        kept, rej = _enforce_company_grounding(
+            [{"name": "에스피지", "summary": "s", "country": "한국", "source_hit": 0}],
+            hits, self._hyp(), "에스피지")
+        assert not kept and rej["self"] == 1
+
+    def test_mock_path_companies_empty(self):
+        """LLM 없으면 기업 발굴은 정직하게 빈 리스트 (지어내지 않는다)."""
+        from app.engine.represent import _mock_extract
+        from app.engine.scout import scout
+        from app.ingest.mine import mine_hard_facts
+        text = "이름: 테스트사\n국가: 한국\n산업: saas\n문제: p\n솔루션: s\n타겟: t\n판매가치: 매출"
+        profile, _ = _mock_extract(text, mine_hard_facts(text))
+        res = scout(
+            __import__("app.schemas", fromlist=["ScoutRequest"]).ScoutRequest(
+                profile=profile, intent={"value_props": ["revenue_growth"]}),
+            search_fn=lambda q, s, max_results=6: [
+                {"title": "t", "url": "https://x.com/a", "snippet": "s", "domain": "co.com"}])
+        assert res.companies == []
+        assert res.engine_mode == "mock"

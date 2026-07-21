@@ -21,10 +21,11 @@ from .. import progress
 from ..config import Settings, get_settings
 from ..schemas import (HypothesisTrack, KnowledgeItem, KnowledgeKind,
                        PartnerHypothesis, Profile, Provenance, ScoutCandidate,
-                       ScoutRequest, ScoutResponse)
+                       ScoutCompany, ScoutRequest, ScoutResponse)
 from .common import overlap
 from .llm import get_extractor
-from .prompts import SCOUT_SCHEMA, SCOUT_SYSTEM, scout_user
+from .prompts import (SCOUT_EXTRACT_SCHEMA, SCOUT_EXTRACT_SYSTEM, SCOUT_SCHEMA,
+                      SCOUT_SYSTEM, scout_extract_user, scout_user)
 
 _MAX_QUERIES = 5          # 가설 수 상한 = 검색 쿼리 상한 (비용·예의)
 _RESULTS_PER_QUERY = 6
@@ -259,6 +260,81 @@ def _shortlist(per_hyp_hits: list[tuple[PartnerHypothesis, list[dict]]],
     return picked, n_noise
 
 
+# ── 기업 발굴 — LLM이 히트에서 사업자를 추출, 코드가 실재성을 집행 ──────
+
+def _norm_for_match(s: str) -> str:
+    return "".join(s.lower().split())
+
+
+def _enforce_company_grounding(raw_companies: list[dict], hits: list[dict],
+                               hyp: PartnerHypothesis,
+                               self_name: str) -> tuple[list[ScoutCompany], dict]:
+    """기업 추출 계약의 코드 집행 (프롬프트만의 규칙은 규칙이 아니다):
+    ① 기업명이 지목한 히트의 제목+요약에 그 글자 그대로 실재해야 한다(환각 차단)
+    ② source_hit 번호가 실제 히트 범위여야 한다
+    ③ 요청 회사 자신은 제외
+    위반은 폐기 + 사유별 집계."""
+    kept: list[ScoutCompany] = []
+    rejected = {"hallucinated_name": 0, "bad_hit_index": 0, "self": 0}
+    self_norm = _norm_for_match(self_name)
+    seen_names: set[str] = set()
+    for c in raw_companies:
+        name = str(c.get("name", "")).strip()
+        idx = c.get("source_hit", -1)
+        if not name or not isinstance(idx, int) or not (0 <= idx < len(hits)):
+            rejected["bad_hit_index"] += 1
+            continue
+        hit = hits[idx]
+        name_norm = _norm_for_match(name)
+        if self_norm and (self_norm in name_norm or name_norm in self_norm):
+            rejected["self"] += 1
+            continue
+        haystack = _norm_for_match(f"{hit['title']} {hit['snippet']}")
+        if name_norm not in haystack:
+            rejected["hallucinated_name"] += 1   # 히트에 없는 이름 — 지어낸 것
+            continue
+        if name_norm in seen_names:
+            continue                             # 가설 간 중복 — 첫 근거만
+        seen_names.add(name_norm)
+        kept.append(ScoutCompany(
+            name=name, track=hyp.track, hypothesis=hyp.hypothesis,
+            summary=str(c.get("summary", ""))[:300],
+            country=c.get("country") or None,
+            source_url=hit["url"], source_domain=hit["domain"],
+            source_title=hit["title"]))
+    return kept, rejected
+
+
+def _extract_companies(extractor, per_hyp_hits, self_name: str
+                       ) -> tuple[list[ScoutCompany], dict]:
+    """가설별 히트 묶음에서 기업 발굴 — 가설당 LLM 1콜(non-deep). 노이즈로 걸러진
+    기사도 여기서는 '단서'로 소비한다: 기사 속 기업명은 실재 검증을 통과하면 후보다."""
+    companies: list[ScoutCompany] = []
+    tally = {"hallucinated_name": 0, "bad_hit_index": 0, "self": 0}
+    seen: set[str] = set()
+    for hyp, hits in per_hyp_hits:
+        if not hits:
+            continue
+        try:
+            data = extractor.extract_json(
+                SCOUT_EXTRACT_SYSTEM,
+                scout_extract_user(hits, self_name, hyp.hypothesis),
+                SCOUT_EXTRACT_SCHEMA, deep=False)
+        except Exception as e:                    # noqa: BLE001 — 발굴 실패는 치명 아님
+            progress.log("발굴", f"기업 추출 실패({hyp.track.value}) — {e}")
+            continue
+        kept, rej = _enforce_company_grounding(
+            data.get("companies", []), hits, hyp, self_name)
+        for k in tally:
+            tally[k] += rej[k]
+        for comp in kept:
+            n = _norm_for_match(comp.name)
+            if n not in seen:                     # 가설 간 전역 dedup
+                seen.add(n)
+                companies.append(comp)
+    return companies, tally
+
+
 def scout(req: ScoutRequest, settings: "Settings | None" = None,
           search_fn=None) -> ScoutResponse:
     """지식 분리 → 가설 → 웹 검색 → 숏리스트. search_fn 주입은 테스트용."""
@@ -296,6 +372,18 @@ def scout(req: ScoutRequest, settings: "Settings | None" = None,
         if not web_used:
             progress.log("검색", "⚠ 모든 검색 실패/차단 — 숏리스트가 비어도 가설은 유효")
 
+    # 기업 발굴 — LLM 경로 전용. 숏리스트 필터 '전'의 원본 히트를 쓴다:
+    # 뉴스는 후보로는 부적격이지만 기사 속 기업명은 단서다.
+    companies: list[ScoutCompany] = []
+    if extractor is not None and web_used:
+        with progress.node("extract", "기업 발굴 (히트 → 사업자, 실재 검증)"):
+            companies, ex_rej = _extract_companies(
+                extractor, per_hyp, req.profile.basic.name)
+            n_rej = sum(ex_rej.values())
+            progress.log("발굴", f"기업 {len(companies)}건 발굴"
+                         + (f" · 계약 위반 폐기 {n_rej}건 {ex_rej}" if n_rej else "")
+                         + " — 기업명은 히트 원문 실재 검증을 통과한 것만")
+
     with progress.node("shortlist", "숏리스트 (explore 쿼터 배분)"):
         shortlist, n_noise = _shortlist(per_hyp, req.k, req.explore_ratio)
         if n_noise:
@@ -313,7 +401,8 @@ def scout(req: ScoutRequest, settings: "Settings | None" = None,
         "n_tacit": sum(1 for x in knowledge if x.kind == KnowledgeKind.tacit),
         "hypotheses": [h.model_dump(mode="json") for h in hyps],
         "shortlist": [c.model_dump(mode="json") for c in shortlist],
+        "companies": [c.model_dump(mode="json") for c in companies],
     })
     return ScoutResponse(knowledge=knowledge, hypotheses=hyps,
-                         shortlist=shortlist, engine_mode=engine_mode,
-                         web_search_used=web_used)
+                         shortlist=shortlist, companies=companies,
+                         engine_mode=engine_mode, web_search_used=web_used)
