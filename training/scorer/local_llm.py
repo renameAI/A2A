@@ -29,14 +29,17 @@ class LocalExaone:
     def _chat(self, system, user, max_new=None, temperature=0.4):
         msgs = [{"role": "system", "content": system},
                 {"role": "user", "content": user}]
-        ids = self.tok.apply_chat_template(
+        # transformers 5.x는 BatchEncoding(dict)를 돌려주므로 return_dict=True로 받아 **전달
+        inputs = self.tok.apply_chat_template(
             msgs, tokenize=True, add_generation_prompt=True,
-            return_tensors="pt", enable_thinking=False).to(self.model.device)
+            return_tensors="pt", return_dict=True,
+            enable_thinking=False).to(self.model.device)
+        prompt_len = inputs["input_ids"].shape[1]
         out = self.model.generate(
-            ids, max_new_tokens=max_new or self.max_new_tokens,
+            **inputs, max_new_tokens=max_new or self.max_new_tokens,
             do_sample=temperature > 0, temperature=temperature or None,
             top_p=0.9, pad_token_id=self.tok.eos_token_id)
-        text = self.tok.decode(out[0][ids.shape[1]:], skip_special_tokens=True)
+        text = self.tok.decode(out[0][prompt_len:], skip_special_tokens=True)
         return text.strip()
 
     def research(self, name, sector) -> str:
