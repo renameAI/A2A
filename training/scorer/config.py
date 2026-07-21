@@ -31,6 +31,7 @@ class ScorerConfig:
     warmup_ratio: float = 0.03
     weight_decay: float = 0.0
     bf16: bool = True
+    grad_checkpointing: bool = False   # 대형 모델(32B) activation 절약
     seed: int = 42
 
     # 데이터

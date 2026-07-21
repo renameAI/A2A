@@ -88,6 +88,7 @@ def run(cfg: ScorerConfig, pairs_path: str):
         lr_scheduler_type="cosine", bf16=cfg.bf16, logging_steps=10,
         save_strategy="epoch", report_to=[], seed=cfg.seed,
         deepspeed=cfg.deepspeed_config or None,
+        gradient_checkpointing=cfg.grad_checkpointing,
         remove_unused_columns=False)
 
     trainer = Trainer(model=model, args=args, train_dataset=ds,
@@ -123,6 +124,10 @@ def main():
     ap.add_argument("--epochs", type=float)
     ap.add_argument("--include-attention", action="store_true",
                     help="LoRA를 어텐션에도 적용(ablation)")
+    ap.add_argument("--max-seq-len", type=int,
+                    help="시퀀스 상한 (짧은 텍스트면 낮춰 activation 절약)")
+    ap.add_argument("--grad-checkpointing", action="store_true",
+                    help="gradient checkpointing (대형 모델 activation 절약)")
     ap.add_argument("--tokens-json",
                     help="{'score':[11],'struct':[6]} 재사용 토큰 문자열")
     a = ap.parse_args()
@@ -131,6 +136,8 @@ def main():
     if a.output_dir: cfg.output_dir = a.output_dir
     if a.epochs: cfg.num_epochs = a.epochs
     if a.include_attention: cfg.lora_include_attention = True
+    if a.max_seq_len: cfg.max_seq_len = a.max_seq_len
+    if a.grad_checkpointing: cfg.grad_checkpointing = True
     if a.tokens_json:
         t = json.loads(Path(a.tokens_json).read_text(encoding="utf-8"))
         cfg.score_token_strings, cfg.struct_token_strings = t["score"], t["struct"]
