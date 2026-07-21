@@ -39,6 +39,10 @@ class Settings:
         self.fetch_timeout = float(os.environ.get("INGEST_FETCH_TIMEOUT", "15"))
         self.crawl_max_pages = int(os.environ.get("CRAWL_MAX_PAGES", "5"))
         self.llm_timeout = float(os.environ.get("LLM_TIMEOUT", "300"))  # reasoning 모델 대비
+        # 학습 스코어러 서빙 (training/scorer/serve.py, SSH 터널 경유) — 비면 off.
+        # retrieve의 '랭킹 순서'만 담당하고 τ 게이트는 휴리스틱에 남는다 (RET-06 보존).
+        self.scorer_url = os.environ.get("A2A_SCORER_URL", "")
+        self.scorer_timeout = float(os.environ.get("A2A_SCORER_TIMEOUT", "60"))
         # 근거 시각화 (bbox) — IR덱 PDF 페이지에서 근거 위치를 찾는 비전 모델.
         # 텍스트 추출(LLM_PROVIDER)과는 독립 — 키만 넣으면 켜진다.
         self.gemini_api_key = os.environ.get("GEMINI_API_KEY", "")

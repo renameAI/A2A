@@ -244,6 +244,9 @@ class CandidateOut(BaseModel):
     pool: PoolKind
     match_points: list[str]          # 보완성 근거 (RET-03)
     retrieval_score: float
+    # 학습 스코어러(EXAONE 특수토큰 파인튜닝) 관련도 0~10 — 서버 연결 시에만 채워짐.
+    # 랭킹 순서만 담당하고 게이트는 retrieval_score(휴리스틱)가 유지 (정직 폴백).
+    learned_relatedness: Optional[float] = None
 
 
 class RetrieveResponse(BaseModel):

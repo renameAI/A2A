@@ -171,6 +171,31 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
         if not strong:
             raise NoStrongCandidate()   # 재현율 우선이되, 정직성 (RET-06)
 
+        # 학습 스코어러 재랭킹 (선택적) — 게이트는 위 휴리스틱 τ가 이미 결정했고,
+        # 여기서는 통과 후보의 '순서'만 학습 점수로 다시 매긴다. 서버 부재 시
+        # score_batch가 None → 휴리스틱 순서 그대로 (정직 폴백, 조용한 대체 없음).
+        from .scorer_client import profile_facts, score_batch
+        rb = req.requester_profile.basic
+        req_facts = profile_facts(rb.name, rb.industry, rb.country,
+                                  req.requester_profile.description)
+        window = strong[:64]           # 재랭킹 창 — 지연 상한 (초과분은 휴리스틱 순서)
+        if len(strong) > len(window):
+            progress.log("검색", f"학습 재랭킹 창 초과 — 상위 {len(window)}건만 재랭킹, "
+                                 f"나머지 {len(strong) - len(window)}건은 휴리스틱 순서")
+        learned = score_batch([
+            (req_facts, profile_facts(r.profile.basic.name, r.profile.basic.industry,
+                                      r.profile.basic.country, r.profile.description))
+            for r, _ in window])
+        if learned is not None:
+            ranked = sorted(
+                ((r, s, l) for (r, s), l in zip(window, learned)),
+                key=lambda x: (-x[2], -x[1], x[0].company_id))
+            ranked += [(r, s, None) for r, s in strong[len(window):]]
+            progress.log("검색", f"학습 스코어러 재랭킹 적용 — {len(window)}건 "
+                                 f"(순서=학습 점수, 게이트=휴리스틱 τ 유지)")
+        else:
+            ranked = [(r, s, None) for r, s in strong]
+
         candidates = [
             CandidateOut(
                 company_id=r.company_id,
@@ -178,7 +203,8 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
                 pool=r.pool,
                 match_points=_match_points(synth, anchor, r),
                 retrieval_score=s,
+                learned_relatedness=round(l, 2) if l is not None else None,
             )
-            for r, s in strong[: req.k]
+            for r, s, l in ranked[: req.k]
         ]
     return RetrieveResponse(candidates=candidates, synthesized_counterpart=synth)

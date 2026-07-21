@@ -1245,6 +1245,7 @@ function renderCandidates(candidates) {
       <div class="cand-head">
         <h3>${esc(c.name)} <small>(${esc(c.country)} · ${esc(c.pool)} 풀)</small></h3>
         <div class="score-bar" title="적합 신호 ${c.retrieval_score}"><i style="width:${Math.min(c.retrieval_score * 100, 100)}%"></i></div>
+        ${c.learned_relatedness != null ? `<span class="learned-chip" title="EXAONE 특수토큰 파인튜닝 스코어러의 관련도 (0~10) — 순위 산정에 사용">🧠 ${c.learned_relatedness}</span>` : ""}
         <button class="j-btn" data-id="${esc(c.company_id)}">판단 실행 (Judge)</button>
       </div>
       <div class="points">${c.match_points.map((p) => `<span>${esc(p)}</span>`).join("")}</div>
