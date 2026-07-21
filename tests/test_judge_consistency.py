@@ -116,3 +116,59 @@ class TestMockPathUnaffected:
         result = J.judge(_judge_req())
         assert result.sample_agreement is None
         assert result.needs_human is False
+
+
+class TestUngroundedClaimStripping:
+    """fit_reasons 환각 주장 코드 집행 — 입력에 없는 수치·영문 고유명사는 제거.
+
+    compose가 claim_trace로 fit_reasons를 인용하므로, 환각 주장이 남으면
+    콜드메일에 근거 없는 수치가 실린다(가장 비싼 실패 지점).
+    """
+
+    def _req(self):
+        from app.engine.pool import SEED_POOL
+        from app.schemas import (Intent, JudgeRequest, Objective, Vantage)
+        return JudgeRequest(
+            vantage=Vantage.seller, objective=Objective.exploration_budget,
+            self_profile=SEED_POOL[0].profile,
+            counterpart_profile=SEED_POOL[1].profile,
+            intent=Intent(value_props=["revenue_growth"], target_region="베트남"))
+
+    def _result(self, fit_reasons):
+        from app.engine.judge import judge
+        from app.schemas import JudgeResult
+        base = judge(self._req())          # 규칙 경로 결과를 템플릿으로
+        d = base.model_dump()
+        d["fit_reasons"] = fit_reasons
+        return JudgeResult.model_validate(d)
+
+    def test_hallucinated_number_removed(self):
+        from app.engine.judge import _strip_ungrounded_claims
+        r = self._result(["상대는 연 매출 987억 원 규모라 구매력이 충분하다",
+                          "보완성이 명확하다"])
+        removed = _strip_ungrounded_claims(r, self._req(), None)
+        assert removed == 1
+        assert r.fit_reasons == ["보완성이 명확하다"]
+
+    def test_hallucinated_latin_name_removed(self):
+        from app.engine.judge import _strip_ungrounded_claims
+        r = self._result(["Bosch와의 기존 계약이 신뢰를 보증한다"])
+        removed = _strip_ungrounded_claims(r, self._req(), None)
+        assert removed == 1
+        assert r.fit_reasons == ["판단 근거 부족 — 접촉으로 확인 필요"]   # 전량 제거 폴백
+
+    def test_grounded_claims_survive(self):
+        from app.engine.judge import _strip_ungrounded_claims
+        # 입력에 실재하는 서술(일반 한국어)은 패러프레이즈여도 건드리지 않는다
+        r = self._result(["노후 객실 문제를 겪는 상대라 보완성이 맞물린다"])
+        removed = _strip_ungrounded_claims(r, self._req(), None)
+        assert removed == 0
+        assert len(r.fit_reasons) == 1
+
+    def test_judge_vocab_whitelisted(self):
+        """판단 어휘(enum·차원명·업계 약어)는 입력에 없어도 환각이 아니다 —
+        실측 오탐(반증 조건 문장 속 'fit'·'conditional') 회귀."""
+        from app.engine.judge import _strip_ungrounded_claims
+        r = self._result(["conditional 결정은 demonstrability가 fit로 바뀌면 상향된다"])
+        removed = _strip_ungrounded_claims(r, self._req(), None)
+        assert removed == 0

@@ -173,3 +173,30 @@ def test_ui_served():
     res = client.get("/")
     assert res.status_code == 200
     assert "기업 자료로 시작하세요" in res.text   # 워크벤치 빈 상태
+
+
+def test_judge_scout_company():
+    """웹 발굴 기업 → Judge 브리지 — 얇은 프로필로도 판단이 돌고(ask 위주),
+    결정·차원 계약이 유효하다. mock 경로(규칙 판단)."""
+    company_id = _onboard()
+    job = _run_job("/product/judge-scout", {
+        "company_id": company_id, "intent": INTENT,
+        "name": "SC GEAR", "summary": "대만 기어 감속기 제조업체",
+        "country": "대만", "source_url": "https://scgear.com.tw/",
+        "hypothesis": "대만 정밀 감속기 제조사 유형"})
+    assert job["status"] == "done", job.get("error")
+    assert job["result"]["scout_company"] == "SC GEAR"
+    jr = job["result"]["judge_result"]
+    assert jr["decision"] in {"recommend", "conditional", "hold", "terminate"}
+    assert len(jr["category_judgments"]) >= 5
+
+
+def test_judge_scout_profile_marks_unknown_as_unverified():
+    """웹 발굴 후보의 미기재는 '부재 확인'이 아니라 '미확인' — 프로필 서술에 명시
+    (실측: 명시 없으면 demonstrability가 unfit으로 굳는다)."""
+    from app.product.router import JudgeScoutRequest, _scout_counterpart_profile
+    p = _scout_counterpart_profile(JudgeScoutRequest(
+        company_id="co-x", intent=INTENT, name="SC GEAR",
+        summary="대만 기어 감속기 제조업체", country="대만"))
+    assert "미확인" in p.description
+    assert p.problem_solved.provenance.value == "ask"   # 지어내지 않음
