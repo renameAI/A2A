@@ -64,8 +64,12 @@ def research_one(company: str, hints: str, client, model: str) -> str:
     return ""
 
 
-def run_batch(companies: list, db_path, dry_run: bool = True) -> dict:
-    """회사 리스트 → 리서치 → DB. dry_run이면 API 없이 계획만 검증(기본)."""
+def run_batch(companies: list, db_path, dry_run: bool = True,
+              workers: int = 1) -> dict:
+    """회사 리스트 → 리서치 → DB. dry_run이면 API 없이 계획만 검증(기본).
+
+    workers>1이면 API 호출(research_one)만 스레드풀로 병렬 — I/O 대기라 효과 큼.
+    DB 쓰기는 메인 스레드에서만(sqlite 스레드 이슈 회피). 멱등(완료분 skip)."""
     conn = _db(db_path)
     done = {r[0] for r in conn.execute("SELECT name FROM companies "
                                        "WHERE research_text IS NOT NULL")}
@@ -85,22 +89,42 @@ def run_batch(companies: list, db_path, dry_run: bool = True) -> dict:
     client = genai.Client(api_key=key)
     model = os.environ.get("RESEARCH_MODEL", "gemini-2.5-flash")
 
-    ok = 0
-    for name, hints in todo:
-        try:
-            text = research_one(name, hints, client, model)
-        except Exception as e:                    # noqa: BLE001
-            print(f"  ✗ {name}: {e}")
-            continue
+    def _save(name, hints, text):
         conn.execute("INSERT OR REPLACE INTO companies VALUES(?,?,?,?,?)",
                      (name, hints, text, None,
                       time.strftime("%Y-%m-%dT%H:%M:%S")))
         conn.commit()
-        ok += 1
-        if ok % 25 == 0:
-            print(f"  … {ok}/{len(todo)} 조사 완료")
+
+    ok = 0
+    if workers <= 1:
+        for name, hints in todo:
+            try:
+                text = research_one(name, hints, client, model)
+            except Exception as e:                # noqa: BLE001
+                print(f"  ✗ {name}: {e}", flush=True)
+                continue
+            _save(name, hints, text)
+            ok += 1
+            if ok % 25 == 0:
+                print(f"  … {ok}/{len(todo)} 조사 완료", flush=True)
+    else:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(research_one, n, h, client, model): (n, h)
+                    for n, h in todo}
+            for fut in as_completed(futs):
+                name, hints = futs[fut]
+                try:
+                    text = fut.result()
+                except Exception as e:            # noqa: BLE001
+                    print(f"  ✗ {name}: {e}", flush=True)
+                    continue
+                _save(name, hints, text)          # 메인 스레드만 쓰기
+                ok += 1
+                if ok % 25 == 0:
+                    print(f"  … {ok}/{len(todo)} 조사 완료", flush=True)
     tally["researched"] = ok
-    print(f"[완료] {ok}건 조사 → {db_path}")
+    print(f"[완료] {ok}건 조사 → {db_path}", flush=True)
     return tally
 
 
@@ -127,10 +151,12 @@ def main() -> None:
     ap.add_argument("--db", default="dataset/research.db")
     ap.add_argument("--run", action="store_true",
                     help="실제 API 실행 (없으면 dry-run — 계획만 검증)")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="동시 API 호출 수 (I/O 대기라 6~8 권장)")
     a = ap.parse_args()
     companies = load_company_list(a.companies)
     Path(a.db).parent.mkdir(parents=True, exist_ok=True)
-    run_batch(companies, a.db, dry_run=not a.run)
+    run_batch(companies, a.db, dry_run=not a.run, workers=a.workers)
 
 
 if __name__ == "__main__":

@@ -141,7 +141,7 @@ def _mine_pairs(companies: list, n_pairs: int, seed: int) -> list:
 
 
 def run(db_path, out_path, n_pairs, sample_k, mode, seed, dry_run,
-        backend="friendli") -> dict:
+        backend="friendli", workers=1) -> dict:
     conn = sqlite3.connect(db_path)
     rows = conn.execute("SELECT name, hints, research_text FROM companies "
                         "WHERE research_text IS NOT NULL").fetchall()
@@ -159,41 +159,56 @@ def run(db_path, out_path, n_pairs, sample_k, mode, seed, dry_run,
 
     score_fn, model = (_friendli_scorer() if backend == "friendli"
                        else _claude_scorer())
-    print(f"[채점] backend={backend} · model={model} · 쌍 {len(pairs)} · k={sample_k}",
-          flush=True)
+    print(f"[채점] backend={backend} · model={model} · 쌍 {len(pairs)} · "
+          f"k={sample_k} · workers={workers}", flush=True)
 
-    written = 0
-    with open(out_path, "w", encoding="utf-8") as f:
-        for i, j in pairs:
-            ca, cb = companies[i], companies[j]
-            a = (ca["name"], ca["text"]); b = (cb["name"], cb["text"])
-            scores = []
-            for _ in range(sample_k):
-                try:
-                    r = score_fn(a, b)
-                except Exception as e:            # noqa: BLE001 — 개별 실패는 건너뜀
-                    print(f"  ✗ {ca['name']}×{cb['name']}: {type(e).__name__}",
-                          flush=True)
-                    r = None
-                if r:
-                    scores.append(r["score"])
-            if not scores:
-                continue
-            scores.sort()
-            median = scores[len(scores) // 2]
-            agree = scores.count(median) / len(scores)
-            f.write(json.dumps({
-                "a_id": ca["name"], "a_text": ca["text"],
+    def _one(pair):
+        i, j = pair
+        ca, cb = companies[i], companies[j]
+        a = (ca["name"], ca["text"]); b = (cb["name"], cb["text"])
+        scores = []
+        for _ in range(sample_k):
+            try:
+                r = score_fn(a, b)
+            except Exception as e:                # noqa: BLE001 — 개별 실패는 건너뜀
+                print(f"  ✗ {ca['name']}×{cb['name']}: {type(e).__name__}",
+                      flush=True)
+                r = None
+            if r:
+                scores.append(r["score"])
+        if not scores:
+            return None
+        scores.sort()
+        median = scores[len(scores) // 2]
+        return {"a_id": ca["name"], "a_text": ca["text"],
                 "b_id": cb["name"], "b_text": cb["text"],
                 "score": median, "mode": mode,
-                "source": f"{model}-k{sample_k}", "sample_agreement": round(agree, 2),
-            }, ensure_ascii=False) + "\n")
-            written += 1
-            if written % 50 == 0:
-                print(f"  … {written}/{len(pairs)} 채점")
-                time.sleep(0.5)
+                "source": f"{model}-k{sample_k}",
+                "sample_agreement": round(scores.count(median) / len(scores), 2)}
+
+    import threading
+    lock = threading.Lock()
+    written = 0
+    with open(out_path, "w", encoding="utf-8") as f:
+        def _emit(row):
+            nonlocal written
+            if not row:
+                return
+            with lock:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                written += 1
+                if written % 50 == 0:
+                    print(f"  … {written}/{len(pairs)} 채점", flush=True)
+        if workers <= 1:
+            for p in pairs:
+                _emit(_one(p))
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                for row in ex.map(_one, pairs):
+                    _emit(row)
     tally["written"] = written
-    print(f"[완료] {written} 페어 → {out_path}")
+    print(f"[완료] {written} 페어 → {out_path}", flush=True)
     return tally
 
 
@@ -208,11 +223,13 @@ def main() -> None:
     ap.add_argument("--backend", default="friendli", choices=["friendli", "claude"],
                     help="채점 모델 — friendli(K-EXAONE-236B) 또는 claude")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--workers", type=int, default=1,
+                    help="동시 API 호출 수 (I/O 대기라 6~8 권장)")
     ap.add_argument("--run", action="store_true", help="실제 API 실행 (없으면 dry-run)")
     a = ap.parse_args()
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     run(a.db, a.out, a.pairs, a.sample_k, a.mode, a.seed,
-        dry_run=not a.run, backend=a.backend)
+        dry_run=not a.run, backend=a.backend, workers=a.workers)
 
 
 if __name__ == "__main__":
