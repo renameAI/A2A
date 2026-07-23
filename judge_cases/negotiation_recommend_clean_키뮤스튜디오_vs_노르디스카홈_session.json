@@ -1,0 +1,405 @@
+{
+  "seller_company": "키뮤스튜디오",
+  "buyer_company": "노르디스카 홈",
+  "rounds": 1,
+  "buyer_state": {
+    "BB1_purpose_fit": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "기존 유럽 아티스트와 차별화된 독창적인 아트웍으로 다음 시즌 캡슐 컬렉션의 빈 슬롯을 채울 새로운 결에 완벽히 부합함."
+    },
+    "BB2_value_hierarchy": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "디자인 신선도(1순위)를 충족하며, 로열티 요율표(가격)와 발달장애 디자이너(스토리) 등 구매자의 가치 서열과 일치함.",
+      "seller_asset_position": "core"
+    },
+    "BB3_substitute": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "기존 유럽 아티스트 풀의 식상함을 대체할 수 있는 확실한 차별성을 지님."
+    },
+    "BB4_opportunity_cost": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "소량 캡슐 컬렉션이며 MG(최소보장) 요구가 없어 실패 시 손실 부담이 매우 낮음(밑져야 본전)."
+    },
+    "BB5_evidence": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "삼성전자, 페레로로쉐 등 글로벌 브랜드 상업화 레퍼런스로 증명됨."
+    },
+    "BB6_execution_gate": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "dealbreaker": false,
+      "evidence": "규제나 인증 부담이 없는 소비재이며, 실물 샘플 확인만으로 실행 가능함."
+    },
+    "BB7_timing": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "다음 시즌 캡슐 컬렉션의 아티스트 슬롯 1개가 비어 있는 현재 타이밍에 정확히 부합함."
+    },
+    "BB8_trust": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "authenticity_gate": "passed",
+      "exploitation_detected": false,
+      "evidence": "글로벌 레퍼런스 및 선제적인 자료 제공으로 진정성과 신뢰도 확인됨."
+    },
+    "BB9_decision_structure": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "미팅 전 필수 조건이었던 전체 룩북과 로열티 요율표가 제공되었으며, 크리에이티브 디렉터 전결로 즉시 미팅 확정 가능함."
+    },
+    "BB10_contract_protection": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "정당한 로열티 구조를 수용할 의사가 있으며 카피 의도 없음."
+    }
+  },
+  "buyer_decision": {
+    "decision": "recommend",
+    "rationale": "판매자가 미팅 수락의 필수 선결 조건인 전체 룩북과 로열티 요율표를 선제적으로 제공하여 내부 검토 요건을 완벽히 충족했습니다. 제안된 아트웍이 다음 시즌 캡슐 컬렉션에 필요한 디자인 신선도를 갖추고 있으며, 실패 리스크가 낮아 실물 샘플 확인을 전제로 미팅을 즉시 확정합니다.",
+    "conditions": [],
+    "risks": [
+      {
+        "type": "precondition",
+        "desc": "실물 샘플의 인쇄 및 소재 적용 퀄리티가 당사의 프리미엄 소비재 기준에 미달할 가능성"
+      }
+    ]
+  },
+  "seller_state": {
+    "SB1_pitch_alignment": {
+      "status": "confirmed",
+      "buyer_real_reason": "기존 유럽 아티스트들과 차별화된 독창적인 아트웍",
+      "misread_type": "none"
+    },
+    "SB2_value_positioning": {
+      "status": "confirmed",
+      "position": "unknown",
+      "note": "[정규화: position='글로벌 브랜드 협업 레퍼런스와 독창적 아트웍'→'unknown']"
+    },
+    "SB3_evidence_packaging": {
+      "status": "confirmed",
+      "evidence_offered": [
+        "전체 룩북",
+        "로열티 요율표",
+        "삼성전자, 페레로로쉐 협업 레퍼런스"
+      ]
+    },
+    "SB4_substitute_defense": {
+      "status": "assumed",
+      "substitute_type": "unknown",
+      "note": "[정규화: substitute_type='기존 유럽 아티스트'→'unknown']"
+    },
+    "SB5_threshold_design": {
+      "status": "confirmed",
+      "downside_removers": [
+        "캡슐 컬렉션 적용 가능한 샘플 지참"
+      ]
+    },
+    "SB6_execution_honesty": {
+      "status": "unknown",
+      "limits_disclosed": []
+    },
+    "SB7_authenticity_structure": {
+      "status": "unknown"
+    },
+    "SB8_champion_arming": {
+      "status": "confirmed",
+      "materials_provided": [
+        "전체 룩북",
+        "로열티 요율표"
+      ]
+    },
+    "SB9_protection_screening": {
+      "status": "confirmed",
+      "screening": "unknown",
+      "note": "[정규화: screening='safe'→'unknown']"
+    },
+    "SB10_strategic_relationship": {
+      "status": "confirmed",
+      "stance": "pursue"
+    }
+  },
+  "seller_outcome": {
+    "outcome": "meeting_agreed",
+    "rationale": "판매자가 피드백 반영 규칙에 따라 선제적으로 제공한 룩북과 요율표를 통해 구매자가 내부 검토를 원활히 마쳤습니다. 구매자는 기존 유럽 아티스트와 차별화되는 독창성을 인정하였고, 실물 퀄리티 확인을 위한 샘플 지참 미팅을 직접 제안하여 다음 단계로 성공적으로 진입했습니다."
+  },
+  "hypotheses": [
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "제안된 아트웍이 실제 제품(패브릭, 세라믹 등)에 적용되었을 때도 디지털 룩북과 동일한 수준의 심미성과 퀄리티를 유지할 것이다.",
+      "dimension": "BB6_execution_gate",
+      "evidence_needed": "미팅 시 지참한 실물 샘플의 해상도, 색감, 마감 퀄리티 직접 검수"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "미팅 시 캡슐 컬렉션에 즉시 적용 가능한 고품질 샘플과 시뮬레이션을 제공하면, 실물 퀄리티에 대한 우려를 불식시키고 빠른 PoC 또는 계약으로 이어질 것이다.",
+      "dimension": "SB5_threshold_design",
+      "evidence_needed": "미팅 시 샘플에 대한 구매자의 긍정적 반응 및 구체적인 캡슐 컬렉션 일정 논의"
+    }
+  ],
+  "audit": [
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "발달장애 디자이너의 독창적인 아트웍을 제안하여 새로운 결을 찾는 캡슐 컬렉션 목적에 부합함."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "독창적 아트웍(디자인), 로열티 요율표(가격), 발달장애 디자이너(스토리) 등 구매자의 우선순위 가치를 모두 포괄하여 제시함.",
+        "seller_asset_position": "core"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "삼성전자, 페레로로쉐 등 글로벌 브랜드와의 상업화 레퍼런스를 통해 실증됨."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "글로벌 브랜드 협업 이력과 구체적인 룩북 및 요율표 제공으로 진정성과 실재성이 확인됨.",
+        "authenticity_gate": "passed",
+        "exploitation_detected": false
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "미팅 수락의 필수 선결 조건이었던 전체 컬렉션 룩북과 로열티 요율표를 선제적으로 제공하여 내부 검토 요건을 충족함."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "기존 유럽 아티스트와 차별화된 독창적인 아트웍으로 다음 시즌 캡슐 컬렉션의 빈 슬롯을 채울 새로운 결에 완벽히 부합함."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "디자인 신선도(1순위)를 충족하며, 로열티 요율표(가격)와 발달장애 디자이너(스토리) 등 구매자의 가치 서열과 일치함."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "기존 유럽 아티스트 풀의 식상함을 대체할 수 있는 확실한 차별성을 지님."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "소량 캡슐 컬렉션이며 MG(최소보장) 요구가 없어 실패 시 손실 부담이 매우 낮음(밑져야 본전)."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "삼성전자, 페레로로쉐 등 글로벌 브랜드 상업화 레퍼런스로 증명됨."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "규제나 인증 부담이 없는 소비재이며, 실물 샘플 확인만으로 실행 가능함."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "다음 시즌 캡슐 컬렉션의 아티스트 슬롯 1개가 비어 있는 현재 타이밍에 정확히 부합함."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "글로벌 레퍼런스 및 선제적인 자료 제공으로 진정성과 신뢰도 확인됨."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "미팅 전 필수 조건이었던 전체 룩북과 로열티 요율표가 제공되었으며, 크리에이티브 디렉터 전결로 즉시 미팅 확정 가능함."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "정당한 로열티 구조를 수용할 의사가 있으며 카피 의도 없음."
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "confirmed",
+        "buyer_real_reason": "기존 유럽 아티스트들과 차별화된 독창적인 아트웍",
+        "misread_type": "none"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB2_value_positioning",
+      "update": {
+        "status": "confirmed",
+        "position": "글로벌 브랜드 협업 레퍼런스와 독창적 아트웍"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "confirmed",
+        "evidence_offered": [
+          "전체 룩북",
+          "로열티 요율표",
+          "삼성전자, 페레로로쉐 협업 레퍼런스"
+        ]
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB4_substitute_defense",
+      "update": {
+        "status": "assumed",
+        "substitute_type": "기존 유럽 아티스트"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "confirmed",
+        "downside_removers": [
+          "캡슐 컬렉션 적용 가능한 샘플 지참"
+        ]
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "unknown",
+        "limits_disclosed": []
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB7_authenticity_structure",
+      "update": {
+        "status": "unknown"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "confirmed",
+        "materials_provided": [
+          "전체 룩북",
+          "로열티 요율표"
+        ]
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "status": "confirmed",
+        "screening": "safe"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB10_strategic_relationship",
+      "update": {
+        "status": "confirmed",
+        "stance": "pursue"
+      }
+    }
+  ],
+  "provenance": {
+    "buyer_side": "simulated",
+    "seller_side": "simulated",
+    "outcome_anchor": false
+  }
+}

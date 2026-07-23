@@ -1,0 +1,176 @@
+{
+  "seller_company": "하인텔",
+  "buyer_company": "페이몬드",
+  "rounds": 2,
+  "buyer_state": {
+    "BB1_purpose_fit": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "GPU 비용 1/10 절감 제안이 당사의 최우선 목적과 정확히 부합함."
+    },
+    "BB2_value_hierarchy": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "seller_asset_position": "mission",
+      "evidence": "판매자의 비용 절감 강조가 당사의 1순위 구매 이유와 일치함."
+    },
+    "BB3_substitute": {
+      "status": "assumed",
+      "verdict": "fit",
+      "evidence": "자체 오픈소스나 타사 API 도입 대비 전환비용을 상회하는 압도적인 비용 절감(1/10) 효과가 기대됨."
+    },
+    "BB4_opportunity_cost": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "전면 도입이 아닌 소규모 PoC 진행을 합의하여 서비스 장애 리스크 및 실패 손실을 최소화함."
+    },
+    "BB5_evidence": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "기술 사양서 및 PoC 가이드를 통해 당사 인프라에서 직접 성능을 검증하기로 합의함."
+    },
+    "BB6_execution_gate": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "dealbreaker": false,
+      "evidence": "당사의 필수 선결 조건인 폐쇄망(온프레미스) 구축 지원이 표준 배포 방식임을 확인함."
+    },
+    "BB7_timing": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "3개월 뒤 클라우드 계약 갱신이라는 명확한 데드라인에 맞춰 PoC를 진행하고 아키텍처 방향을 확정하기로 함."
+    },
+    "BB8_trust": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "authenticity_gate": "passed",
+      "exploitation_detected": false,
+      "evidence": "비용 절감에 따른 기술적 트레이드오프(응답 지연)를 정직하게 공개하여 당사의 신뢰 기준을 충족함."
+    },
+    "BB9_decision_structure": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "PoC 성능 지표를 바탕으로 CEO 최종 승인을 위한 ROI 리포트를 준비할 수 있는 기반을 마련함."
+    },
+    "BB10_contract_protection": {
+      "status": "assumed",
+      "verdict": "fit",
+      "evidence": "온프레미스 환경 구축을 통해 금융 데이터 유출 방지 및 보안 요건을 구조적으로 충족함."
+    }
+  },
+  "buyer_decision": {
+    "decision": "conditional",
+    "rationale": "판매자가 당사의 최우선 과제인 GPU 비용 절감과 필수 선결 조건인 온프레미스 지원을 모두 수용하였으며, 기술적 한계를 투명하게 공개하여 신뢰를 확보했습니다. 다만 3개월 내 클라우드 계약 갱신 전 최종 의사결정을 위해, 소규모 PoC를 통한 실제 성능 검증과 CEO 승인용 ROI 산출이 조건부로 요구됩니다.",
+    "conditions": [
+      {
+        "condition": "온프레미스 환경에서의 소규모 PoC 성공적 수행 및 응답 지연시간 유지 검증",
+        "check_method": "PoC 기간 동안의 응답 지연시간(Latency) 지표 측정 및 기존 서비스와의 비교 분석"
+      },
+      {
+        "condition": "CEO 승인을 위한 명확한 ROI 리포트 도출",
+        "check_method": "PoC 결과 기반의 GPU 인프라 비용 절감액(목표 70% 이상) 산출 및 보고서 작성"
+      }
+    ],
+    "risks": [
+      {
+        "type": "profitability",
+        "desc": "모델 복잡도 최적화로 인한 응답 지연이 사전 튜닝으로도 당사의 허용 범위를 초과할 경우, 상담 품질 저하로 이어질 리스크"
+      },
+      {
+        "type": "precondition",
+        "desc": "3개월 내에 PoC 완료 및 아키텍처 최적화 방향 확정이 지연될 경우 클라우드 서버 계약 갱신 일정에 차질 발생"
+      }
+    ]
+  },
+  "seller_state": {
+    "SB1_pitch_alignment": {
+      "status": "confirmed",
+      "buyer_real_reason": "비용 절감 및 금융 데이터 보안(온프레미스), 3개월 내 클라우드 계약 갱신 전 ROI 확보",
+      "misread_type": "none"
+    },
+    "SB2_value_positioning": {
+      "status": "unknown",
+      "position": "unknown"
+    },
+    "SB3_evidence_packaging": {
+      "status": "confirmed",
+      "evidence_offered": [
+        "기술 사양서",
+        "PoC 가이드"
+      ]
+    },
+    "SB4_substitute_defense": {
+      "status": "unknown",
+      "substitute_type": "unknown"
+    },
+    "SB5_threshold_design": {
+      "status": "confirmed",
+      "note": "기존 인프라 환경에서의 온프레미스 형태 PoC 수행 가능 여부로 문턱 재설계 필요",
+      "downside_removers": [
+        "소규모 PoC",
+        "전담 엔지니어 밀착 배정",
+        "온프레미스 지원"
+      ]
+    },
+    "SB6_execution_honesty": {
+      "status": "confirmed",
+      "note": "1/10 비용 절감 달성 시 발생하는 기술적 트레이드오프(응답 지연시간 등)의 한계를 정확히 공개하고 해소 경로를 제시해야 함",
+      "limits_disclosed": [
+        "초기 기술 지원 공백",
+        "모델 복잡도 최적화로 인한 미세한 응답 지연"
+      ]
+    },
+    "SB7_authenticity_structure": {
+      "status": "unknown"
+    },
+    "SB8_champion_arming": {
+      "status": "confirmed",
+      "note": "내부 승인을 위한 ROI 리포트 작성 지원 필요"
+    },
+    "SB9_protection_screening": {
+      "status": "assumed",
+      "screening": "clean"
+    },
+    "SB10_strategic_relationship": {
+      "status": "unknown",
+      "stance": "pursue"
+    }
+  },
+  "seller_outcome": {
+    "outcome": "poc_agreed",
+    "rationale": "구매자는 3개월 뒤 클라우드 계약 갱신이라는 명확한 타임라인을 바탕으로 온프레미스 PoC 진행에 동의했습니다. 판매자가 보안 요구사항을 수용하고 기술적 한계를 투명하게 공개하여 신뢰를 확보했으며, 내부 설득용 ROI 리포트 작성을 위한 PoC 가이드 검토 단계로 진입했습니다."
+  },
+  "hypotheses": [
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "사전 튜닝된 파라미터 배포를 통해 응답 지연을 당사의 허용 범위 내로 제어하면서도 GPU 비용을 1/10 수준으로 절감할 수 있을 것이다.",
+      "dimension": "BB5_evidence",
+      "evidence_needed": "온프레미스 PoC 환경에서 실제 트래픽을 인가했을 때의 응답 속도 및 GPU 점유율 데이터 측정"
+    },
+    {
+      "frame": "exploit",
+      "lens": "buy",
+      "statement": "판매자가 기술적 트레이드오프를 투명하게 공개하는 성향이므로, 향후 발생할 수 있는 이슈에 대해서도 선제적이고 정직한 기술 지원을 제공할 것이다.",
+      "dimension": "BB8_trust"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "구매자의 3개월 데드라인에 맞추어 PoC 기간을 단축하고 신속하게 ROI 지표를 도출하면 본 계약 전환율이 높아질 것이다.",
+      "dimension": "SB8_champion_arming",
+      "evidence_needed": "PoC 진행 중 도출되는 초기 성능 지표 및 구매자 내부 의사결정권자의 피드백"
+    },
+    {
+      "frame": "exploit",
+      "lens": "sell",
+      "statement": "사전 튜닝된 파라미터를 통해 응답 지연을 허용 범위 내로 제어하는 것을 PoC 초기 단계에서 증명하여 기술적 우위를 확고히 한다.",
+      "dimension": "SB6_execution_honesty"
+    }
+  ],
+  "provenance": {
+    "buyer_side": "simulated",
+    "seller_side": "simulated",
+    "outcome_anchor": false
+  }
+}

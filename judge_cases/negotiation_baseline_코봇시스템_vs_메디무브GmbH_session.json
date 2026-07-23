@@ -1,0 +1,870 @@
+{
+  "seller_company": "코봇시스템",
+  "buyer_company": "메디무브 GmbH",
+  "rounds": 7,
+  "buyer_state": {
+    "BB1_purpose_fit": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "기존 설계 변경 없이 계단과 턱을 넘는 기능이 당사의 신모델 차별화 목적에 직접적으로 기여함"
+    },
+    "BB2_value_hierarchy": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "seller_asset_position": "core",
+      "evidence": "판매자가 강조하는 제품 경쟁력(계단 극복)이 당사의 1순위 구매 이유인 '신모델 차별화'와 정확히 일치함"
+    },
+    "BB3_substitute": {
+      "status": "unknown",
+      "verdict": "na",
+      "evidence": "자체 R&D 및 프랑스 경쟁사 등 대체재와의 비교는 대화 중 언급되지 않음"
+    },
+    "BB4_opportunity_cost": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "소량 PoC부터 시작 가능하여 리콜 리스크를 피하고 소규모 검증을 선호하는 당사의 요구를 충족함"
+    },
+    "BB5_evidence": {
+      "status": "assumed",
+      "verdict": "caution",
+      "evidence": "동적 안정성 테스트 데이터와 기술 백서를 수령하였으나, 규제팀의 실제 데이터 분석 및 검증이 완료되기 전임"
+    },
+    "BB6_execution_gate": {
+      "status": "assumed",
+      "verdict": "caution",
+      "dealbreaker": false,
+      "evidence": "CE MDR 인증 영향 검토를 위한 핵심 자료를 수령하였으나, 규제팀의 면밀한 분석이 완료되지 않아 채택 여부 미정임"
+    },
+    "BB7_timing": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "당사의 3개월 부품 확정 사이클에 맞추어 즉시 검토 가능한 핵심 기술 문서를 제공받음"
+    },
+    "BB8_trust": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "authenticity_gate": "passed",
+      "exploitation_detected": false,
+      "evidence": "MDR 대응이 완벽히 준비되었다고 과장하지 않고 '현재 분석 진행 중'이라는 한계를 정직하게 공개하여 신뢰도가 상승함"
+    },
+    "BB9_decision_structure": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "내부 승인(규제팀)을 위한 기술 백서 및 테스트 데이터 패키지가 신속하게 제공됨"
+    },
+    "BB10_contract_protection": {
+      "status": "unknown",
+      "verdict": "na",
+      "evidence": "IP, NDA, 독점 범위 등 계약 보호 관련 사항은 논의되지 않음"
+    }
+  },
+  "buyer_decision": {
+    "decision": "conditional",
+    "rationale": "제안된 모듈은 당사의 1순위 구매 이유인 신모델 차별화에 완벽히 부합하며, 판매자의 정직한 태도와 신속한 자료 제공은 높은 신뢰를 줍니다. 다만, CE MDR 인증 유지 여부가 절대적인 선결 조건이므로, 규제팀의 기술 백서 및 동적 안정성 데이터 검토 결과에 따라 PoC 진행 여부를 최종 결정해야 합니다.",
+    "conditions": [
+      {
+        "condition": "CE MDR 인증 유지 및 구조적 무결성 확보",
+        "check_method": "규제팀의 동적 안정성 테스트 데이터 및 기술 백서 정밀 분석을 통한 기존 인증 범위 내 통합 가능성 확인"
+      },
+      {
+        "condition": "유럽 내 AS 체계 확인",
+        "check_method": "PoC 진행 전 유럽 현지 AS 지원 범위 및 절차 관련 문서 검토"
+      }
+    ],
+    "risks": [
+      {
+        "type": "precondition",
+        "desc": "모듈 통합 시 기존 휠체어의 CE MDR 등급이 변경되거나 추가 임상이 요구될 경우 채택이 원천적으로 불가함"
+      },
+      {
+        "type": "profitability",
+        "desc": "자체 R&D 서스펜션 개선이나 프랑스 경쟁사 대비 원가 경쟁력(25% 비중)이 아직 확인되지 않음"
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 실증 신호(BB5_evidence)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 동적 안정성 테스트 데이터와 기술 백서를 수령하였으나, 규제팀의 실제 데이터 분석 및 검증이 완료되기 전임"
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 실행·선결 게이트(BB6_execution_gate)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: CE MDR 인증 영향 검토를 위한 핵심 자료를 수령하였으나, 규제팀의 면밀한 분석이 완료되지 않아 채택 여부 미정임"
+      }
+    ]
+  },
+  "seller_state": {
+    "SB1_pitch_alignment": {
+      "status": "confirmed",
+      "buyer_real_reason": "CE MDR 규제 준수 및 기존 인증 유지 (동적 안정성 테스트 통과)",
+      "misread_type": "none"
+    },
+    "SB2_value_positioning": {
+      "status": "confirmed",
+      "position": "unknown",
+      "note": "[정규화: position='CES 2025 혁신상 데모 영상으로 초기 임팩트 제시'→'unknown']"
+    },
+    "SB3_evidence_packaging": {
+      "status": "confirmed",
+      "note": "동적 안정성 테스트 결과가 포함된 기술 백서 패키징 및 즉각 전달 필요",
+      "evidence_offered": [
+        "CES 2025 혁신상 데모 영상",
+        "MDR 분석 자료",
+        "기술 백서",
+        "동적 안정성 테스트 데이터"
+      ]
+    },
+    "SB4_substitute_defense": {
+      "status": "unknown",
+      "substitute_type": "unknown"
+    },
+    "SB5_threshold_design": {
+      "status": "confirmed",
+      "note": "PoC 진입의 최종 문턱은 규제팀의 동적 안정성 테스트 결과 검토 통과임",
+      "downside_removers": [
+        "소량 PoC",
+        "규제팀 검토용 기술 자료 선제공"
+      ]
+    },
+    "SB6_execution_honesty": {
+      "status": "confirmed",
+      "note": "정직하고 신속한 대응이 상대의 긍정적 평가와 신뢰를 이끌어냄",
+      "limits_disclosed": [
+        "현재 MDR 분석 진행 중"
+      ]
+    },
+    "SB7_authenticity_structure": {
+      "status": "confirmed"
+    },
+    "SB8_champion_arming": {
+      "status": "confirmed",
+      "champion_mode": true,
+      "note": "규제팀 설득을 위한 기술 백서 및 테스트 데이터 제공"
+    },
+    "SB9_protection_screening": {
+      "status": "confirmed",
+      "screening": "clean"
+    },
+    "SB10_strategic_relationship": {
+      "status": "confirmed",
+      "stance": "hold",
+      "note": "구매자 내부 규제팀 검토 완료까지 대기"
+    }
+  },
+  "seller_outcome": {
+    "outcome": "hold",
+    "rationale": "구매자는 CE MDR 인증 유지 및 동적 안정성 테스트 결과를 확인하기 위해 내부 규제팀의 검토를 진행 중입니다. 판매자는 요구된 기술 백서와 데이터를 모두 제공하였으며, 검토 결과가 나올 때까지 대기하기로 합의했습니다."
+  },
+  "hypotheses": [
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "제공된 동적 안정성 데이터가 실제 PoC 환경에서도 동일하게 재현될 것이다.",
+      "dimension": "BB5_evidence",
+      "evidence_needed": "PoC 진행 시 실측 데이터와 기술 백서 수치의 오차율 비교"
+    },
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "프랑스 경쟁사 모듈이나 자체 R&D 대비 원가 및 성능 면에서 우위를 가질 것이다.",
+      "dimension": "BB3_substitute",
+      "evidence_needed": "PoC 완료 후 자체 R&D 및 경쟁사 대안과의 전환비용 및 원가 비교 분석"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "규제팀의 동적 안정성 테스트 데이터 검토가 통과되면, 3개월 개발 사이클에 맞춘 PoC 범위와 일정이 구체화될 것이다.",
+      "dimension": "SB5_threshold_design",
+      "evidence_needed": "규제팀의 검토 완료 및 승인 회신"
+    }
+  ],
+  "audit": [
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "기존 설계 변경 없이 계단과 턱을 넘는 기능은 당사의 신모델 차별화 목적에 직접적으로 기여할 것으로 보임"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "seller_asset_position": "core",
+        "evidence": "판매자가 강조하는 제품 경쟁력(계단 극복)이 당사의 1순위 구매 이유인 '신모델 차별화'와 정확히 일치함"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "소량 PoC부터 시작 가능하다고 명시하여, 리콜 리스크를 피하기 위해 소규모 검증을 선호하는 당사의 낮은 기회비용 요구를 충족함"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "CES 2025 혁신상 수상 사실과 데모 영상을 증빙으로 제공하겠다고 약속함(자료 확인 전이므로 assumed)"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "authenticity_gate": "passed",
+        "exploitation_detected": false,
+        "evidence": "CES 2025 혁신상이라는 공개적으로 검증 가능한 객관적 신호를 제시하여 제품의 실재성을 확보함"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "당사의 내부 검토(경영진 및 규제팀 승인)에 필요한 관련 기술 자료를 선제적으로 제공하겠다고 제안함"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "buyer_real_reason": "CE MDR 규제 준수 및 기존 휠체어 인증 유지 여부 확인",
+        "misread_type": "evidence",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "action_required",
+        "note": "CE MDR 등급 분류 및 기존 인증 영향에 대한 기술 문서 패키징 필요"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "updated",
+        "note": "상대의 최대 다운사이드(기존 인증 상실 리스크) 해소가 선결 조건임"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "champion_mode": true,
+        "status": "updated",
+        "note": "내부 규제/인증 부서 검토 및 설득을 위한 기술 문서 요구됨"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "screening": "clean",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "dealbreaker": false,
+        "evidence": "가장 중요한 선결 조건인 CE MDR과 관련하여 아직 분석이 진행 중인 상태이므로 리스크가 존재하나, 당사 인증 담당자가 검토할 수 있는 기술 자료를 제공하기로 함"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "authenticity_gate": "passed",
+        "exploitation_detected": false,
+        "evidence": "MDR 대응이 완벽히 준비되었다고 과장하지 않고 '현재 분석 진행 중'이라는 한계를 정직하게 공개하여 신뢰도가 상승함"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "당사의 내부 결정 구조(규제팀 승인 필요)를 정확히 이해하고, 인증 담당자가 직접 검토할 수 있는 맞춤형 기술 자료(기기 등급 분류 및 설계 변경 최소화)를 제공하기로 확약함"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "buyer_real_reason": "규제팀 검토 통과(기존 인증 범위 내 통합 여부) 및 3개월 내 부품 확정 사이클 부합 여부",
+        "misread_type": "evidence",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "action_required",
+        "note": "규제팀 검토용 기술 자료(인증 통합 가능성, 추가 임상 여부)를 3개월 개발 사이클에 맞춘 PoC 로드맵과 함께 패키징하여 제공 필요"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "updated",
+        "note": "PoC 진입 문턱은 규제팀의 인증 리스크(추가 임상/별도 인증) 해소 및 3개월 타임라인 충족임"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "updated",
+        "note": "MDR 현황에 대한 정직한 공유가 상대의 신뢰를 확보함"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "champion_mode": true,
+        "status": "updated",
+        "note": "내부 규제팀 설득 및 검토를 위한 맞춤형 기술/인증 자료 제공 필수"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "screening": "clean",
+        "status": "maintained"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "dealbreaker": false,
+        "evidence": "기존 휠체어 인증 범위 내 통합 가능성을 입증할 기술 백서와 MDR 분석 자료를 제공하겠다고 하였으나, 당사 규제팀의 실제 검토 전이므로 여전히 주의가 필요함"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "당사의 3개월 부품 확정 사이클에 맞추어 PoC를 완료할 수 있도록 즉시 검토 가능한 핵심 기술 문서를 우선 제공하겠다고 확약함"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "당사 규제팀이 즉시 검토할 수 있는 핵심 기술 문서와 기술 백서를 맞춤형으로 제공하겠다고 재차 확약하여 내부 승인 절차 지원 의지를 명확히 함"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "updated",
+        "buyer_real_reason": "기존 휠체어의 프레임 강성 및 무게 중심 변화가 기존 CE 인증에 미치는 영향 검증",
+        "misread_type": "evidence"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "action_required",
+        "note": "프레임 강성 및 무게 중심 변화가 기존 CE 인증에 미치는 영향을 분석한 기술 백서 및 MDR 분석 자료 패키징 필요"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "updated",
+        "champion_mode": true,
+        "note": "내부 규제팀 검토를 위한 프레임 강성 및 무게 중심 변화 관련 구체적 기술 데이터 제공 필요"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "status": "maintained",
+        "screening": "clean"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "dealbreaker": false,
+        "evidence": "당사가 지적한 핵심 선결 조건인 프레임 강성 및 무게 중심 변화가 기존 CE 인증에 미치는 영향에 대한 데이터를 오늘 중으로 제공받기로 하였으나, 규제팀의 실제 검토 전이므로 여전히 주의가 필요함"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "내부 규제팀 검토에 구체적으로 요구된 프레임 강성 및 무게 중심 변화 데이터를 당일 패키징하여 제공하겠다고 약속함으로써 내부 승인 절차를 적극적으로 지원함"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "updated",
+        "buyer_real_reason": "모듈 장착 후의 동적 안정성 테스트 결과 확인",
+        "misread_type": "evidence"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "updated",
+        "note": "동적 안정성 테스트 결과가 포함된 기술 백서 패키징 및 즉각 전달 필요"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "updated",
+        "note": "PoC 진입의 최종 문턱은 규제팀의 동적 안정성 테스트 결과 검토 통과임"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "updated",
+        "note": "정직하고 신속한 대응이 상대의 긍정적 평가와 신뢰를 이끌어냄"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "updated",
+        "champion_mode": true,
+        "note": "내부 규제팀 설득을 위해 모듈 장착 후 동적 안정성 테스트 결과 데이터 제공 필수"
+      }
+    },
+    {
+      "round": 5,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "동적 안정성 테스트 수치와 분석 결과가 포함된 기술 백서를 오늘 중으로 제공하겠다고 약속하였으나, 아직 자료를 수령하여 검증하기 전임"
+      }
+    },
+    {
+      "round": 5,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "dealbreaker": false,
+        "evidence": "가장 우려하는 지점인 동적 안정성 테스트 데이터를 제공받기로 하였으나, 규제팀의 실제 데이터 분석 및 CE 인증 영향 검토가 완료되기 전이므로 여전히 주의가 필요함"
+      }
+    },
+    {
+      "round": 5,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "규제팀 검토의 핵심인 동적 안정성 테스트 데이터를 명확히 인지하고 당일 송부하겠다고 확약함은 물론, 추가 필요 데이터까지 선제적으로 물으며 내부 승인 과정을 적극 지원함"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB1",
+      "update": {
+        "buyer_real_reason": "CE MDR 인증 범위 유지 증명 (동적 안정성 데이터 기반)",
+        "misread_type": "evidence",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB3",
+      "update": {
+        "note": "CE MDR 인증 범위 유지를 증명할 동적 안정성 데이터 및 기술 백서 제공 필요",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB5",
+      "update": {
+        "note": "PoC 논의의 선결 조건(문턱)은 제공된 자료가 기존 CE MDR 인증 범위를 유지함을 증명하는 것",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB8",
+      "update": {
+        "champion_mode": true,
+        "note": "내부 규제팀 검토 및 설득을 위한 동적 안정성 데이터와 기술 백서 제공",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB9",
+      "update": {
+        "screening": "clean",
+        "status": "maintained"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "동적 안정성 테스트 데이터와 기술 백서 패키지를 송부받았으나, 규제팀의 실제 데이터 분석 및 검증이 완료되기 전임"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "dealbreaker": false,
+        "evidence": "CE MDR 인증 영향 검토를 위한 핵심 자료를 수령하였으나, 규제팀의 면밀한 분석이 완료되기 전이므로 여전히 주의가 필요함"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "내부 승인을 위한 핵심 자료를 송부받았으며, 필요시 규제팀과의 직접 소통까지 지원하겠다고 제안하여 내부 결정 과정을 적극적으로 돕고 있음"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "updated",
+        "buyer_real_reason": "동적 안정성 테스트 수치와 MDR 대응 논리의 내부 기준 통과 여부",
+        "misread_type": "none"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "updated",
+        "champion_mode": true,
+        "note": "전달된 자료가 내부 규제팀의 검토 및 설득에 사용됨"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB10_strategic_relationship",
+      "update": {
+        "status": "updated",
+        "note": "구매자 내부 규제팀의 자료 검토가 완료될 때까지 hold 인내 필요"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "내부 의사결정을 돕기 위해 추가 자료를 즉시 준비하겠다고 약속하며 당사의 규제팀 검토 과정을 존중하고 적극적으로 지원함"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "기존 설계 변경 없이 계단과 턱을 넘는 기능이 당사의 신모델 차별화 목적에 직접적으로 기여함"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "판매자가 강조하는 제품 경쟁력(계단 극복)이 당사의 1순위 구매 이유인 '신모델 차별화'와 정확히 일치함"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "unknown",
+        "verdict": "na",
+        "evidence": "자체 R&D 및 프랑스 경쟁사 등 대체재와의 비교는 대화 중 언급되지 않음"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "소량 PoC부터 시작 가능하여 리콜 리스크를 피하고 소규모 검증을 선호하는 당사의 요구를 충족함"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "동적 안정성 테스트 데이터와 기술 백서를 수령하였으나, 규제팀의 실제 데이터 분석 및 검증이 완료되기 전임"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "CE MDR 인증 영향 검토를 위한 핵심 자료를 수령하였으나, 규제팀의 면밀한 분석이 완료되지 않아 채택 여부 미정임"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "당사의 3개월 부품 확정 사이클에 맞추어 즉시 검토 가능한 핵심 기술 문서를 제공받음"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "MDR 대응이 완벽히 준비되었다고 과장하지 않고 '현재 분석 진행 중'이라는 한계를 정직하게 공개하여 신뢰도가 상승함"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "내부 승인(규제팀)을 위한 기술 백서 및 테스트 데이터 패키지가 신속하게 제공됨"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "unknown",
+        "verdict": "na",
+        "evidence": "IP, NDA, 독점 범위 등 계약 보호 관련 사항은 논의되지 않음"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "confirmed",
+        "buyer_real_reason": "CE MDR 규제 준수 및 기존 인증 유지 (동적 안정성 테스트 통과)",
+        "misread_type": "none"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB2_value_positioning",
+      "update": {
+        "status": "confirmed",
+        "position": "CES 2025 혁신상 데모 영상으로 초기 임팩트 제시"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "confirmed",
+        "evidence_offered": [
+          "CES 2025 혁신상 데모 영상",
+          "MDR 분석 자료",
+          "기술 백서",
+          "동적 안정성 테스트 데이터"
+        ]
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB4_substitute_defense",
+      "update": {
+        "status": "unknown"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "confirmed",
+        "downside_removers": [
+          "소량 PoC",
+          "규제팀 검토용 기술 자료 선제공"
+        ]
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "confirmed",
+        "limits_disclosed": [
+          "현재 MDR 분석 진행 중"
+        ]
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB7_authenticity_structure",
+      "update": {
+        "status": "confirmed"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "confirmed",
+        "champion_mode": true,
+        "note": "규제팀 설득을 위한 기술 백서 및 테스트 데이터 제공"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "status": "confirmed",
+        "screening": "clean"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB10_strategic_relationship",
+      "update": {
+        "status": "confirmed",
+        "stance": "hold",
+        "note": "구매자 내부 규제팀 검토 완료까지 대기"
+      }
+    }
+  ],
+  "provenance": {
+    "buyer_side": "simulated",
+    "seller_side": "simulated",
+    "outcome_anchor": false
+  }
+}

@@ -1,0 +1,225 @@
+---
+# =====================================================================
+# 가설 라이브러리 시드 (Hypothesis Library Seed) v1.0
+# 근거: judge_cases 19케이스 — README §7-② "가설 카드를 스키마 v1.1
+#       hypothesis 구조로 집계 → explore 가설 시드 라이브러리"
+# 형식: frame(exploit=검증된 처방 / explore=검증할 베팅, evidence_needed 필수=JDG-13)
+# provenance: 전부 constructed(구매측 [구성] 시뮬레이션 기반) —
+#       evidence_needed 가 실데이터로 채점되면 exploit 승격 / 기각.
+# 운용: new-judge 의 "학습 없는 학습" 루프 —
+#       explore 가설 → 현실 채점 → exploit 규칙으로 온톨로지(YAML) 승격.
+# =====================================================================
+
+library:
+  version: "1.0"
+  provenance: constructed
+  cards:
+
+    # ---------- 명시 카드 (원 파일에 가설 카드로 수록된 9건) ----------
+    - id: H-A1
+      frame: exploit
+      lens: sell
+      statement: >
+        자동차 소재 컴파운더에겐 '친환경'을 앞세우면 안 되고(전제일 뿐), 자동차 등급
+        물성 데이터를 게이트 통과의 선결조건으로 먼저 제시한다. 딜사이클이 길므로
+        '미팅=딜 초입'으로 관리.
+      dimension: [BB5_evidence, BB2_value_hierarchy, SB2_value_positioning, SB3_evidence_packaging]
+      evidence_needed: 물성 데이터 유무별 미팅 성사율, 경쟁 공급사 대비 승인 전환율
+      source: {file: anpoly, case: A1}
+
+    - id: H-A2
+      frame: explore
+      lens: sell
+      statement: >
+        공공/EU 실증 프로젝트는 단기 매출이 아니라 '첫 유럽 레퍼런스' 전략가치로
+        판단하며(약한 단계 차원의 전략적 역전), Impact 가 진짜 구매이유이므로 KPI
+        정량화 데이터로 접근. 행정·IP 부담이 선결조건.
+      dimension: [BB7_timing, BB1_purpose_fit, SB10_strategic_relationship]
+      evidence_needed: 컨소시엄 참여가 상용 레퍼런스로 이어진 비율, 스타트업의 EU 행정 감당 가능성
+      source: {file: anpoly, case: A2}
+
+    - id: H-C1
+      frame: exploit
+      lens: sell
+      statement: >
+        의료기기 모듈은 기능보다 규제(FDA 분류·보험수가·PL)가 실증 선결조건이며,
+        구매자의 make-vs-buy(자체 개발)가 최대 대체재이므로 특허·개발 시간가치·검증
+        실적으로 방어한다.
+      dimension: [BB5_evidence, BB3_substitute, SB4_substitute_defense]
+      evidence_needed: 규제 영향 분석 제공이 미팅 성사에 미친 영향, 특허·시간가치 논거가 make-vs-buy 결론을 돌린 비율
+      source: {file: cobot, case: C1}
+
+    - id: H-C2
+      frame: exploit
+      lens: sell
+      statement: >
+        유통사의 전역 독점 요구는 Willingness 함정 — 판매자 전략 자유도를 묶으므로
+        지역·기간·성과 조건부로 범위를 제한해 재설계한다. 기존 독점계약과의 충돌은
+        선결 확인 사항.
+      dimension: [BB10_contract_protection, SB9_protection_screening]
+      evidence_needed: 전역 vs 조건부 독점 제안 시 유통사 수락률·투자 강도, 조건부 독점의 성과 확대 실현율
+      source: {file: cobot, case: C2}
+
+    - id: H-M1
+      frame: exploit
+      lens: sell
+      statement: >
+        식품 원료 B2B 는 Novel Food 등 식품안전 규제가 선결 실증조건이며, 파일럿-대량
+        사이 캐파 미스매치는 CMO 확장으로, 양측 정보보호는 상호 NDA 선행으로 해소하는
+        단계적 로드맵으로 접근.
+      dimension: [BB5_evidence, BB6_execution_gate, BB10_contract_protection, SB6_execution_honesty]
+      evidence_needed: Novel Food 상태별 파일럿 성사율, CMO 로드맵이 캐파 우려 해소한 비율, 상호 NDA 선행이 순서 갈등 푼 비율
+      source: {file: mushn, case: M1}
+
+    - id: H-M2
+      frame: explore
+      lens: sell
+      statement: >
+        대학 연구소는 매출이 아니라 학술 검증·공동연구가 목적인 제3의 구매자 유형이며,
+        PoC 산출물(논문)이 상업 고객 설득의 실증을 '생산'한다. IP/논문 발표권 충돌은
+        발표 범위 분리(기능성 공개/공정 비공개)로 해소.
+      dimension: [BB1_purpose_fit, BB5_evidence, SB10_strategic_relationship]
+      evidence_needed: 학술 검증 확보가 후속 상업 딜 성사율에 미친 영향, 발표범위 분리 조항이 IP 충돌 해소한 비율
+      source: {file: mushn, case: M2}
+
+    - id: H-L1
+      frame: exploit
+      lens: sell
+      statement: >
+        기존 대안(목걸이형)이 있는 시장에선 신제품이 아니라 '기존 대비 우위'가 핵심
+        이므로 나란히 비교하는 PoC 로 대체재 비교 차원을 정면 실증한다. 직접거래 채널
+        저항은 현지 파트너 협력 여지로 완화.
+      dimension: [BB3_substitute, SB3_evidence_packaging, SB5_threshold_design]
+      evidence_needed: 비교 PoC 에서 체내형이 목걸이형 대비 입증한 우위 지표, 직접거래 저항이 성사율에 미친 영향
+      source: {file: livecare, case: L1}
+
+    - id: H-L2
+      frame: exploit
+      lens: sell
+      statement: >
+        채널 유통사는 최종 사용자가 아니라 재판매자이므로 정합을 '팔 수 있는가 + 마진이
+        남는가'로 판단하며, 현지 실행 파트너의 역량 검증이 성패를 가르는 선결조건이다.
+      dimension: [BB1_purpose_fit, BB6_execution_gate]
+      evidence_needed: 마진·지원·지역 구조 제시가 채널 확보에 미친 영향, 현지 파트너 역량 검증이 실판매에 미친 결과
+      source: {file: livecare, case: L2}
+
+    - id: H-L3
+      frame: explore
+      lens: sell
+      statement: >
+        ODA/공공 시범사업은 매출이 아니라 국가 레퍼런스·정책 실적으로 판단하며(전략
+        역전), Impact+Problem Solving 이 정합 기준. 소농 지불능력 한계로 보조금·펀딩
+        구조와 시범 후 상업 전환 경로가 지속가능성의 선결조건.
+      dimension: [BB1_purpose_fit, BB7_timing, SB10_strategic_relationship]
+      evidence_needed: ODA 시범 참여가 후속 상업 진입으로 이어진 비율, 보조금·펀딩 연계가 지불능력 문제 해소한 정도
+      source: {file: livecare, case: L3}
+
+    # ---------- 도출 카드 (키뮤 10케이스의 관찰·루브릭에서 형식화한 10건) ----------
+    - id: H-K1
+      frame: exploit
+      lens: sell
+      statement: >
+        구매자 미온의 원인이 '방향'(자기 기준 언급)이면 소구점을 명시적 인정과 함께
+        교체한다 — "순서를 잘못 짚었네요, [상대 기준]이 먼저입니다". 잘못을 인정하는
+        전환이 신뢰를 만든다.
+      dimension: [SB1_pitch_alignment]
+      evidence_needed: 소구 교체 후 미온→미팅 전환율 (실BD 대화)
+      source: {file: kimu, case: "1(메종 클레르)"}
+
+    - id: H-K1B
+      frame: explore
+      lens: sell
+      statement: >
+        중간자 구매자(대행사·유통사)의 정합 기준은 최종소비자가 아니라 '그들의 현재
+        클라이언트/피칭'에 있다 — 낮은 비용의 떠보기 질문("특정 캠페인 염두인가?")으로
+        숨은 니즈를 노출시킨다.
+      dimension: [BB1_purpose_fit, SB1_pitch_alignment]
+      evidence_needed: 떠보기 질문 후 실니즈 노출율, 노출된 니즈 정합 시 성사 속도
+      source: {file: kimu, case: "1-B(아틀리에 뇌프)"}
+
+    - id: H-K1C
+      frame: exploit
+      lens: sell
+      statement: >
+        미적 판단자(갤러리형) 구매자에게 Impact/스토리 자산은 역신호다 — 간판을 철회
+        하고 상대 판의 언어(작가 개인의 시각 언어·큐레토리얼 정당성)로 전면 전환하며,
+        상업 이야기까지 절제한다.
+      dimension: [SB2_value_positioning, BB2_value_hierarchy]
+      evidence_needed: 역신호 유형에서 소구 전환 전후의 반응 변화 (실데이터)
+      source: {file: kimu, case: "1-C(갤러리 뤼미에르)"}
+
+    - id: H-K1D
+      frame: exploit
+      lens: sell
+      statement: >
+        담당자≠결정권자인 조직(CSR·대기업)에서는 협상 상대를 설득 대상이 아니라 내부
+        챔피언으로 무장시킨다 — 상급자용 수치·미디어 앵글·참여 확장안 + 실무 골칫거리
+        (예산 소관) 제거.
+      dimension: [SB8_champion_arming, BB9_decision_structure]
+      evidence_needed: 무장 자료 제공 여부별 내부 승인 통과율
+      source: {file: kimu, case: "1-D(노르딕 CSR)"}
+
+    - id: H-K1E
+      frame: exploit
+      lens: sell
+      statement: >
+        구조적 deal-breaker(캐파·인증)는 소구로 풀리지 않는다 — 정직하게 인정하고
+        철수하되 관계를 보존한다("규모 되면 재접촉"). 정직한 철수가 평판 자산을 남긴다.
+      dimension: [SB6_execution_honesty, BB6_execution_gate]
+      evidence_needed: 정직 철수 후 재접촉 성사 사례 수
+      source: {file: kimu, case: "1-E(웨스트필드)"}
+
+    - id: H-K1F
+      frame: exploit
+      lens: sell
+      statement: >
+        카피·착취 신호(로열티 거부 + '재해석' 관행 + 시안 선요청)에는 정보를 열지 않고
+        추격을 중단한다 — 시안 미공유가 결정의 일부다. 표면적 관심(Willingness)이
+        위험을 은폐한다.
+      dimension: [SB9_protection_screening, BB8_trust]
+      evidence_needed: 신호 감지 정확도(오탐/미탐), IP 유출 사고 0 유지
+      source: {file: kimu, case: "1-F(노바트렌드)"}
+
+    - id: H-K1G
+      frame: exploit
+      lens: buy
+      statement: >
+        인바운드 진위 게이트 통과는 끝이 아니라 시작이다 — 높은 Willingness(감동·전지점
+        제안)에도 실질(정합·단계·실행)을 따로 판정하고, 약하면 규모 축소 PoC 로
+        재설계한다.
+      dimension: [BB8_trust, BB4_opportunity_cost]
+      evidence_needed: 축소 PoC 재설계 후 확장 전환율
+      source: {file: kimu, case: "1-G(블룸카페)"}
+
+    - id: H-K1H
+      frame: exploit
+      lens: buy
+      statement: >
+        다운사이드가 제거되면(MG 없음·낮은 진입 비용·자체 검증 가능) 일부 caution 이
+        남아도 '밑져야 본전'으로 진행한다 — 구매 수락의 실제 이유는 종종 기회비용
+        완화다.
+      dimension: [BB4_opportunity_cost]
+      evidence_needed: 다운사이드 제거 요소별 수락률 차이
+      source: {file: kimu, case: "1-H(메종 buy 렌즈)"}
+
+    - id: H-K1I
+      frame: exploit
+      lens: sell
+      statement: >
+        문화적 절제 화법("검토해 보겠습니다")은 거절이 아니다 — 소구를 바꾸거나 밀면
+        역효과. hold 로 전환해 자료·샘플로 확인 리스크를 채우며 천천히 신뢰를 쌓는다.
+        hold 는 실패가 아니라 유효한 판단이다.
+      dimension: [SB1_pitch_alignment, SB10_strategic_relationship, BB7_timing]
+      evidence_needed: hold 운용 vs 즉시 추격의 장기 성사율 비교 (문화권별)
+      source: {file: kimu, case: "1-I(미도리야)"}
+
+    - id: H-K1J
+      frame: explore
+      lens: buy
+      statement: >
+        비영리/공공 구매자의 기회비용 계산은 영리와 다르다 — 소규모 PoC 성공이 기부자·
+        공적지원 성과로 이어져 재원을 늘린다('성과→재원 확대'). 보완재가 상품이 아니라
+        역량·커리큘럼(서비스)일 수 있다.
+      dimension: [BB4_opportunity_cost, BB1_purpose_fit]
+      evidence_needed: PoC 성과 지표가 후속 재원 확대로 이어진 비율
+      source: {file: kimu, case: "1-J(Centre Lumière)"}

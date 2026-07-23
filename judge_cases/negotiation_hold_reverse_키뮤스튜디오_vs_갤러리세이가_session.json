@@ -1,0 +1,161 @@
+{
+  "seller_company": "키뮤스튜디오",
+  "buyer_company": "갤러리 세이가",
+  "rounds": 3,
+  "buyer_state": {
+    "BB1_purpose_fit": {
+      "status": "assumed",
+      "verdict": "fit",
+      "evidence": "갤러리의 시각적 담론과 예술적 고유성을 존중하며 이에 맞춘 포트폴리오를 제공하겠다고 하여 목적 정합성을 맞추려 함."
+    },
+    "BB2_value_hierarchy": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "작가의 사회적 서사를 배제하고 작품의 조형미와 독창성에 집중하겠다고 명시하여 갤러리의 최우선 가치에 부합하는 접근을 보임.",
+      "seller_asset_position": "core"
+    },
+    "BB3_substitute": {
+      "status": "unknown",
+      "verdict": "na",
+      "evidence": "기존 대안 대비 우위 여부는 아직 논의되지 않음."
+    },
+    "BB4_opportunity_cost": {
+      "status": "unknown",
+      "verdict": "na",
+      "evidence": "실패 손실이나 기회비용에 대한 논의 없음."
+    },
+    "BB5_evidence": {
+      "status": "assumed",
+      "verdict": "fit",
+      "evidence": "미술사적 맥락을 담은 전시 이력 및 비평 자료를 제공하겠다고 약속하여 갤러리 도메인에 맞는 실증 자료 검토 경로가 열림."
+    },
+    "BB6_execution_gate": {
+      "status": "unknown",
+      "verdict": "na",
+      "dealbreaker": false,
+      "evidence": "구체적인 전시 일정이나 캐파 등 실행 선결 조건은 아직 논의되지 않음."
+    },
+    "BB7_timing": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "갤러리 내부의 신중한 검토 절차를 존중하며 천천히 검토할 시간을 주어 갤러리의 의사결정 속도에 완벽히 맞춤."
+    },
+    "BB8_trust": {
+      "status": "assumed",
+      "verdict": "fit",
+      "authenticity_gate": "passed",
+      "exploitation_detected": false,
+      "evidence": "유명 글로벌 브랜드와의 협업 이력을 언급하여 실재성은 확인됨. 갤러리의 요구사항을 수용하는 태도에서 진정성이 엿보임."
+    },
+    "BB9_decision_structure": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "갤러리 내부 검토 절차를 인지하고, 내부 승인 및 판단에 필요한 비평 자료와 전시 이력을 제공하겠다고 함."
+    },
+    "BB10_contract_protection": {
+      "status": "unknown",
+      "verdict": "na",
+      "evidence": "계약 조건이나 IP 보호에 대한 논의 없음."
+    }
+  },
+  "buyer_decision": {
+    "decision": "hold",
+    "rationale": "판매자가 갤러리의 핵심 가치인 '예술적 진정성과 고유성'에 맞춘 자료 제공을 약속하고 신중한 검토 절차를 존중하기로 합의했습니다. 현재는 제공될 포트폴리오와 비평 자료를 수신하여 내부적으로 면밀히 검토해야 하는 단계이므로 결정을 보류합니다.",
+    "conditions": [
+      {
+        "condition": "제공된 포트폴리오와 비평 자료가 갤러리의 동시대 미술 담론 기준을 충족해야 함",
+        "check_method": "내부 큐레이터 및 기획팀의 포트폴리오 및 비평 자료 정밀 리뷰"
+      }
+    ],
+    "risks": [
+      {
+        "type": "precondition",
+        "desc": "상업적 브랜드 협업 레퍼런스 위주의 작업이 주를 이루어, 순수 예술적 고유성이나 미술사적 맥락이 갤러리의 기준에 미달할 가능성"
+      }
+    ]
+  },
+  "seller_state": {
+    "SB1_pitch_alignment": {
+      "status": "confirmed",
+      "buyer_real_reason": "상업적 성과나 사회적 서사가 아닌, 동시대 미술 담론 내에서의 조형적 고유성 확인",
+      "misread_type": "evidence"
+    },
+    "SB2_value_positioning": {
+      "status": "confirmed",
+      "position": "reverse_signal",
+      "note": "발달장애 서사와 상업 브랜드 협업 레퍼런스는 갤러리에게 역신호로 작용하므로 감춰야 함"
+    },
+    "SB3_evidence_packaging": {
+      "status": "confirmed",
+      "note": "상대 도메인 화폐(전시 이력, 비평 자료) 요구",
+      "evidence_offered": [
+        "조형미와 독창성 중심의 포트폴리오",
+        "전시 이력",
+        "비평 자료"
+      ]
+    },
+    "SB4_substitute_defense": {
+      "status": "unknown",
+      "substitute_type": "unknown"
+    },
+    "SB5_threshold_design": {
+      "status": "confirmed",
+      "downside_removers": [
+        "15분 화상 미팅 제안",
+        "비대면 메일 자료 전달"
+      ]
+    },
+    "SB6_execution_honesty": {
+      "status": "unknown",
+      "limits_disclosed": []
+    },
+    "SB7_authenticity_structure": {
+      "status": "unknown"
+    },
+    "SB8_champion_arming": {
+      "status": "confirmed",
+      "champion_mode": true,
+      "note": "갤러리 내부 검토 절차를 위한 맞춤형 비평 및 전시 자료 제공"
+    },
+    "SB9_protection_screening": {
+      "status": "unknown",
+      "screening": "unknown"
+    },
+    "SB10_strategic_relationship": {
+      "status": "confirmed",
+      "stance": "hold",
+      "note": "상대의 명시적인 재촉 금지 요청에 따른 인내 및 대기"
+    }
+  },
+  "seller_outcome": {
+    "outcome": "hold",
+    "rationale": "구매자는 상업적 레퍼런스나 사회적 서사 대신 순수 예술적 고유성을 증명할 비평 자료와 전시 이력을 요구했습니다. 또한 갤러리 내부의 신중한 검토를 위해 충분한 시간을 요구하며 명시적으로 재촉을 금지했으므로, 요구된 자료를 전달한 후 철저히 대기해야 하는 상태입니다."
+  },
+  "hypotheses": [
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "키뮤스튜디오의 작가들이 상업적 프로젝트 외에도 동시대 미술 담론에서 유의미한 조형적 언어를 구축하고 있을 것이다.",
+      "dimension": "BB5_evidence",
+      "evidence_needed": "제공된 전시 이력 및 비평 자료의 질적 수준과 내부 큐레이터의 평가 결과"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "상업적 성과를 배제하고 순수 예술 비평 자료와 전시 이력만으로 구성된 포트폴리오를 제공하면, 갤러리 내부 검토를 통과할 수 있을 것이다.",
+      "dimension": "SB3_evidence_packaging",
+      "evidence_needed": "자료 검토 후 갤러리 측의 자발적인 후속 미팅 요청 또는 긍정적 피드백"
+    },
+    {
+      "frame": "exploit",
+      "lens": "sell",
+      "statement": "상대의 '재촉 금지' 요청을 엄격히 준수하여 추가 연락을 차단함으로써, 갤러리의 호흡을 존중하는 프로페셔널한 파트너로서의 포지셔닝을 굳힌다.",
+      "dimension": "SB10_strategic_relationship"
+    }
+  ],
+  "provenance": {
+    "buyer_side": "simulated",
+    "seller_side": "simulated",
+    "outcome_anchor": false
+  }
+}

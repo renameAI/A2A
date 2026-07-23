@@ -1,0 +1,380 @@
+{
+  "seller_company": "웨이비스",
+  "buyer_company": "넥스틴",
+  "rounds": 2,
+  "buyer_state": {
+    "BB1_purpose_fit": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "판매자가 국내 유일의 GaN IDM임을 강조하며, 당사의 핵심 구매 목적인 전력 효율 개선과 부품 국산화(공급망 안정화) 방향성에 모두 부합함을 확인함."
+    },
+    "BB2_value_hierarchy": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "seller_asset_position": "mission",
+      "evidence": "당사의 1순위 구매 이유인 ASPER 장비의 전력 효율 60% 개선 목표를 판매자가 정확히 인지하고 이에 맞춘 제안과 자료를 제공함."
+    },
+    "BB3_substitute": {
+      "status": "assumed",
+      "verdict": "na",
+      "evidence": "기존에 사용 중인 해외 선도업체(울프스피드 등) 대비 전력 효율 60% 향상을 실현하는 과정에서의 기술적 제약사항을 질문하여 대체재 대비 실질적 우위를 검증 중임."
+    },
+    "BB4_opportunity_cost": {
+      "status": "assumed",
+      "verdict": "fit",
+      "evidence": "실패 손실을 최소화하기 위해 전면 도입이 아닌 프로토타입 검증(PoC)을 먼저 진행하겠다는 의사를 명확히 밝힘."
+    },
+    "BB5_evidence": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "요구했던 MTBF 인증 데이터와 국내 전담 기술 지원 프로세스 문서를 실제로 첨부하여 제공함."
+    },
+    "BB6_execution_gate": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "dealbreaker": false,
+      "evidence": "필수 선결 조건인 장기 신뢰성(MTBF) 인증 데이터와 즉각적인 국내 기술 지원(A/S) 프로세스 문서를 제출하여 구조적 요건을 충족함."
+    },
+    "BB7_timing": {
+      "status": "unknown",
+      "verdict": "na"
+    },
+    "BB8_trust": {
+      "status": "assumed",
+      "verdict": "na",
+      "authenticity_gate": "na",
+      "exploitation_detected": false,
+      "evidence": "기술 워싱을 경계하며, 실제 양산 환경에서의 한계와 제약사항을 투명하게 공유하는지를 신뢰의 척도로 삼고 정직한 답변을 요구함.",
+      "note": "[정규화: authenticity_gate='testing'→'na']"
+    },
+    "BB9_decision_structure": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "15분 화상 미팅 제안과 함께 내부 회람을 위한 GaN 모듈 상세 사양 룩북과 로열티 요율표를 첨부하여 필수 선결 조건을 충족함."
+    },
+    "BB10_contract_protection": {
+      "status": "unknown",
+      "verdict": "na"
+    }
+  },
+  "buyer_decision": {
+    "decision": "conditional",
+    "rationale": "판매자는 룩북, 로열티 요율표, MTBF 인증 데이터 및 국내 기술 지원 프로세스 등 당사가 요구한 모든 구조적 선결 조건(BB6, BB9)을 충족했습니다. 다만 본격적인 프로토타입 검증(PoC) 단계로 넘어가기 위해서는, 당사가 극도로 경계하는 '기술 워싱'이 없음을 증명할 판매자의 정직한 기술적 한계 공유가 선행되어야 합니다.",
+    "conditions": [
+      {
+        "condition": "기존 해외 선도업체(울프스피드 등) 제품 대비 전력 효율 60% 향상 달성 과정에서의 현재 기술적 한계 및 제약사항에 대한 투명한 공유",
+        "check_method": "판매자의 답변이 마케팅적 수사가 아닌, 실제 수율이나 양산 환경에서의 구체적이고 현실적인 기술적 제약을 포함하고 있는지 실무진이 평가"
+      }
+    ],
+    "risks": [
+      {
+        "type": "precondition",
+        "desc": "판매자가 기술적 한계를 축소하거나 과장된 스펙(기술 워싱)을 제시할 경우, 신뢰성 훼손으로 인해 PoC 진행이 불가할 수 있음."
+      },
+      {
+        "type": "profitability",
+        "desc": "판매자의 GaN 모듈이 실제 ASPER 프로토타입 장비에 적용되었을 때 목표한 전력 효율 60% 개선에 미치지 못하여 개발 시간과 리소스가 낭비될 위험."
+      }
+    ]
+  },
+  "seller_state": {
+    "SB1_pitch_alignment": {
+      "status": "confirmed",
+      "buyer_real_reason": "ASPER 장비 전력 효율 60% 이상 개선 및 양산 환경에서의 기술적 한계에 대한 투명성 확인",
+      "misread_type": "evidence"
+    },
+    "SB2_value_positioning": {
+      "status": "unknown",
+      "position": "unknown"
+    },
+    "SB3_evidence_packaging": {
+      "status": "confirmed",
+      "note": "상대가 명확히 요구한 MTBF 인증 데이터와 국내 기술 지원 프로세스를 반도체 장비 도메인 화폐에 맞춰 패키징하여 제공해야 함",
+      "evidence_offered": [
+        "GaN 모듈 상세 사양 및 로열티 요율표 룩북",
+        "MTBF 인증 데이터",
+        "국내 전담 기술 지원 프로세스 문서"
+      ]
+    },
+    "SB4_substitute_defense": {
+      "status": "unknown",
+      "substitute_type": "unknown"
+    },
+    "SB5_threshold_design": {
+      "status": "confirmed",
+      "note": "15분 미팅의 선결 조건으로 특정 데이터(MTBF, 지원 프로세스)를 요구하므로, 해당 정보를 즉각 제공하여 미팅 진입 문턱을 낮춰야 함",
+      "downside_removers": [
+        "15분 화상 미팅"
+      ]
+    },
+    "SB6_execution_honesty": {
+      "status": "assumed",
+      "limits_disclosed": []
+    },
+    "SB7_authenticity_structure": {
+      "status": "unknown"
+    },
+    "SB8_champion_arming": {
+      "status": "confirmed",
+      "champion_mode": true,
+      "note": "내부 검토를 위해 자료를 전달했다고 명시함. 내부 의사결정자를 설득할 수 있는 신뢰성 데이터 및 지원 프로세스 문서를 쥐여주어야 함"
+    },
+    "SB9_protection_screening": {
+      "status": "confirmed",
+      "screening": "clean",
+      "note": "정상적인 기술 검증(MTBF) 및 지원 프로세스를 요구하며, 카피나 착취 신호는 없음"
+    },
+    "SB10_strategic_relationship": {
+      "status": "unknown",
+      "stance": "pursue"
+    }
+  },
+  "seller_outcome": {
+    "outcome": "no_agreement",
+    "rationale": "구매자는 선결 조건이었던 MTBF 데이터와 기술 지원 프로세스를 수용했으나, PoC 진행의 최종 관문으로 해외 선도업체 대비 기술적 한계에 대한 투명한 공개를 요구하고 있습니다. 아직 당사의 답변이 이루어지지 않아 최종 합의에 도달하지 않은 상태입니다."
+  },
+  "hypotheses": [
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "판매자가 자사 기술의 한계와 보완점을 정직하게 공개한다면, 이는 장기적인 부품 국산화 파트너로서 요구되는 구조적 진정성을 갖춘 것이다.",
+      "dimension": "BB8_trust",
+      "evidence_needed": "판매자의 다음 답변에서 구체적인 기술적 허들이나 수율 문제 등을 회피하지 않고 명확히 서술하는지 확인"
+    },
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "프로토타입 검사장비 1~2대에 모듈을 우선 적용하는 소규모 PoC를 통해, 다운사이드 리스크를 통제하면서도 전력 효율 60% 개선 여부를 충분히 실증할 수 있다.",
+      "dimension": "BB4_opportunity_cost",
+      "evidence_needed": "PoC 진행 시 ASPER 장비 가동 환경에서의 실제 전력 소모량 및 효율 개선율 측정 데이터"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "해외 선도업체 대비 당사 기술의 명확한 한계와 이를 보완할 로드맵을 정직하게 공개하면, 구매자의 신뢰를 얻어 PoC 합의로 이어질 것이다.",
+      "dimension": "SB6_execution_honesty",
+      "evidence_needed": "당사가 제시한 기술적 한계 및 보완책에 대한 구매자의 긍정적 피드백 및 PoC 진행 동의"
+    }
+  ],
+  "audit": [
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "차세대 장비 성능 고도화를 위한 RF GaN 기술 도입을 언급하여 당사의 핵심 구매 목적과 방향성이 일치함."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "15분 화상 미팅 제안과 함께 내부 회람을 위한 GaN 모듈 상세 사양 룩북과 로열티 요율표를 첨부하여 필수 선결 조건을 충족함."
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "buyer_real_reason": "ASPER 장비 전력 효율 60% 이상 개선, 반도체 장비 환경에 최적화된 MTBF 인증 데이터 및 즉각적인 국내 기술 지원 프로세스 확인",
+        "misread_type": "evidence",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "updated",
+        "note": "상대가 명확히 요구한 MTBF 인증 데이터와 국내 기술 지원 프로세스를 반도체 장비 도메인 화폐에 맞춰 패키징하여 제공해야 함"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "updated",
+        "note": "15분 미팅의 선결 조건으로 특정 데이터(MTBF, 지원 프로세스)를 요구하므로, 해당 정보를 즉각 제공하여 미팅 진입 문턱을 낮춰야 함"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "champion_mode": true,
+        "status": "updated",
+        "note": "내부 검토를 위해 자료를 전달했다고 명시함. 내부 의사결정자를 설득할 수 있는 신뢰성 데이터 및 지원 프로세스 문서를 쥐여주어야 함"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "screening": "clean",
+        "status": "updated",
+        "note": "정상적인 기술 검증(MTBF) 및 지원 프로세스를 요구하며, 카피나 착취 신호는 없음"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "seller_asset_position": "mission",
+        "evidence": "당사의 1순위 구매 이유인 ASPER 장비의 전력 효율 60% 개선 목표를 정확히 인지하고 이에 맞춰 제안함."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "요구했던 MTBF 인증 데이터와 국내 전담 기술 지원 프로세스 문서를 실제로 첨부하여 제공함."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "dealbreaker": false,
+        "evidence": "필수 선결 조건인 장기 신뢰성(MTBF) 인증 데이터와 즉각적인 국내 기술 지원(A/S) 프로세스 문서를 제출하여 구조적 요건을 충족함."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer_final",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "판매자가 국내 유일의 GaN IDM임을 강조하며, 당사의 핵심 구매 목적인 전력 효율 개선과 부품 국산화(공급망 안정화) 방향성에 모두 부합함을 확인함."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer_final",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "seller_asset_position": "mission",
+        "evidence": "당사의 1순위 구매 이유인 ASPER 장비의 전력 효율 60% 개선 목표를 판매자가 정확히 인지하고 이에 맞춘 제안과 자료를 제공함."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer_final",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "testing",
+        "verdict": "unknown",
+        "evidence": "기존에 사용 중인 해외 선도업체(울프스피드 등) 대비 전력 효율 60% 향상을 실현하는 과정에서의 기술적 제약사항을 질문하여 대체재 대비 실질적 우위를 검증 중임."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer_final",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "실패 손실을 최소화하기 위해 전면 도입이 아닌 프로토타입 검증(PoC)을 먼저 진행하겠다는 의사를 명확히 밝힘."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer_final",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "testing",
+        "verdict": "unknown",
+        "authenticity_gate": "testing",
+        "exploitation_detected": false,
+        "evidence": "기술 워싱을 경계하며, 실제 양산 환경에서의 한계와 제약사항을 투명하게 공유하는지를 신뢰의 척도로 삼고 정직한 답변을 요구함."
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller_final",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "confirmed",
+        "buyer_real_reason": "ASPER 장비 전력 효율 60% 이상 개선 및 양산 환경에서의 기술적 한계에 대한 투명성 확인",
+        "misread_type": "evidence"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller_final",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "confirmed",
+        "evidence_offered": [
+          "GaN 모듈 상세 사양 및 로열티 요율표 룩북",
+          "MTBF 인증 데이터",
+          "국내 전담 기술 지원 프로세스 문서"
+        ]
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller_final",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "confirmed",
+        "downside_removers": [
+          "15분 화상 미팅"
+        ]
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller_final",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "assumed",
+        "limits_disclosed": []
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller_final",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "confirmed",
+        "champion_mode": true
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller_final",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "status": "confirmed",
+        "screening": "clean"
+      }
+    }
+  ],
+  "provenance": {
+    "buyer_side": "simulated",
+    "seller_side": "simulated",
+    "outcome_anchor": false
+  }
+}
