@@ -6,9 +6,12 @@
 # 해법: autossh가 터널 상태를 모니터링해 끊기면 자동 재연결.
 #
 # 사용: bash training/scorer/tunnel.sh   (이미 떠 있으면 아무것도 안 함)
+# 호스트는 코드에 넣지 않는다 — .env의 A2A_GPU_HOST(gitignored)에서만 읽는다.
 set -e
+set -a; [ -f "$(dirname "$0")/../../.env" ] && source "$(dirname "$0")/../../.env"; set +a
+: "${A2A_GPU_HOST:?A2A_GPU_HOST가 없습니다 — .env에 A2A_GPU_HOST=user@host 추가}"
 KEY=~/.ssh/ai_champion_gpu
-HOST=tta@123.41.23.113
+HOST="$A2A_GPU_HOST"
 PORT=8500
 
 if nc -z localhost "$PORT" 2>/dev/null; then
