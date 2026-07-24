@@ -98,6 +98,41 @@ def _friendli_scorer(timeout: float = 120.0):
     return score, f"k-exaone-236b({endpoint[:12]}…)"
 
 
+def _gemini_scorer():
+    """GOOGLE_API_KEY → Gemini 채점 함수 (E10 — 교차증류용 상위 채점자).
+
+    프롬프트(SCORE_SYS)·temperature(0.2)는 E9 라벨과 동일 고정 — 변인은 채점자
+    모델뿐. 기본 모델은 judge와 동일 티어(gemini-3.1-pro-preview)."""
+    key = os.environ.get("GOOGLE_API_KEY")
+    if not key:
+        raise SystemExit("GOOGLE_API_KEY 환경변수가 없습니다 (키는 코드에 넣지 않음).")
+    from google import genai
+    from google.genai import types
+    client = genai.Client(api_key=key)
+    model = os.environ.get("SCORE_GEMINI_MODEL", "gemini-3.1-pro-preview")
+    cfg = types.GenerateContentConfig(
+        system_instruction=SCORE_SYS, temperature=0.2,
+        max_output_tokens=1000,               # pro 계열 thinking 여유분
+        response_mime_type="application/json")
+
+    def score(a, b):
+        resp = client.models.generate_content(
+            model=model,
+            contents=[types.Content(role="user", parts=[types.Part.from_text(
+                text=_pair_user(a[0], a[1], b[0], b[1]))])],
+            config=cfg)
+        return _parse((resp.text or "").strip())
+    return score, model
+
+
+def _make_scorer(backend):
+    if backend == "friendli":
+        return _friendli_scorer()
+    if backend == "gemini":
+        return _gemini_scorer()
+    return _claude_scorer()
+
+
 def _mine_pairs(companies: list, n_pairs: int, seed: int) -> list:
     """하드 포지티브(같은/인접 힌트 키워드) + 무작위 네거티브 혼합 샘플링."""
     if len(companies) < 2:        # 리서치 전이면 빈 계획 (크래시 대신)
@@ -157,8 +192,7 @@ def run(db_path, out_path, n_pairs, sample_k, mode, seed, dry_run,
     if len(companies) < 2:
         raise SystemExit("리서치 DB에 기업이 2곳 미만 — 먼저 research.py --run 필요.")
 
-    score_fn, model = (_friendli_scorer() if backend == "friendli"
-                       else _claude_scorer())
+    score_fn, model = _make_scorer(backend)
     print(f"[채점] backend={backend} · model={model} · 쌍 {len(pairs)} · "
           f"k={sample_k} · workers={workers}", flush=True)
 
@@ -212,6 +246,57 @@ def run(db_path, out_path, n_pairs, sample_k, mode, seed, dry_run,
     return tally
 
 
+def run_rescore(src_path, out_path, backend, workers, limit=0) -> dict:
+    """기존 페어 JSONL의 '동일한 쌍'을 다른 채점자로 재채점 (E10 — 단일 변인 통제).
+
+    쌍을 재마이닝하지 않는다 — 텍스트·쌍 구성을 고정해야 채점자만 변인이 된다.
+    출력엔 원 라벨을 prev_score로 보존해 채점자 간 일치도를 바로 잴 수 있게 한다."""
+    rows = [json.loads(l) for l in open(src_path, encoding="utf-8") if l.strip()]
+    if limit:
+        rows = rows[:limit]
+    score_fn, model = _make_scorer(backend)
+    print(f"[재채점] {src_path} {len(rows)}쌍 · backend={backend} · model={model} · "
+          f"workers={workers}", flush=True)
+
+    def _one(r):
+        try:
+            s = score_fn((r["a_id"], r["a_text"]), (r["b_id"], r["b_text"]))
+        except Exception as e:                     # noqa: BLE001
+            print(f"  ✗ {r['a_id']}×{r['b_id']}: {type(e).__name__}", flush=True)
+            return None
+        if not s:
+            return None
+        return {"a_id": r["a_id"], "a_text": r["a_text"],
+                "b_id": r["b_id"], "b_text": r["b_text"],
+                "score": s["score"], "mode": r.get("mode", "research"),
+                "source": model, "prev_score": r["score"],
+                "reason": s.get("reason", "")[:200]}
+
+    import threading
+    lock = threading.Lock()
+    written = 0
+    with open(out_path, "w", encoding="utf-8") as f:
+        def _emit(row):
+            nonlocal written
+            if not row:
+                return
+            with lock:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                written += 1
+                if written % 100 == 0:
+                    print(f"  … {written}/{len(rows)}", flush=True)
+        if workers <= 1:
+            for r in rows:
+                _emit(_one(r))
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                for row in ex.map(_one, rows):
+                    _emit(row)
+    print(f"[완료] 재채점 {written}/{len(rows)} → {out_path}", flush=True)
+    return {"written": written}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="페어 관련도 스코어링 (Claude) — 기본 dry-run, 실행은 AXR 협의 후")
@@ -220,14 +305,26 @@ def main() -> None:
     ap.add_argument("--pairs", type=int, default=4000)
     ap.add_argument("--sample-k", type=int, default=1, help=">1이면 중앙값+일치도")
     ap.add_argument("--mode", default="research", choices=["research", "ontology"])
-    ap.add_argument("--backend", default="friendli", choices=["friendli", "claude"],
-                    help="채점 모델 — friendli(K-EXAONE-236B) 또는 claude")
+    ap.add_argument("--backend", default="friendli",
+                    choices=["friendli", "claude", "gemini"],
+                    help="채점 모델 — friendli(K-EXAONE) | claude | gemini(E10)")
+    ap.add_argument("--rescore-from", default=None,
+                    help="기존 페어 JSONL의 동일 쌍을 재채점 (마이닝 없음, E10)")
+    ap.add_argument("--limit", type=int, default=0, help="재채점 상한 (프로브용)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--workers", type=int, default=1,
                     help="동시 API 호출 수 (I/O 대기라 6~8 권장)")
     ap.add_argument("--run", action="store_true", help="실제 API 실행 (없으면 dry-run)")
     a = ap.parse_args()
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    if a.rescore_from:
+        if not a.run:
+            rows = sum(1 for l in open(a.rescore_from, encoding="utf-8") if l.strip())
+            n = min(rows, a.limit) if a.limit else rows
+            print(f"[dry-run] 재채점 예정 {n}쌍 (backend={a.backend}) — 실행은 --run")
+            return
+        run_rescore(a.rescore_from, a.out, a.backend, a.workers, a.limit)
+        return
     run(a.db, a.out, a.pairs, a.sample_k, a.mode, a.seed,
         dry_run=not a.run, backend=a.backend, workers=a.workers)
 
