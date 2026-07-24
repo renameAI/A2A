@@ -327,6 +327,17 @@ button:disabled:hover { background: var(--blue); box-shadow: none; }
   background: var(--blue-bg); color: var(--blue); font-weight: 700; font-size: 12.5px;
   padding: 3px 9px; border-radius: var(--r-pill); white-space: nowrap;
 }
+.api-chip {
+  background: #f3ecff; color: #6d3bd4; font-weight: 700; font-size: 12.5px;
+  padding: 3px 9px; border-radius: var(--r-pill); white-space: nowrap;
+}
+.cmp-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--t500); margin-right: auto; cursor: pointer; }
+.cmp-toggle input { width: 15px; height: 15px; }
+#latency { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.lat-chip { font-weight: 700; padding: 2px 8px; border-radius: var(--r-pill); }
+.lat-e9 { background: var(--blue-bg); color: var(--blue); }
+.lat-api { background: #f3ecff; color: #6d3bd4; }
+.lat-x { color: var(--t400); font-size: 12px; }
 .j-btn { background: var(--blue-bg); color: var(--blue); font-weight: 600; font-size: 13.5px; }
 .j-btn:hover { background: #d8ebff; }
 .points { margin: 12px 0 6px; display: flex; flex-wrap: wrap; gap: 6px; }

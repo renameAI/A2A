@@ -364,6 +364,7 @@ class MatchRequest(BaseModel):
     intent: Intent
     pool: PoolChoice = PoolChoice.external
     k: int = Field(default=5, ge=1, le=20)
+    compare_api: bool = False        # UI 토글 — 1.2B와 API(K-EXAONE) 같이 채점·비교
 
 
 def _require_company(company_id: str):
@@ -387,7 +388,8 @@ def match(req: MatchRequest, background: BackgroundTasks):
     def _run() -> dict:
         result = retrieve(RetrieveRequest(
             requester_profile=rec.profile, intent=req.intent,
-            direction=RetrieveDirection.sell_outreach, pool=req.pool, k=req.k))
+            direction=RetrieveDirection.sell_outreach, pool=req.pool, k=req.k,
+            compare_api=req.compare_api))
         enriched = []
         for cand in result.candidates:
             record = pool_module.find(cand.company_id)
@@ -398,7 +400,9 @@ def match(req: MatchRequest, background: BackgroundTasks):
                 "summary": record.profile.description if record else "",
             })
         return {"candidates": enriched,
-                "synthesized_counterpart": result.synthesized_counterpart}
+                "synthesized_counterpart": result.synthesized_counterpart,
+                "scorer_latency_ms": result.scorer_latency_ms,
+                "api_latency_ms": result.api_latency_ms}
     return _submit(background, _run)
 
 

@@ -1210,11 +1210,13 @@ $("#btn-match").onclick = async () => {
   state.intent = collectIntent();
   updateChecklist();
   try {
+    const cmp = !!document.getElementById("cmp-api")?.checked;
     const data = await runJob("/product/match",
-      { company_id: state.companyId, intent: state.intent, pool: "external", k: 5 },
+      { company_id: state.companyId, intent: state.intent, pool: "external", k: 5, compare_api: cmp },
       $("#match-log"), "match");
     $("#synth").innerHTML = `<b>합성된 이상적 상대상</b> (검색어가 된 문장): ${esc(data.synthesized_counterpart)}`;
     $("#synth").classList.remove("hidden");
+    renderLatency(data);
     state.judged = {};   // 새 후보군 — 이전 후보의 판단 수를 이어받지 않는다
     renderCandidates(data.candidates);
     renderCandLane(data.candidates);
@@ -1239,13 +1241,31 @@ $("#btn-match").onclick = async () => {
   } finally { btn.disabled = false; }
 };
 
+function renderLatency(data) {
+  const box = document.getElementById("latency");
+  if (!box) return;
+  const e9 = data.scorer_latency_ms, api = data.api_latency_ms;
+  if (e9 == null && api == null) { box.classList.add("hidden"); return; }
+  let html = "<b>채점 속도</b> ";
+  if (e9 != null) html += `<span class="lat-chip lat-e9">🧠 1.2B 로컬 ${e9}ms</span>`;
+  if (api != null) {
+    html += ` <span class="lat-chip lat-api">☁️ API ${api}ms</span>`;
+    if (e9 != null && e9 > 0) html += ` <span class="lat-x">API가 ${Math.round(api / e9)}× 느림</span>`;
+  } else if (document.getElementById("cmp-api")?.checked) {
+    html += ` <span class="lat-x">API 응답 없음(폴백)</span>`;
+  }
+  box.innerHTML = html;
+  box.classList.remove("hidden");
+}
+
 function renderCandidates(candidates) {
   $("#candidates").innerHTML = candidates.map((c) => `
     <div class="cand" id="cand-${esc(c.company_id)}">
       <div class="cand-head">
         <h3>${esc(c.name)} <small>(${esc(c.country)} · ${esc(c.pool)} 풀)</small></h3>
         <div class="score-bar" title="적합 신호 ${c.retrieval_score}"><i style="width:${Math.min(c.retrieval_score * 100, 100)}%"></i></div>
-        ${c.learned_relatedness != null ? `<span class="learned-chip" title="EXAONE 특수토큰 파인튜닝 스코어러의 관련도 (0~10) — 순위 산정에 사용">🧠 ${c.learned_relatedness}</span>` : ""}
+        ${c.learned_relatedness != null ? `<span class="learned-chip" title="E9 · 1.2B 로컬 스코어러 관련도 (0~10) — 순위 산정에 사용">🧠 1.2B ${c.learned_relatedness}</span>` : ""}
+        ${c.api_relatedness != null ? `<span class="api-chip" title="API · K-EXAONE-236B 관련도 (0~10) — 비교용, 순위 미반영">☁️ API ${c.api_relatedness}</span>` : ""}
         <button class="j-btn" data-id="${esc(c.company_id)}">판단 실행 (Judge)</button>
       </div>
       <div class="points">${c.match_points.map((p) => `<span>${esc(p)}</span>`).join("")}</div>

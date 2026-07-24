@@ -174,7 +174,8 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
         # 학습 스코어러 재랭킹 (선택적) — 게이트는 위 휴리스틱 τ가 이미 결정했고,
         # 여기서는 통과 후보의 '순서'만 학습 점수로 다시 매긴다. 서버 부재 시
         # score_batch가 None → 휴리스틱 순서 그대로 (정직 폴백, 조용한 대체 없음).
-        from .scorer_client import profile_facts, score_batch
+        from .scorer_client import (api_score_batch, profile_facts,
+                                     score_batch_timed)
         rb = req.requester_profile.basic
         req_facts = profile_facts(rb.name, rb.industry, rb.country,
                                   req.requester_profile.description)
@@ -182,10 +183,20 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
         if len(strong) > len(window):
             progress.log("검색", f"학습 재랭킹 창 초과 — 상위 {len(window)}건만 재랭킹, "
                                  f"나머지 {len(strong) - len(window)}건은 휴리스틱 순서")
-        learned = score_batch([
+        pairs = [
             (req_facts, profile_facts(r.profile.basic.name, r.profile.basic.industry,
                                       r.profile.basic.country, r.profile.description))
-            for r, _ in window])
+            for r, _ in window]
+        learned, e9_ms = score_batch_timed(pairs)
+        # 비교 모드: API(K-EXAONE-236B)로도 같은 창을 채점 (순서엔 안 씀, 표시만)
+        api_scores, api_ms = (None, None)
+        if req.compare_api:
+            progress.log("검색", "API 비교 모드 — K-EXAONE-236B로 동일 후보 재채점(느림)")
+            api_scores, api_ms = api_score_batch(pairs)
+        api_by_cid = {}
+        if api_scores is not None:
+            api_by_cid = {window[i][0].company_id: api_scores[i]
+                          for i in range(len(window))}
         if learned is not None:
             ranked = sorted(
                 ((r, s, l) for (r, s), l in zip(window, learned)),
@@ -196,15 +207,17 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
         else:
             ranked = [(r, s, None) for r, s in strong]
 
-        candidates = [
-            CandidateOut(
+        candidates = []
+        for r, s, l in ranked[: req.k]:
+            av = api_by_cid.get(r.company_id)
+            candidates.append(CandidateOut(
                 company_id=r.company_id,
                 profile_ref=r.company_id,
                 pool=r.pool,
                 match_points=_match_points(synth, anchor, r),
                 retrieval_score=s,
                 learned_relatedness=round(l, 2) if l is not None else None,
-            )
-            for r, s, l in ranked[: req.k]
-        ]
-    return RetrieveResponse(candidates=candidates, synthesized_counterpart=synth)
+                api_relatedness=round(av, 2) if av is not None else None,
+            ))
+    return RetrieveResponse(candidates=candidates, synthesized_counterpart=synth,
+                            scorer_latency_ms=e9_ms, api_latency_ms=api_ms)

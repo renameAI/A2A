@@ -236,6 +236,7 @@ class RetrieveRequest(BaseModel):
     direction: RetrieveDirection     # 검색 면 결정 (RET-02)
     pool: PoolChoice = PoolChoice.both
     k: int = Field(default=30, ge=1, le=50)
+    compare_api: bool = False        # True면 API(K-EXAONE-236B)도 같이 채점(비교용, 느림)
 
 
 class CandidateOut(BaseModel):
@@ -247,11 +248,15 @@ class CandidateOut(BaseModel):
     # 학습 스코어러(EXAONE 특수토큰 파인튜닝) 관련도 0~10 — 서버 연결 시에만 채워짐.
     # 랭킹 순서만 담당하고 게이트는 retrieval_score(휴리스틱)가 유지 (정직 폴백).
     learned_relatedness: Optional[float] = None
+    # API(K-EXAONE-236B) 관련도 0~10 — 비교 모드에서만 채워짐. 랭킹엔 안 씀.
+    api_relatedness: Optional[float] = None
 
 
 class RetrieveResponse(BaseModel):
     candidates: list[CandidateOut]
     synthesized_counterpart: str     # 1단 합성 결과 (감사·디버그용)
+    scorer_latency_ms: Optional[int] = None   # E9(1.2B) 배치 채점 지연
+    api_latency_ms: Optional[int] = None       # API(K-EXAONE-236B) 채점 지연 (비교 모드)
 
 
 # ── /v1/judge (API §3) ──────────────────────────────────────────────

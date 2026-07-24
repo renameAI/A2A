@@ -152,9 +152,56 @@ SEED_POOL: list[CandidateRecord] = [
 ]
 
 
+# ── 외부 리서치 풀 로더 (코스닥 201사 — judge_cases/company_pool) ──────
+# A2A_POOL_DIR 환경변수가 가리키는 디렉터리의 *.json(company/sector/product/
+# public_profile)을 external 후보로 로드한다. 환경변수 없으면 기존 시드만 —
+# 테스트·골든셋은 영향받지 않는다(launch.json에서만 켠다).
+_EXTRA_POOL: list[CandidateRecord] | None = None
+
+
+def _load_extra_pool() -> list[CandidateRecord]:
+    global _EXTRA_POOL
+    if _EXTRA_POOL is not None:
+        return _EXTRA_POOL
+    import json
+    import os
+    from pathlib import Path
+    d = os.environ.get("A2A_POOL_DIR", "")
+    if not d or not Path(d).is_dir():
+        _EXTRA_POOL = []
+        return _EXTRA_POOL
+    out: list[CandidateRecord] = []
+    for f in sorted(Path(d).glob("*.json")):
+        try:
+            r = json.loads(f.read_text(encoding="utf-8"))
+            name = r["company"]
+            sector = r.get("sector") or "unknown"
+            product = r.get("product") or ""
+            profile_text = r.get("public_profile") or ""
+        except Exception:                          # noqa: BLE001 — 불량 파일은 건너뜀
+            continue
+        out.append(CandidateRecord(
+            company_id=f"kq-{name}",
+            pool=PoolKind.external,
+            profile=Profile(
+                basic=BasicInfo(name=name, country="한국", industry=sector),
+                description=profile_text[:600],
+                # 외부 풀 계약: buy-side 정보는 미상 — 섹터·제품에서 최소 추론만
+                problem_solved=_inferred(f"{sector} 분야의 사업 성장", 0.5),
+                solution=_inferred(product or sector, 0.6),
+                target_customer=_inferred(f"{sector} 수요 기업", 0.5),
+            ),
+            # 검색 면(sell_outreach): 키워드 밀도가 높은 섹터·제품을 앞에
+            pain_points=f"{sector} {product}",
+            tags=[t for t in [sector] + product.split(",")[:2] if t.strip()],
+        ))
+    _EXTRA_POOL = out
+    return _EXTRA_POOL
+
+
 def get_pool() -> list[CandidateRecord]:
-    return SEED_POOL
+    return SEED_POOL + _load_extra_pool()
 
 
 def find(company_id: str) -> CandidateRecord | None:
-    return next((r for r in SEED_POOL if r.company_id == company_id), None)
+    return next((r for r in get_pool() if r.company_id == company_id), None)
