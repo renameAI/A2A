@@ -116,12 +116,19 @@ def _gemini_scorer():
         response_mime_type="application/json")
 
     def score(a, b):
-        resp = client.models.generate_content(
-            model=model,
-            contents=[types.Content(role="user", parts=[types.Part.from_text(
-                text=_pair_user(a[0], a[1], b[0], b[1]))])],
-            config=cfg)
-        return _parse((resp.text or "").strip())
+        last = None
+        for attempt in range(4):               # 레이트리밋 대비 지수 백오프
+            try:
+                resp = client.models.generate_content(
+                    model=model,
+                    contents=[types.Content(role="user", parts=[types.Part.from_text(
+                        text=_pair_user(a[0], a[1], b[0], b[1]))])],
+                    config=cfg)
+                return _parse((resp.text or "").strip())
+            except Exception as e:             # noqa: BLE001
+                last = e
+                time.sleep(3 * (attempt + 1))
+        raise last
     return score, model
 
 
