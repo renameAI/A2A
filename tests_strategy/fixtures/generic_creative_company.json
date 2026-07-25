@@ -1,0 +1,20 @@
+{
+  "name": "creative_company",
+  "updates": {
+    "offer.chosen_solution": "포용적 브랜드 크리에이티브 캠페인",
+    "offer.transaction_unit": "project",
+    "transaction_strategy.primary_goal": "paid_project",
+    "strategy_tracks.A.market.country_or_region": "프랑스",
+    "strategy_tracks.A.target.organization_type": "PR 커뮤니케이션 에이전시",
+    "strategy_tracks.A.target.buying_situation": "브랜드 클라이언트의 차별화 캠페인을 기획하는 단계",
+    "strategy_tracks.A.recipient.first_reviewer": "크리에이티브 디렉터",
+    "strategy_tracks.A.purchase_logic.purchase_reason": "기존 에이전시와 다른 고품질 디자인 결과물 확보",
+    "strategy_tracks.A.purchase_logic.key_benefit_priority": ["problem_solving", "social_impact"],
+    "strategy_tracks.A.proof_strategy.primary_proof": "글로벌 브랜드 반복 유료 협업 프로젝트",
+    "strategy_tracks.A.proof_strategy.sample_or_demo_availability": "immediate",
+    "strategy_tracks.A.entry_strategy.primary_channel": "agency",
+    "strategy_tracks.A.cta_strategy.primary_cta": "meeting_15_30min",
+    "strategy_tracks.A.cta_strategy.conversion_flow": ["소개 미팅", "케이스덱 검토", "브랜드 캠페인 제안"],
+    "strategy_tracks.A.execution_constraints.highest_risk": "현지 에이전시의 브랜드 제안 과정과 역할 분담"
+  }
+}
