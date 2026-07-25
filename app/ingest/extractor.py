@@ -22,6 +22,12 @@ def _prov_field(data: dict) -> ProvField:
     conf = data.get("confidence")
     if prov == Provenance.inferred and conf is None:
         conf = 0.5   # 스키마 계약 보정 (REP-03: inferred엔 confidence 필수)
+    if conf is not None:
+        # 시스템 경계 — LLM이 스키마(0~1)를 벗어난 값을 낼 수 있다(실측: 7.2,
+        # 10점 스케일 착각으로 추정). JSON Schema의 min/max는 강제 보장이 아니라
+        # 코드가 최종 방어선이어야 한다 — 클램프로 원인 대신 증상만 억누르지 않게
+        # 원본값은 버리지 않고 [0,1]로 정직하게 눌러 담는다.
+        conf = max(0.0, min(1.0, conf))
     return ProvField(value=data.get("value", ""), provenance=prov, confidence=conf)
 
 

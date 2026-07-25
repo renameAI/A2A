@@ -180,7 +180,8 @@ class _OpenAICompatExtractor:
         return ["텍스트 생성 대기"]
 
     def _chat(self, system: str, user: str, *, schema: Optional[dict] = None,
-              thinking: bool = False, max_tokens: int = 8192) -> str:
+              thinking: bool = False, max_tokens: int = 8192,
+              temperature: Optional[float] = None) -> str:
         host = urlparse(self._url).netloc or self._url
         progress.log(self._label,
                      f"호출 시작 — reasoning {'ON(깊은 추론)' if thinking else 'OFF'}"
@@ -196,6 +197,8 @@ class _OpenAICompatExtractor:
                          {"role": "user", "content": user}],
             "max_tokens": max_tokens,
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
         if self._thinking_kwargs:
             payload["chat_template_kwargs"] = {"enable_thinking": thinking}
         if schema is not None:
@@ -236,7 +239,7 @@ class _OpenAICompatExtractor:
         if choice.get("finish_reason") == "length" and thinking and self._thinking_kwargs:
             progress.log(self._label, "⚠ reasoning이 토큰 예산 소진 — thinking OFF로 재시도")
             return self._chat(system, user, schema=schema, thinking=False,
-                              max_tokens=max_tokens)
+                              max_tokens=max_tokens, temperature=temperature)
         if choice.get("finish_reason") == "length":
             raise EngineError(502, "llm_error",
                               f"{self._label} 출력이 잘렸습니다 — 입력 자료를 줄여 재시도하세요.")
@@ -266,7 +269,13 @@ class _OpenAICompatExtractor:
                            "하나도 빠짐없이 자연어로 서술하라. (JSON이 아니라 서술문으로. "
                            "빈 항목을 남기지 말 것 — 모르면 '미상'과 그 이유를 쓴다. "
                            "자료에 없는 고유명사·수치·날짜를 절대 지어내지 마라.)",
-                    thinking=True, max_tokens=16384)
+                    thinking=True, max_tokens=16384,
+                    # 실측(E11 게이트): 온도 미지정 시 동일 입력 재실행 일치율 0.06
+                    # (매번 다른 서사 창작) — 그런데 0.2로 낮추자 300초 타임아웃이
+                    # 2/10→4/5로 급증(reasoning 모델의 알려진 실패모드: 온도가
+                    # 너무 낮으면 사고 사슬이 반복 루프에 갇혀 안 끝남). 0.5로
+                    # 완화 — 반복문 회피용 최소 엔트로피는 남기고 창의성만 낮춘다.
+                    temperature=0.5)
                 progress.log("추론", f"1단계 완료 — 분석 {len(analysis):,}자 생성")
             with progress.node("llm.format", "구조화 (스키마 강제)"):
                 progress.log("추론", "2단계 — 구조화 시작 (스키마 강제)")
@@ -281,7 +290,9 @@ class _OpenAICompatExtractor:
         for attempt in (1, 2):
             try:
                 return self._parse_json(self._chat(
-                    system, user, schema=schema, thinking=False, max_tokens=8192))
+                    system, user, schema=schema, thinking=False, max_tokens=8192,
+                    # 스키마 강제 구조화라 반복 루프 위험이 낮음(문법 제약) — 0.2 유지.
+                    temperature=0.2))
             except EngineError as e:
                 if attempt == 2 or e.code == "llm_unreachable":
                     raise

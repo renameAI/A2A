@@ -13,7 +13,18 @@ import json
 import random
 from pathlib import Path
 
-SYSTEM = (
+# 게이트 실측(E11, temp=0.5+timeout=600s): 핵심3필드+portrait 통합 일치율 0.175 —
+# 목표(0.6)의 30%, 호출 실패율 37.5%. portrait(gaps·stage_narrative 등 귀추적
+# 서사)가 주범으로 진단돼 기본 스코프에서 제외한다(--fields full로 복귀 가능 —
+# 원본 교사 라벨엔 그대로 보존되어 있어 재시도 시 재라벨링 불필요).
+SYSTEM_CORE = (
+    "너는 B2B 매칭 엔진의 represent 모듈이다. 기업 리서치 원문을 읽고 아래 "
+    "스키마의 JSON 하나만 출력한다. 원문에 명시된 것은 provenance=stated, "
+    "역추론은 inferred로 정직하게 구분한다.\n"
+    '스키마: {"problem_solved":{"value","provenance"},"solution":{...},'
+    '"target_customer":{...}}')
+
+SYSTEM_FULL = (
     "너는 B2B 매칭 엔진의 represent 모듈이다. 기업 리서치 원문을 읽고 아래 "
     "스키마의 JSON 하나만 출력한다. 원문에 명시된 것은 provenance=stated, "
     "역추론은 inferred로 정직하게 구분한다. portrait는 자료가 보여주는 결과에서 "
@@ -27,30 +38,34 @@ PORTRAIT_ORDER = ["identity", "business_model", "edge", "stage_narrative",
                   "assets", "gaps", "risk_signals"]
 
 
-def canonical_target(t: dict) -> str:
+def canonical_target(t: dict, fields: str) -> str:
     """키 순서 고정 + compact — 같은 내용이면 같은 문자열 (학습 타겟 안정화)."""
     out = {}
     for f in FIELD_ORDER[:3]:
         out[f] = {"value": t[f]["value"], "provenance": t[f]["provenance"]}
-    p = t.get("portrait")
-    out["portrait"] = ({k: p.get(k, "") for k in PORTRAIT_ORDER} if p else None)
+    if fields == "full":
+        p = t.get("portrait")
+        out["portrait"] = ({k: p.get(k, "") for k in PORTRAIT_ORDER} if p else None)
     return json.dumps(out, ensure_ascii=False, separators=(",", ":"))
 
 
-def build_rows(raw_path, max_input_chars):
+def build_rows(raw_path, max_input_chars, fields):
+    system = SYSTEM_FULL if fields == "full" else SYSTEM_CORE
     rows = []
     for line in Path(raw_path).read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         r = json.loads(line)
-        if not r.get("target") or not r["target"].get("portrait"):
+        if not r.get("target"):
+            continue
+        if fields == "full" and not r["target"].get("portrait"):
             continue                               # portrait 없는 교사 산출은 제외
         rows.append({
             "company": r["company"],
             "messages": [
-                {"role": "system", "content": SYSTEM},
+                {"role": "system", "content": system},
                 {"role": "user", "content": r["research_text"][:max_input_chars]},
-                {"role": "assistant", "content": canonical_target(r["target"])},
+                {"role": "assistant", "content": canonical_target(r["target"], fields)},
             ],
             "r1_demoted": r.get("r1_demoted", 0),
         })
@@ -76,9 +91,12 @@ def main():
     ap.add_argument("--max-input-chars", type=int, default=6000)
     ap.add_argument("--held-frac", type=float, default=0.1)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--fields", choices=["core", "full"], default="core",
+                    help="core=핵심3필드만(기본, 게이트 실측 반영) · "
+                         "full=portrait 포함(게이트 재통과 후에만 권장)")
     a = ap.parse_args()
 
-    rows = build_rows(a.raw, a.max_input_chars)
+    rows = build_rows(a.raw, a.max_input_chars, a.fields)
     train, held = split_by_company(rows, a.held_frac, a.seed)
     for path, part in ((a.out_train, train), (a.out_held, held)):
         with open(path, "w", encoding="utf-8") as f:

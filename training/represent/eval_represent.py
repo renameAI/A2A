@@ -59,11 +59,12 @@ def generate(model, tok, messages, max_new=900):
                       skip_special_tokens=True).strip()
 
 
-def parse_json(text):
+def parse_json(text, fields="full"):
+    required = REQUIRED if fields == "full" else REQUIRED[:3]
     try:
         s, e = text.find("{"), text.rfind("}")
         d = json.loads(text[s:e + 1])
-        if not all(k in d for k in REQUIRED):
+        if not all(k in d for k in required):
             return None
         return d
     except Exception:                              # noqa: BLE001
@@ -77,6 +78,8 @@ def main():
     ap.add_argument("--held", required=True, help="represent_held.jsonl")
     ap.add_argument("--limit", type=int, default=40)
     ap.add_argument("--out", help="쌍별 결과 JSONL")
+    ap.add_argument("--fields", choices=["core", "full"], default="core",
+                    help="sft_data.py --fields와 맞출 것 (기본 core — 게이트 실측 반영)")
     a = ap.parse_args()
 
     rows = [json.loads(l) for l in
@@ -100,7 +103,7 @@ def main():
         teacher = json.loads(r["messages"][2]["content"])
         source = r["messages"][1]["content"]
         raw = generate(model, tok, msgs)
-        pred = parse_json(raw)
+        pred = parse_json(raw, a.fields)
         rec = {"company": r["company"], "valid": pred is not None}
         if pred:
             n_valid += 1
@@ -108,7 +111,7 @@ def main():
                              teacher[f]["value"]) for f in REQUIRED[:3]
                     if isinstance(pred.get(f), dict)]
             agree_core.append(sum(core) / max(1, len(core)))
-            if pred.get("portrait") and teacher.get("portrait"):
+            if a.fields == "full" and pred.get("portrait") and teacher.get("portrait"):
                 pj = [_jaccard(pred["portrait"].get(k, ""),
                                teacher["portrait"].get(k, "")) for k in PORTRAIT]
                 agree_port.append(sum(pj) / len(pj))

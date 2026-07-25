@@ -156,7 +156,7 @@ _FIELD = {
     "properties": {
         "value": {"type": "string"},
         "provenance": {"type": "string", "enum": ["stated", "inferred", "ask"]},
-        "confidence": {"type": ["number", "null"]},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
         "evidence_chunk_ids": {"type": "array", "items": {"type": "string"}},
     },
 }
