@@ -154,6 +154,10 @@ class Intent(BaseModel):
     proposal_type: Optional[str] = None
     price_range: Optional[str] = None
     notes: Optional[str] = None
+    # 협상 준비 인터뷰(interview_agent) 연결 — 있으면 judge_user()가 판단 텍스트에 포함한다.
+    differentiator: Optional[str] = None
+    key_proof: Optional[str] = None
+    entry_channel: Optional[str] = None
 
 
 # ── /v1/represent (API §1) ──────────────────────────────────────────
@@ -237,6 +241,9 @@ class RetrieveRequest(BaseModel):
     pool: PoolChoice = PoolChoice.both
     k: int = Field(default=30, ge=1, le=50)
     compare_api: bool = False        # True면 API(K-EXAONE-236B)도 같이 채점(비교용, 느림)
+    # True면 강한 후보(τ 이상)가 없을 때 422 대신 최고점 약한 후보를 정직하게 반환
+    # (CandidateOut.weak=True로 표시, 강한 후보와 섞어서 조용히 승격하지 않음).
+    allow_weak: bool = False
 
 
 class CandidateOut(BaseModel):
@@ -250,6 +257,8 @@ class CandidateOut(BaseModel):
     learned_relatedness: Optional[float] = None
     # API(K-EXAONE-236B) 관련도 0~10 — 비교 모드에서만 채워짐. 랭킹엔 안 씀.
     api_relatedness: Optional[float] = None
+    # True면 강한 후보 기준(τ) 미달 — allow_weak=True로 억지로 채운 후보임을 명시.
+    weak: bool = False
 
 
 class RetrieveResponse(BaseModel):
@@ -257,6 +266,7 @@ class RetrieveResponse(BaseModel):
     synthesized_counterpart: str     # 1단 합성 결과 (감사·디버그용)
     scorer_latency_ms: Optional[int] = None   # E9(1.2B) 배치 채점 지연
     api_latency_ms: Optional[int] = None       # API(K-EXAONE-236B) 채점 지연 (비교 모드)
+    weak_fallback: bool = False       # True면 강한 후보 0건 — candidates가 전부 약한 후보(τ 미달)
 
 
 # ── /v1/judge (API §3) ──────────────────────────────────────────────

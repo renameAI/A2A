@@ -24,6 +24,7 @@ from ..engine.compose import compose
 from ..engine.consultant import consult
 from ..engine.judge import judge
 from ..engine.negotiate import negotiate
+from . import negotiation as negotiation_module
 from ..engine.represent import represent
 from ..engine.retrieve import retrieve
 from ..engine import vision as vision_module
@@ -256,6 +257,18 @@ def companies():
             for r in store.list()]
 
 
+@router.get("/companies/{company_id}")
+def company_detail(company_id: str):
+    """이미 온보딩한 회사를 다시 입력하지 않고 불러오기 (재입력 방지) — 저장된
+    프로필·근거를 온보딩 응답과 같은 모양으로 돌려준다. ontology_anchors·sources·
+    mined처럼 온보딩 순간에만 계산되는 필드는 저장 안 돼 비워 돌아간다."""
+    rec = _require_company(company_id)
+    return {"company_id": rec.company_id, "profile": rec.profile.model_dump(mode="json"),
+            "evidence": rec.evidence, "open_questions": rec.open_questions,
+            "engine_mode": rec.engine_mode, "question_pin_count": len(rec.question_pins),
+            "ontology_anchors": [], "sources": [], "mined": None}
+
+
 # ── SQLite 인스펙터 (Phase 6) — 실제 저장 형태를 read-only로 노출 ────
 # 운영 상태가 로컬 어디에 어떤 raw 블롭으로 저장되는지 눈으로 확인하기 위함.
 
@@ -365,6 +378,7 @@ class MatchRequest(BaseModel):
     pool: PoolChoice = PoolChoice.external
     k: int = Field(default=5, ge=1, le=20)
     compare_api: bool = False        # UI 토글 — 1.2B와 API(K-EXAONE) 같이 채점·비교
+    allow_weak: bool = False         # UI 토글 — 강한 후보 0건이어도 상위 약한 후보를 표시
 
 
 def _require_company(company_id: str):
@@ -389,7 +403,7 @@ def match(req: MatchRequest, background: BackgroundTasks):
         result = retrieve(RetrieveRequest(
             requester_profile=rec.profile, intent=req.intent,
             direction=RetrieveDirection.sell_outreach, pool=req.pool, k=req.k,
-            compare_api=req.compare_api))
+            compare_api=req.compare_api, allow_weak=req.allow_weak))
         enriched = []
         for cand in result.candidates:
             record = pool_module.find(cand.company_id)
@@ -402,7 +416,8 @@ def match(req: MatchRequest, background: BackgroundTasks):
         return {"candidates": enriched,
                 "synthesized_counterpart": result.synthesized_counterpart,
                 "scorer_latency_ms": result.scorer_latency_ms,
-                "api_latency_ms": result.api_latency_ms}
+                "api_latency_ms": result.api_latency_ms,
+                "weak_fallback": result.weak_fallback}
     return _submit(background, _run)
 
 
@@ -571,3 +586,44 @@ def negotiate_sim(req: NegotiateCallRequest, background: BackgroundTasks):
         return {"buyer_simulated": True,   # 정직 프레이밍: 실데이터 아님을 명시
                 "negotiation": result.model_dump(mode="json")}
     return _submit(background, _run)
+
+
+# ── 협상 준비 인터뷰 (interview_agent 연결) ─────────────────────────
+# 시뮬레이션(위 /negotiate)과 달리 실제 대표 답변 기반 진출 전략을 만든다.
+# 세션은 백그라운드 스레드로 돌며 폴링(GET)으로 다음 질문/완료를 확인한다.
+
+class NegotiationPrepStartRequest(BaseModel):
+    company: str
+    hints: str = ""
+
+
+class NegotiationPrepAnswerRequest(BaseModel):
+    answer: str
+
+
+@router.post("/negotiation-prep/start", status_code=202)
+def negotiation_prep_start(req: NegotiationPrepStartRequest):
+    sess = negotiation_module.start_session(req.company, req.hints)
+    return sess.payload()
+
+
+@router.get("/negotiation-prep/{session_id}")
+def negotiation_prep_status(session_id: str):
+    sess = negotiation_module.get_session(session_id)
+    if sess is None:
+        raise EngineError(404, "not_found", f"협상 준비 세션 {session_id} 없음")
+    return sess.payload()
+
+
+@router.post("/negotiation-prep/{session_id}/answer")
+def negotiation_prep_answer(session_id: str, req: NegotiationPrepAnswerRequest):
+    sess = negotiation_module.get_session(session_id)
+    if sess is None:
+        raise EngineError(404, "not_found", f"협상 준비 세션 {session_id} 없음")
+    if sess.status != "waiting_answer":
+        raise EngineError(409, "not_waiting", "지금은 답변을 받을 상태가 아닙니다")
+    sess.submit_answer(req.answer)
+    # 답변 제출 직후엔 백그라운드 스레드가 아직 다음 질문을 못 만든 상태라
+    # sess.payload()가 이전 질문을 그대로 돌려줄 수 있다(경합). 확인만 반환하고
+    # 다음 질문/완료는 GET 폴링으로 받는다.
+    return {"session_id": sess.session_id, "status": "running"}

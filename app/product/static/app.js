@@ -749,7 +749,10 @@ function initCanvas() {
   document.querySelectorAll(".wf-node").forEach((el) => {
     el.dataset.st = el.classList.contains("wf-ready") ? "ready" : "locked";
   });
-  $("#node-onboard").onclick = () => document.getElementById("modal-onboard").showModal();
+  $("#node-onboard").onclick = () => {
+    document.getElementById("modal-onboard").showModal();
+    loadOnboardList();
+  };
   $("#node-profile").onclick = () => {
     if (nodeSt("profile") === "input" && $("#questions").children.length) {
       openQuestionsModal(); return;
@@ -768,9 +771,18 @@ function initCanvas() {
         || st === "running" || st === "error") openDrawer("match");
     else document.getElementById("modal-intent").showModal();
   };
-  ["judge", "compose", "negotiate"].forEach((k) => {
+  ["judge", "compose"].forEach((k) => {
     $(`#node-${k}`).onclick = () => { if (nodeSt(k) !== "locked") openDrawer("match"); };
   });
+  $("#node-negotiate").onclick = () => {
+    npReset();
+    const nameEl = document.getElementById("core-name");
+    if (nameEl && nameEl.value.trim()) $("#np-company").value = nameEl.value.trim();
+    document.getElementById("modal-negotiation-prep").showModal();
+  };
+  $("#btn-np-start").onclick = npStart;
+  $("#btn-np-answer").onclick = npSubmitAnswer;
+  $("#btn-np-to-match").onclick = npGoToMatch;
   $("#drawer").inert = true;                  // 초기 상태: 닫힘 — 포커스 불가
   $("#drawer-close").onclick = closeDrawer;
   document.querySelectorAll(".drawer-tabs button").forEach((b) =>
@@ -778,6 +790,130 @@ function initCanvas() {
   drawEdges();
   if (window.ResizeObserver)
     new ResizeObserver(() => drawEdges()).observe($("#canvas"));
+}
+
+/* ── 협상 준비 인터뷰 (interview_agent 연결, 대표 실답변 기반 전략) ── */
+
+const npState = { sessionId: null, polling: false };
+
+function npReset() {
+  npState.sessionId = null;
+  npState.polling = false;
+  $("#np-start-view").hidden = false;
+  $("#np-qa-view").hidden = true;
+  $("#np-done-view").hidden = true;
+  $("#np-status").textContent = "";
+  $("#np-answer").value = "";
+  $("#btn-np-start").hidden = false;
+  $("#btn-np-start").disabled = false;
+  $("#btn-np-answer").hidden = true;
+  $("#btn-np-to-match").hidden = true;
+}
+
+async function npStart() {
+  const company = $("#np-company").value.trim();
+  if (!company) { $("#np-status").textContent = "기업명을 입력하세요."; return; }
+  $("#btn-np-start").disabled = true;
+  $("#np-status").textContent = "리서치 중... (Google Grounding + 첫 질문 생성, 최대 1분)";
+  try {
+    const res = await fetch("/product/negotiation-prep/start", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company, hints: $("#np-hints").value.trim() }),
+    });
+    if (!res.ok) throw new Error((await res.json()).message || res.statusText);
+    const data = await res.json();
+    npState.sessionId = data.session_id;
+    npPoll();
+  } catch (err) {
+    $("#np-status").textContent = `오류: ${err.message}`;
+    $("#btn-np-start").disabled = false;
+  }
+}
+
+async function npSubmitAnswer() {
+  const answer = $("#np-answer").value.trim();
+  if (!answer) return;
+  $("#btn-np-answer").disabled = true;
+  $("#np-status").textContent = "답변 반영 중...";
+  try {
+    const res = await fetch(`/product/negotiation-prep/${npState.sessionId}/answer`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer }),
+    });
+    if (!res.ok) throw new Error((await res.json()).message || res.statusText);
+    $("#np-answer").value = "";
+    npPoll();
+  } catch (err) {
+    $("#np-status").textContent = `오류: ${err.message}`;
+    $("#btn-np-answer").disabled = false;
+  }
+}
+
+async function npPoll() {
+  if (npState.polling) return;
+  npState.polling = true;
+  try {
+    while (true) {
+      const res = await fetch(`/product/negotiation-prep/${npState.sessionId}`);
+      const data = await res.json();
+      if (data.status === "waiting_answer") { npRenderQuestion(data.question); break; }
+      if (data.status === "done") { npRenderDone(data.summary, data.intent); break; }
+      if (data.status === "error") { npRenderError(data.error); break; }
+      $("#np-status").textContent = "진행 중... (K-EXAONE 추론)";
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  } finally {
+    npState.polling = false;
+  }
+}
+
+function npRenderQuestion(q) {
+  $("#np-start-view").hidden = true;
+  $("#np-qa-view").hidden = false;
+  $("#np-done-view").hidden = true;
+  $("#btn-np-start").hidden = true;
+  $("#btn-np-answer").hidden = false;
+  $("#btn-np-answer").disabled = false;
+  $("#np-kind").textContent = `[${q.kind_label}]`;
+  $("#np-question").textContent = q.text;
+  $("#np-status").textContent = "";
+  $("#np-answer").focus();
+}
+
+function npRenderDone(summary, intent) {
+  $("#np-start-view").hidden = true;
+  $("#np-qa-view").hidden = true;
+  $("#np-done-view").hidden = false;
+  $("#btn-np-start").hidden = true;
+  $("#btn-np-answer").hidden = true;
+  $("#np-summary").textContent = (summary || []).join("\n");
+  $("#np-status").textContent = "전략 준비 완료";
+  npApplyIntent(intent);
+}
+
+/* 완료된 인터뷰의 intent를 상태에 보존 + "의도 설정" 모달 입력값을 미리 채운다.
+   모달에 없는 필드(차별점·증거·진입경로·노트)는 state.intentExtra로 collectIntent()가 병합한다. */
+function npApplyIntent(intent) {
+  if (!intent) return;
+  state.intentExtra = intent;
+  if (intent.target_region) $("#intent-region").value = intent.target_region;
+  document.querySelectorAll(".vp-checks input").forEach((cb) => {
+    cb.checked = (intent.value_props || []).includes(cb.value);
+  });
+  const btn = document.getElementById("btn-np-to-match");
+  if (btn) btn.hidden = false;
+}
+
+function npGoToMatch() {
+  document.getElementById("modal-negotiation-prep")?.close();
+  document.getElementById("modal-intent")?.showModal();
+}
+
+function npRenderError(msg) {
+  $("#np-status").textContent = `오류: ${msg}`;
+  $("#btn-np-start").hidden = false;
+  $("#btn-np-start").disabled = false;
+  $("#btn-np-answer").hidden = true;
 }
 
 /* ── ① 자료 입력 ─────────────────────────────────────────────── */
@@ -862,6 +998,48 @@ function collectPrivateState() {
     return { key: line.slice(0, idx).trim(), value: line.slice(idx + 1).trim(),
              source: "observed" };
   }).filter((i) => i && i.key && i.value);
+}
+
+/* 이전에 온보딩한 회사 목록 — 다시 입력하지 않고 불러오기 */
+async function loadOnboardList() {
+  const sec = document.getElementById("onb-load-sec");
+  const list = document.getElementById("onb-load-list");
+  try {
+    const companies = await api("/product/companies");
+    if (!companies.length) { sec.hidden = true; return; }
+    list.innerHTML = companies.map((c) => `
+      <button type="button" class="onb-load-item" data-id="${esc(c.company_id)}">
+        <b>${esc(c.name)}</b> <small>${esc(c.country || "")} · ${esc(c.engine_mode)}</small>
+      </button>`).join("");
+    list.querySelectorAll(".onb-load-item").forEach((b) =>
+      b.onclick = () => loadExistingCompany(b.dataset.id));
+    sec.hidden = false;
+  } catch {
+    sec.hidden = true;   // 목록 조회 실패해도 신규 입력은 그대로 가능
+  }
+}
+
+async function loadExistingCompany(companyId) {
+  const data = await api(`/product/companies/${companyId}`);
+  state.companyId = data.company_id;
+  document.getElementById("modal-onboard")?.close();
+  setNodeState("onboard", "done", "불러옴 — 재입력 없음");
+  renderProfile(data);
+  $("#engine-mode").textContent = `engine: ${data.engine_mode}`;
+  $("#engine-mode").className = `badge mode-${data.engine_mode}`;
+  updateChecklist(data.profile);
+  computeMinStatus(data.open_questions);
+  refreshNodeGates();
+  if (data.open_questions.length) {
+    setNodeState("questions", "input", `질문 ${data.open_questions.length}건`);
+  } else {
+    setNodeState("questions", "done", "질문 없음");
+  }
+  if (data.question_pin_count > 0) {
+    $("#evidence-block").classList.remove("hidden");
+    await loadEvidence();
+  }
+  openDrawer("profile", "result");
 }
 
 async function onboard() {
@@ -1196,14 +1374,21 @@ function renderPortrait(pt) {
 
 function collectIntent() {
   const vps = [...document.querySelectorAll(".vp-checks input:checked")].map((c) => c.value);
+  // 협상 준비 인터뷰(interview_agent)에서 나온 값 — 모달엔 없는 필드도 유실 없이 보존한다.
+  // 모달에서 직접 입력/체크한 값이 있으면 그쪽을 우선한다.
+  const extra = state.intentExtra || {};
   return {
-    value_props: vps.length ? vps : ["revenue_growth"],
-    target_region: $("#intent-region").value.trim() || null,
-    proposal_type: $("#intent-type").value || null,
+    value_props: vps.length ? vps : (extra.value_props && extra.value_props.length ? extra.value_props : ["revenue_growth"]),
+    target_region: $("#intent-region").value.trim() || extra.target_region || null,
+    proposal_type: $("#intent-type").value || extra.proposal_type || null,
+    notes: extra.notes || null,
+    differentiator: extra.differentiator || null,
+    key_proof: extra.key_proof || null,
+    entry_channel: extra.entry_channel || null,
   };
 }
 
-$("#btn-match").onclick = async () => {
+async function runMatch(allowWeak) {
   hideError("#match-error");
   document.getElementById("modal-intent")?.close();
   const btn = $("#btn-match"); btn.disabled = true;
@@ -1212,11 +1397,15 @@ $("#btn-match").onclick = async () => {
   try {
     const cmp = !!document.getElementById("cmp-api")?.checked;
     const data = await runJob("/product/match",
-      { company_id: state.companyId, intent: state.intent, pool: "external", k: 5, compare_api: cmp },
+      { company_id: state.companyId, intent: state.intent, pool: "external", k: 5,
+        compare_api: cmp, allow_weak: allowWeak },
       $("#match-log"), "match");
     $("#synth").innerHTML = `<b>합성된 이상적 상대상</b> (검색어가 된 문장): ${esc(data.synthesized_counterpart)}`;
     $("#synth").classList.remove("hidden");
     renderLatency(data);
+    if (data.weak_fallback) {
+      showError("#match-error", "⚠️ 강한 후보 없음 — 아래는 τ 기준 미달인 약한 후보입니다(카드에 표시).");
+    }
     state.judged = {};   // 새 후보군 — 이전 후보의 판단 수를 이어받지 않는다
     renderCandidates(data.candidates);
     renderCandLane(data.candidates);
@@ -1226,11 +1415,18 @@ $("#btn-match").onclick = async () => {
     refreshNodeGates();
     openDrawer("match", "result");
   } catch (err) {
-    showError("#match-error", err.code === "no_strong_candidate"
-      ? "강한 후보 없음 — 엔진이 약한 후보를 억지로 채우지 않았어요. 의도(지역·가치제안)를 바꿔보세요."
-      : err.code === "unclear_evidence_unresolved"
-      ? "AI 질문에 아직 답하지 않은 항목이 있어요 — 프로필 분석 카드의 'AI 질문 위치'에서 답변해 주세요."
-      : `${err.code || ""} ${err.message}`);
+    if (err.code === "no_strong_candidate") {
+      const box = document.getElementById("match-error");
+      box.innerHTML = "강한 후보 없음 — 엔진이 약한 후보를 억지로 채우지 않았어요. "
+        + "의도(지역·가치제안)를 바꾸거나, "
+        + `<button type="button" id="btn-match-weak" class="link-btn">그래도 약한 후보 보기</button>`;
+      box.classList.remove("hidden");
+      document.getElementById("btn-match-weak").onclick = () => runMatch(true);
+    } else {
+      showError("#match-error", err.code === "unclear_evidence_unresolved"
+        ? "AI 질문에 아직 답하지 않은 항목이 있어요 — 프로필 분석 카드의 'AI 질문 위치'에서 답변해 주세요."
+        : `${err.code || ""} ${err.message}`);
+    }
     $("#candidates").innerHTML = "";
     if (err.code === "unclear_evidence_unresolved") {
       setNodeState("profile", "input", "AI 질문 미응답");
@@ -1239,7 +1435,10 @@ $("#btn-match").onclick = async () => {
       openDrawer("match", "result");
     }
   } finally { btn.disabled = false; }
-};
+}
+
+$("#btn-match").onclick = () =>
+  runMatch(!!document.getElementById("allow-weak")?.checked);
 
 function renderLatency(data) {
   const box = document.getElementById("latency");
@@ -1263,6 +1462,7 @@ function renderCandidates(candidates) {
     <div class="cand" id="cand-${esc(c.company_id)}">
       <div class="cand-head">
         <h3>${esc(c.name)} <small>(${esc(c.country)} · ${esc(c.pool)} 풀)</small></h3>
+        ${c.weak ? `<span class="weak-chip" title="τ(강한 후보 기준) 미달 — allow_weak로 억지로 채운 후보">⚠️ 약한 후보</span>` : ""}
         <div class="score-bar" title="적합 신호 ${c.retrieval_score}"><i style="width:${Math.min(c.retrieval_score * 100, 100)}%"></i></div>
         ${c.learned_relatedness != null ? `<span class="learned-chip" title="E9 · 1.2B 로컬 스코어러 관련도 (0~10) — 순위 산정에 사용">🧠 1.2B ${c.learned_relatedness}</span>` : ""}
         ${c.api_relatedness != null ? `<span class="api-chip" title="API · K-EXAONE-236B 관련도 (0~10) — 비교용, 순위 미반영">☁️ API ${c.api_relatedness}</span>` : ""}

@@ -168,8 +168,16 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
                              f"강한 후보 {len(strong)}건 (경쟁사·무관 후보 강등)"
                              + (f" · 임계 경계 ±{_MARGIN_BAND} 이내 {border}건 — "
                                 f"재실행 시 뒤집힘 위험" if border else ""))
+        weak_fallback = False
         if not strong:
-            raise NoStrongCandidate()   # 재현율 우선이되, 정직성 (RET-06)
+            if not req.allow_weak:
+                raise NoStrongCandidate()   # 재현율 우선이되, 정직성 (RET-06)
+            # allow_weak=True — 억지로 채우되 CandidateOut.weak=True로 정직하게 표시.
+            # 강한 후보와 섞어 조용히 승격하지 않는다(RET-06 정신은 유지).
+            weak_fallback = True
+            strong = scored[: max(req.k, 1)]
+            progress.log("검색", f"⚠ 강한 후보 0건 — allow_weak=True로 상위 {len(strong)}건을 "
+                                 f"'약한 후보'로 표시해 반환")
 
         # 학습 스코어러 재랭킹 (선택적) — 게이트는 위 휴리스틱 τ가 이미 결정했고,
         # 여기서는 통과 후보의 '순서'만 학습 점수로 다시 매긴다. 서버 부재 시
@@ -218,6 +226,8 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
                 retrieval_score=s,
                 learned_relatedness=round(l, 2) if l is not None else None,
                 api_relatedness=round(av, 2) if av is not None else None,
+                weak=weak_fallback,
             ))
     return RetrieveResponse(candidates=candidates, synthesized_counterpart=synth,
-                            scorer_latency_ms=e9_ms, api_latency_ms=api_ms)
+                            scorer_latency_ms=e9_ms, api_latency_ms=api_ms,
+                            weak_fallback=weak_fallback)

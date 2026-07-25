@@ -484,6 +484,16 @@ def judge_user(req, ontology_hint: "str | None" = None) -> str:
                    f"타겟 지역: {intent.target_region or '미지정'} / "
                    f"제안 유형: {intent.proposal_type or '미지정'} / "
                    f"노트: {intent.notes or '없음'}")
+    # 협상 준비 인터뷰(interview_agent)에서 나온 값 — 있을 때만 덧붙인다.
+    extra = []
+    if intent.differentiator:
+        extra.append(f"차별점: {intent.differentiator}")
+    if intent.key_proof:
+        extra.append(f"대표 실적·증거: {intent.key_proof}")
+    if intent.entry_channel:
+        extra.append(f"진입 경로: {intent.entry_channel}")
+    if extra:
+        intent_text += " / " + " / ".join(extra)
     parts = [
         f"렌즈(vantage): {req.vantage.value} — {lens_note}",
         f"목적함수(objective): {req.objective.value}",

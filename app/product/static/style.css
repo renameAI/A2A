@@ -331,6 +331,10 @@ button:disabled:hover { background: var(--blue); box-shadow: none; }
   background: #f3ecff; color: #6d3bd4; font-weight: 700; font-size: 12.5px;
   padding: 3px 9px; border-radius: var(--r-pill); white-space: nowrap;
 }
+.weak-chip {
+  background: #fff3cd; color: #8a6100; font-weight: 700; font-size: 12.5px;
+  padding: 3px 9px; border-radius: var(--r-pill); white-space: nowrap;
+}
 .cmp-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--t500); margin-right: auto; cursor: pointer; }
 .cmp-toggle input { width: 15px; height: 15px; }
 #latency { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
@@ -338,6 +342,11 @@ button:disabled:hover { background: var(--blue); box-shadow: none; }
 .lat-e9 { background: var(--blue-bg); color: var(--blue); }
 .lat-api { background: #f3ecff; color: #6d3bd4; }
 .lat-x { color: var(--t400); font-size: 12px; }
+.np-kind { font-size: 12.5px; font-weight: 700; color: var(--blue); margin: 0 0 4px; }
+.np-question { font-size: 15px; font-weight: 600; margin: 0 0 10px; line-height: 1.4; }
+.np-summary { white-space: pre-wrap; font-size: 13px; line-height: 1.6; background: var(--t50, #f6f7f9);
+  padding: 12px; border-radius: 8px; max-height: 50vh; overflow-y: auto; }
+.np-status { font-size: 12.5px; color: var(--t500); min-height: 16px; margin: 8px 0 0; }
 .j-btn { background: var(--blue-bg); color: var(--blue); font-weight: 600; font-size: 13.5px; }
 .j-btn:hover { background: #d8ebff; }
 .points { margin: 12px 0 6px; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -953,6 +962,13 @@ body.canvas-page { overflow: hidden; }
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
 }
 .onb-sec > h3 small { font-weight: 500; color: var(--t400); font-size: 12px; }
+.onb-load-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.onb-load-item {
+  border: 1px solid var(--line, #dde1e6); background: var(--surface2, #f6f7f9);
+  border-radius: 8px; padding: 6px 12px; cursor: pointer; text-align: left; font-size: 13px;
+}
+.onb-load-item:hover { background: var(--blue-bg); border-color: var(--blue); }
+.onb-load-item small { display: block; color: var(--t400); font-size: 11px; }
 .req {
   background: var(--red-bg); color: var(--red); font-size: 11px; font-weight: 700;
   border-radius: var(--r-pill); padding: 2px 8px; vertical-align: 1px; margin-left: 4px;

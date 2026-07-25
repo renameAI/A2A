@@ -83,14 +83,21 @@ def _teacher_extract_quote(name, text):
     # 실측(E11 게이트): 스키마는 통과하나 value가 전부 빈 문자열인 응답이 간헐
     # 발생(ABION 등 — 자기일치율 0.00의 진짜 원인). 파싱 성공≠내용 존재이므로
     # 세 값이 모두 비면 빈 응답으로 간주하고 재시도한다(최대 3회).
+    def _has_content(v):
+        # 실측(E11 감사): "미상"은 truthy 문자열이라 예전 빈 문자열 체크를 통과했다
+        # (AJIN 등 — 매번 "미상"만 반복해 자기일치율 1.00으로 위장됨). 빈 응답과
+        # 동일하게 취급해 재시도 대상에 포함한다.
+        val = (v or "").strip()
+        return bool(val) and val != "미상"
+
     data = None
     for _ in range(3):
         d = extractor.extract_json(_QUOTE_SYS, user, _QUOTE_SCHEMA, deep=False)
-        if any((d.get(f, {}).get("value") or "").strip() for f in TARGET_FIELDS):
+        if any(_has_content(d.get(f, {}).get("value")) for f in TARGET_FIELDS):
             data = d
             break
     if data is None:
-        raise RuntimeError("빈 응답 3회 — 값 없는 JSON만 반환됨")
+        raise RuntimeError("빈 응답(또는 전부 미상) 3회 — 값 없는 JSON만 반환됨")
     target = {f: {"value": data[f]["value"], "provenance": data[f]["provenance"]}
               for f in TARGET_FIELDS}
     target["portrait"] = None

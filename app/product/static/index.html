@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A 매칭엔진 v0</title>
-<link rel="stylesheet" href="/style.css?v=cmp1">
+<link rel="stylesheet" href="/style.css?v=load1">
 </head>
 <body class="canvas-page">
 <header>
@@ -170,6 +170,10 @@
       <button type="submit" class="modal-x" aria-label="닫기">✕</button>
     </div>
     <div class="modal-body">
+      <div class="onb-sec" id="onb-load-sec" hidden>
+        <h3>이전에 입력한 기업 불러오기 <small>다시 입력하지 않고 바로 이어서 진행</small></h3>
+        <div id="onb-load-list" class="onb-load-list"></div>
+      </div>
       <div class="onb-sec">
         <h3>기업 기본 정보 <small>자료에서 추출할 수 없는 값은 여기 입력이 쓰입니다</small></h3>
         <div class="row">
@@ -252,7 +256,44 @@
       <label class="cmp-toggle" title="켜면 1.2B(로컬)와 K-EXAONE-236B(API)로 같은 후보를 둘 다 채점해 카드에서 비교합니다. API는 개별 호출이라 느립니다.">
         <input type="checkbox" id="cmp-api"> 🧠 1.2B ↔ ☁️ API 비교
       </label>
+      <label class="cmp-toggle" title="강한 후보가 없어도 억지로 채우지 않던 걸, 상위 약한 후보를 '약한 후보'로 명시 표시해서 보여줍니다.">
+        <input type="checkbox" id="allow-weak"> ⚠️ 약한 후보도 표시
+      </label>
       <button type="button" id="btn-match" class="primary">후보 발굴 실행</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ═══ 팝업 — 협상 준비 인터뷰 (interview_agent 연결, 대표 실답변 기반) ═══ -->
+<dialog id="modal-negotiation-prep" class="modal">
+  <form method="dialog" class="modal-card">
+    <div class="modal-head">
+      <h2>협상 준비 인터뷰</h2>
+      <button type="submit" class="modal-x" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="row" id="np-start-view">
+        <label style="flex:1">기업명
+          <input id="np-company" placeholder="예: AIOBIO Co., Ltd">
+        </label>
+        <label style="flex:1">검색 힌트 (선택)
+          <input id="np-hints" placeholder="동명이인 구분 등">
+        </label>
+      </div>
+      <div id="np-qa-view" hidden>
+        <p class="np-kind" id="np-kind"></p>
+        <p class="np-question" id="np-question"></p>
+        <textarea id="np-answer" rows="4" placeholder="대표 역할로 답변을 입력하세요"></textarea>
+      </div>
+      <div id="np-done-view" hidden>
+        <pre class="np-summary" id="np-summary"></pre>
+      </div>
+      <p class="np-status" id="np-status"></p>
+    </div>
+    <div class="modal-foot">
+      <button type="button" id="btn-np-start" class="primary">인터뷰 시작</button>
+      <button type="button" id="btn-np-answer" class="primary" hidden>답변 제출</button>
+      <button type="button" id="btn-np-to-match" class="primary" hidden>이 전략으로 후보 발굴</button>
     </div>
   </form>
 </dialog>
@@ -275,6 +316,6 @@
   </form>
 </dialog>
 
-<script src="/app.js?v=25cmp"></script>
+<script src="/app.js?v=28load"></script>
 </body>
 </html>

@@ -199,8 +199,73 @@ def _load_extra_pool() -> list[CandidateRecord]:
     return _EXTRA_POOL
 
 
+# ── E11 증류 코퍼스 로더 (dataset/represent_sft_raw.jsonl — 932사, 실제 교사
+# 추출 problem_solved/solution/target_customer) ────────────────────────
+# _load_extra_pool()의 sector/product 뭉뚱그림보다 훨씬 구체적인 실측 데이터라,
+# 같은 회사명이 양쪽에 있으면 이쪽을 우선한다(교체, 병합 아님).
+_E11_POOL: list[CandidateRecord] | None = None
+
+
+def _e11_field(d: dict) -> ProvField:
+    val = (d.get("value") or "").strip() or "미상"
+    prov = Provenance.stated if d.get("provenance") == "stated" else Provenance.inferred
+    return ProvField(value=val, provenance=prov,
+                     confidence=None if prov == Provenance.stated else 0.6)
+
+
+def _load_e11_pool() -> list[CandidateRecord]:
+    global _E11_POOL
+    if _E11_POOL is not None:
+        return _E11_POOL
+    import json
+    import os
+    from pathlib import Path
+    # _load_extra_pool()과 동일 계약 — 환경변수 명시 없으면 꺼진다(테스트·골든셋 불변).
+    path_str = os.environ.get("A2A_E11_POOL_PATH", "")
+    if not path_str:
+        _E11_POOL = []
+        return _E11_POOL
+    p = Path(path_str)
+    if not p.is_file():
+        _E11_POOL = []
+        return _E11_POOL
+    out: list[CandidateRecord] = []
+    with p.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+                name = r["company"]
+                target = r["target"]
+                research = r.get("research_text") or ""
+            except Exception:                      # noqa: BLE001 — 불량 라인은 건너뜀
+                continue
+            out.append(CandidateRecord(
+                company_id=f"e11-{name}",
+                pool=PoolKind.external,
+                profile=Profile(
+                    basic=BasicInfo(name=name, country="한국", industry="unknown"),
+                    description=research[:600],
+                    problem_solved=_e11_field(target.get("problem_solved", {})),
+                    solution=_e11_field(target.get("solution", {})),
+                    target_customer=_e11_field(target.get("target_customer", {})),
+                ),
+                pain_points=f"{target.get('problem_solved', {}).get('value', '')} "
+                            f"{target.get('solution', {}).get('value', '')}",
+                tags=[],
+            ))
+    _E11_POOL = out
+    return _E11_POOL
+
+
 def get_pool() -> list[CandidateRecord]:
-    return SEED_POOL + _load_extra_pool()
+    e11 = _load_e11_pool()
+    e11_names = {r.company_id.removeprefix("e11-") for r in e11}
+    extra = [r for r in _load_extra_pool()
+             if r.company_id.removeprefix("kq-") not in e11_names]
+    return SEED_POOL + extra + e11
 
 
 def find(company_id: str) -> CandidateRecord | None:
