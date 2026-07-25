@@ -80,7 +80,17 @@ def _teacher_extract_quote(name, text):
     if extractor is None:
         raise SystemExit("LLM 키 없음 — .env의 FRIENDLI_* 확인")
     user = f"[기업 리서치 문서]\n{text[:8000]}\n\n위에서 세 항목을 추출해 JSON으로."
-    data = extractor.extract_json(_QUOTE_SYS, user, _QUOTE_SCHEMA, deep=False)
+    # 실측(E11 게이트): 스키마는 통과하나 value가 전부 빈 문자열인 응답이 간헐
+    # 발생(ABION 등 — 자기일치율 0.00의 진짜 원인). 파싱 성공≠내용 존재이므로
+    # 세 값이 모두 비면 빈 응답으로 간주하고 재시도한다(최대 3회).
+    data = None
+    for _ in range(3):
+        d = extractor.extract_json(_QUOTE_SYS, user, _QUOTE_SCHEMA, deep=False)
+        if any((d.get(f, {}).get("value") or "").strip() for f in TARGET_FIELDS):
+            data = d
+            break
+    if data is None:
+        raise RuntimeError("빈 응답 3회 — 값 없는 JSON만 반환됨")
     target = {f: {"value": data[f]["value"], "provenance": data[f]["provenance"]}
               for f in TARGET_FIELDS}
     target["portrait"] = None
