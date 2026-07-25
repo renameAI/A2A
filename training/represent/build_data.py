@@ -36,6 +36,57 @@ def _load_research(db_path, limit=0):
     return rows[:limit] if limit else rows
 
 
+# ── 증류 전용 교사 (인용 추출) ──────────────────────────────────────
+# 진단(E11 게이트): 프로덕션 extract_profile은 deep=True 다층 '역추론·상 합성'
+# 이라 같은 원문에 매번 다른 서사를 낸다(자기일치율 ~0.06, 증류 부적합). 증류엔
+# "원문에서 문제/솔루션/타겟을 인용 위주로 뽑는" 결정적 추출이 필요하다.
+# 프로덕션 프롬프트는 건드리지 않고 별도 교사를 둔다.
+_QUOTE_SYS = """\
+너는 기업 리서치 문서에서 세 가지를 뽑는 추출기다. 창작·역추론·요약을 하지 마라.
+원문에 실제로 있는 문장·구절을 **인용에 가깝게** 정리한다. 해석을 덧붙이지 마라.
+
+- problem_solved: 이 회사가 푸는 문제/고객의 결핍. 원문에 명시된 것만.
+- solution: 회사가 제공하는 제품·기술·서비스. 원문 표현 그대로.
+- target_customer: 고객·수요처. 원문에 나온 대상.
+각 값은 원문 근거가 있으면 provenance=stated, 원문에 없어 불가피하게 추론하면
+inferred. 원문에 전혀 없으면 value="미상", provenance=inferred.
+같은 원문이면 항상 같은 답을 내야 한다(결정적). 화려함보다 재현성.
+
+반드시 아래 JSON 하나만 출력:
+{"problem_solved":{"value":"","provenance":"stated|inferred"},
+ "solution":{"value":"","provenance":"stated|inferred"},
+ "target_customer":{"value":"","provenance":"stated|inferred"}}"""
+
+_QUOTE_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["problem_solved", "solution", "target_customer"],
+    "properties": {
+        f: {"type": "object", "additionalProperties": False,
+            "required": ["value", "provenance"],
+            "properties": {
+                "value": {"type": "string"},
+                "provenance": {"type": "string", "enum": ["stated", "inferred"]}}}
+        for f in ("problem_solved", "solution", "target_customer")},
+}
+
+
+def _teacher_extract_quote(name, text):
+    """증류 전용 교사 — 단일 호출·스키마 강제·인용 추출 (deep=False, 결정적)."""
+    from app.engine.llm import get_extractor
+    from app.config import get_settings
+
+    settings = get_settings()
+    extractor = get_extractor(settings)
+    if extractor is None:
+        raise SystemExit("LLM 키 없음 — .env의 FRIENDLI_* 확인")
+    user = f"[기업 리서치 문서]\n{text[:8000]}\n\n위에서 세 항목을 추출해 JSON으로."
+    data = extractor.extract_json(_QUOTE_SYS, user, _QUOTE_SCHEMA, deep=False)
+    target = {f: {"value": data[f]["value"], "provenance": data[f]["provenance"]}
+              for f in TARGET_FIELDS}
+    target["portrait"] = None
+    return target, {"r1_demoted": 0, "open_questions": 0, "teacher_mode": "quote"}
+
+
 def _teacher_extract(name, text):
     """엔진 실경로: 청킹 → extract_profile → R1 그라운딩. → (target dict, meta)."""
     from app.engine.llm import get_extractor
@@ -84,6 +135,9 @@ def _field_agreement(t1, t2, fields="full") -> float:
     return sum(scores) / max(1, len(scores))
 
 
+_TEACHER = _teacher_extract          # 기본은 프로덕션 경로 — main()에서 교체 가능
+
+
 def run_consistency(rows, n, workers=4, fields="full") -> None:
     """학습 전 게이트 — 교사 자기일관성 + 동시성 실측 (병렬 스케일 확인 겸용).
 
@@ -97,8 +151,8 @@ def run_consistency(rows, n, workers=4, fields="full") -> None:
     def one(item):
         name, text = item
         try:
-            t1, _ = _teacher_extract(name, text)
-            t2, _ = _teacher_extract(name, text)
+            t1, _ = _TEACHER(name, text)
+            t2, _ = _TEACHER(name, text)
             a = _field_agreement(t1, t2, fields)
             print(f"  {name}: 일치율 {a:.2f}", flush=True)
             return a
@@ -137,11 +191,11 @@ def run_label(rows, out_path, workers, min_agreement=0.0, fields="full") -> None
     def one(item):
         name, text = item
         try:
-            target, meta = _teacher_extract(name, text)
+            target, meta = _TEACHER(name, text)
             if min_agreement > 0:
                 # 일관성 필터 — 2회째 추출해 자기일치율 확인. 흔들리는 회사는
                 # 안정된 정답지를 못 주므로 드롭한다(ABION류만 남긴다).
-                target2, _ = _teacher_extract(name, text)
+                target2, _ = _TEACHER(name, text)
                 agr = _field_agreement(target, target2, fields)
                 meta["self_agreement"] = round(agr, 3)
                 if agr < min_agreement:
@@ -185,12 +239,17 @@ def main():
     ap.add_argument("--min-agreement", type=float, default=0.0,
                     help=">0이면 라벨링 시 2회 추출해 자기일치율 이 값 미만인 회사는 "
                          "드롭(안정적 회사만 채택). 비용 2배, 정답지 품질 확보")
+    ap.add_argument("--teacher", choices=["deep", "quote"], default="deep",
+                    help="deep=프로덕션 상합성(자기일관성 낮음) · "
+                         "quote=증류 전용 인용추출(결정적, E11 권장)")
     ap.add_argument("--run", action="store_true", help="실제 API 실행")
     a = ap.parse_args()
+    global _TEACHER
+    _TEACHER = _teacher_extract_quote if a.teacher == "quote" else _teacher_extract
     rows = _load_research(a.db, a.limit)
     if not a.run:
-        print(f"[dry-run] 대상 {len(rows)}사 · 교사=엔진 extract_profile(K-EXAONE) · "
-              f"산출 {a.out} — 실행은 --run")
+        print(f"[dry-run] 대상 {len(rows)}사 · 교사={a.teacher} · 산출 {a.out} "
+              f"— 실행은 --run")
         return
     if a.consistency:
         run_consistency(rows, a.consistency, a.workers, a.fields)
