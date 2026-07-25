@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.example/11_strategy_interview_ontology.schema.json",
+  "title": "Strategy-first Global B2B Interview Ontology",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": ["unknown", "assumed", "confirmed", "stale", "deferred"]
+    },
+    "origin": {
+      "type": "string",
+      "enum": ["user_stated", "program_context", "external_research", "model_inferred"]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "goal": {
+      "type": "string",
+      "enum": [
+        "poc", "paid_sales", "paid_project", "licensing",
+        "strategic_partnership", "joint_development",
+        "cmo_mass_production", "odm_development",
+        "distribution_operation_partner", "public_oda_demonstration",
+        "broad_exploration"
+      ]
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "direct_end_customer", "partner_distributor", "agency",
+        "consortium_cluster", "university_research_institute",
+        "government_public_oda"
+      ]
+    },
+    "cta": {
+      "type": "string",
+      "enum": [
+        "meeting_15_30min", "sample_test_offer", "small_poc_offer",
+        "proposal_review", "demo_video_review"
+      ]
+    },
+    "keyBenefit": {
+      "type": "string",
+      "enum": [
+        "problem_solving", "revenue_growth", "cost_reduction",
+        "risk_reduction", "regulatory_compliance", "social_impact"
+      ]
+    },
+    "fieldMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin": { "$ref": "#/$defs/origin" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "source_answer_id": { "type": ["string", "null"] },
+        "verification_status": {
+          "type": "string",
+          "enum": ["not_required", "unverified", "partially_verified", "verified", "contradicted"]
+        },
+        "stale_reason": { "type": ["string", "null"] }
+      },
+      "required": ["origin", "confidence", "source_answer_id", "verification_status", "stale_reason"]
+    },
+    "offer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "chosen_solution": { "type": ["string", "null"] },
+        "differentiator": { "type": ["string", "null"] },
+        "transaction_unit": {
+          "type": ["string", "null"],
+          "enum": [null, "software", "hardware", "data", "service", "licensing", "project"]
+        },
+        "customer_use_context": { "type": ["string", "null"] },
+        "primary_customer_change": { "type": ["string", "null"] },
+        "core_feature": { "type": ["string", "null"] },
+        "maturity_stage": {
+          "type": ["string", "null"],
+          "enum": [null, "sample_stage", "poc_stage", "sellable", "scalable", "unknown"]
+        },
+        "status": { "$ref": "#/$defs/status" }
+      },
+      "required": ["chosen_solution", "differentiator", "transaction_unit", "customer_use_context", "primary_customer_change", "core_feature", "maturity_stage", "status"]
+    },
+    "transactionStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "primary_goal": { "anyOf": [{ "$ref": "#/$defs/goal" }, { "type": "null" }] },
+        "goal_sequence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/goal" },
+          "uniqueItems": true
+        },
+        "current_stage": { "type": ["string", "null"] },
+        "current_bottleneck": { "type": ["string", "null"] },
+        "realistic_first_transaction": { "type": ["string", "null"] },
+        "success_criteria": { "type": ["string", "null"] },
+        "status": { "$ref": "#/$defs/status" }
+      },
+      "required": ["primary_goal", "goal_sequence", "current_stage", "current_bottleneck", "realistic_first_transaction", "success_criteria", "status"]
+    },
+    "market": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "country_or_region": { "type": ["string", "null"] },
+        "rationale": { "type": ["string", "null"] },
+        "market_readiness": { "type": ["string", "null"] },
+        "regulation_or_localization": { "type": ["string", "null"] }
+      },
+      "required": ["country_or_region", "rationale", "market_readiness", "regulation_or_localization"]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "organization_type": { "type": ["string", "null"] },
+        "buying_situation": { "type": ["string", "null"] },
+        "purchase_trigger": { "type": ["string", "null"] },
+        "urgency_signal": { "type": ["string", "null"] },
+        "exclusion_criteria": { "type": ["string", "null"] }
+      },
+      "required": ["organization_type", "buying_situation", "purchase_trigger", "urgency_signal", "exclusion_criteria"]
+    },
+    "recipient": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "first_reviewer": { "type": ["string", "null"] },
+        "primary_beneficiary": { "type": ["string", "null"] },
+        "technical_reviewer": { "type": ["string", "null"] },
+        "budget_owner": { "type": ["string", "null"] },
+        "internal_forward_to": { "type": ["string", "null"] }
+      },
+      "required": ["first_reviewer", "primary_beneficiary", "technical_reviewer", "budget_owner", "internal_forward_to"]
+    },
+    "purchaseLogic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pain_point": { "type": ["string", "null"] },
+        "current_alternative": { "type": ["string", "null"] },
+        "loss_or_risk": { "type": ["string", "null"] },
+        "urgency_trigger": { "type": ["string", "null"] },
+        "purchase_reason": { "type": ["string", "null"] },
+        "key_benefit_priority": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/keyBenefit" },
+          "uniqueItems": true
+        },
+        "why_budget": { "type": ["string", "null"] }
+      },
+      "required": ["pain_point", "current_alternative", "loss_or_risk", "urgency_trigger", "purchase_reason", "key_benefit_priority", "why_budget"]
+    },
+    "proofStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "primary_proof": { "type": ["string", "null"] },
+        "proof_type": { "type": ["string", "null"] },
+        "source": { "type": ["string", "null"] },
+        "verification_status": {
+          "type": "string",
+          "enum": ["unknown", "unverified", "partially_verified", "verified", "contradicted"]
+        },
+        "measurement_condition": { "type": ["string", "null"] },
+        "sample_or_demo_availability": {
+          "type": "string",
+          "enum": ["unknown", "immediate", "after_meeting", "after_nda", "none"]
+        },
+        "disclosable_before_nda": { "type": ["string", "null"] },
+        "missing_proof_plan": { "type": ["string", "null"] }
+      },
+      "required": ["primary_proof", "proof_type", "source", "verification_status", "measurement_condition", "sample_or_demo_availability", "disclosable_before_nda", "missing_proof_plan"]
+    },
+    "entryStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "primary_channel": { "anyOf": [{ "$ref": "#/$defs/channel" }, { "type": "null" }] },
+        "alternative_channel": { "anyOf": [{ "$ref": "#/$defs/channel" }, { "type": "null" }] },
+        "partner_role": { "type": ["string", "null"] },
+        "partner_incentive": { "type": ["string", "null"] },
+        "responsibility_split": { "type": ["string", "null"] }
+      },
+      "required": ["primary_channel", "alternative_channel", "partner_role", "partner_incentive", "responsibility_split"]
+    },
+    "ctaStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "primary_cta": { "anyOf": [{ "$ref": "#/$defs/cta" }, { "type": "null" }] },
+        "conversion_flow": { "type": "array", "items": { "type": "string" } },
+        "core_message": { "type": ["string", "null"] },
+        "acceptance_criteria": { "type": ["string", "null"] },
+        "next_step_requirements": { "type": ["string", "null"] }
+      },
+      "required": ["primary_cta", "conversion_flow", "core_message", "acceptance_criteria", "next_step_requirements"]
+    },
+    "executionConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "regulation_certification": { "type": ["string", "null"] },
+        "cost_impact": { "type": ["string", "null"] },
+        "supply_scale_up": { "type": ["string", "null"] },
+        "localization_support": { "type": ["string", "null"] },
+        "disclosure_nda_policy": { "type": ["string", "null"] },
+        "highest_risk": { "type": ["string", "null"] }
+      },
+      "required": ["regulation_certification", "cost_impact", "supply_scale_up", "localization_support", "disclosure_nda_policy", "highest_risk"]
+    },
+    "strategyTrack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "track_id": { "type": "string", "enum": ["A", "B"] },
+        "priority": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "label": { "type": ["string", "null"] },
+        "active": { "type": "boolean" },
+        "market": { "$ref": "#/$defs/market" },
+        "target": { "$ref": "#/$defs/target" },
+        "recipient": { "$ref": "#/$defs/recipient" },
+        "purchase_logic": { "$ref": "#/$defs/purchaseLogic" },
+        "proof_strategy": { "$ref": "#/$defs/proofStrategy" },
+        "entry_strategy": { "$ref": "#/$defs/entryStrategy" },
+        "cta_strategy": { "$ref": "#/$defs/ctaStrategy" },
+        "execution_constraints": { "$ref": "#/$defs/executionConstraints" },
+        "status": { "$ref": "#/$defs/status" }
+      },
+      "required": ["track_id", "priority", "label", "active", "market", "target", "recipient", "purchase_logic", "proof_strategy", "entry_strategy", "cta_strategy", "execution_constraints", "status"]
+    },
+    "answerRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "answer_id": { "type": "string" },
+        "question_id": { "type": ["string", "null"] },
+        "target_paths": { "type": "array", "items": { "type": "string" } },
+        "value": {},
+        "origin": { "$ref": "#/$defs/origin" },
+        "source_type": { "type": "string" },
+        "verification_status": {
+          "type": "string",
+          "enum": ["not_required", "unverified", "partially_verified", "verified", "contradicted"]
+        },
+        "is_canonical": { "type": "boolean" }
+      },
+      "required": ["answer_id", "question_id", "target_paths", "value", "origin", "source_type", "verification_status", "is_canonical"]
+    },
+    "questionState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "question_id": { "type": "string" },
+        "kind": { "type": "string" },
+        "question_variant": { "type": "string" },
+        "track_id": { "type": ["string", "null"], "enum": [null, "A", "B"] },
+        "target_paths": { "type": "array", "items": { "type": "string" } },
+        "status": {
+          "type": "string",
+          "enum": ["asked", "resolved", "partially_resolved", "explicit_unknown", "deferred", "failed"]
+        },
+        "resolution_status": { "type": "string" },
+        "answer_record_ids": { "type": "array", "items": { "type": "string" } },
+        "semantic_attempt": { "type": "integer", "minimum": 1 },
+        "technical_retries": { "type": "integer", "minimum": 0 }
+        ,"question_text": { "type": "string" }
+        ,"extraction_status": { "type": ["string", "null"] }
+        ,"semantic_rescue_used": { "type": "boolean" }
+        ,"technical_fallback_used": { "type": "boolean" }
+        ,"field_results": { "type": "array", "items": { "type": "object" } }
+        ,"rejection_reason": { "type": ["string", "null"] }
+      },
+      "required": ["question_id", "kind", "question_variant", "track_id", "target_paths", "status", "resolution_status", "answer_record_ids", "semantic_attempt", "technical_retries", "question_text", "extraction_status", "semantic_rescue_used", "technical_fallback_used", "field_results", "rejection_reason"]
+    }
+  },
+  "properties": {
+    "schema_version": { "type": "string", "const": "11_strategy_interview_v4" },
+    "company": { "type": "string", "minLength": 1 },
+    "offer": { "$ref": "#/$defs/offer" },
+    "transaction_strategy": { "$ref": "#/$defs/transactionStrategy" },
+    "strategy_tracks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/strategyTrack" },
+      "maxItems": 2
+    },
+    "future_candidates": { "type": "array", "items": { "type": "string" } },
+    "shared_proofs": { "type": "array", "items": { "type": "string" } },
+    "field_meta": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/fieldMeta" }
+    },
+    "answer_records": { "type": "array", "items": { "$ref": "#/$defs/answerRecord" } },
+    "question_states": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/questionState" }
+    },
+    "interview_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "question_count": { "type": "integer", "minimum": 0, "maximum": 40 },
+        "content_question_count": { "type": "integer", "minimum": 0, "maximum": 38 },
+        "manually_ended": { "type": "boolean" },
+        "blocking_conflicts": { "type": "array", "items": { "type": "string" } },
+        "stale_paths": { "type": "array", "items": { "type": "string" } },
+        "explicit_unknown_paths": { "type": "array", "items": { "type": "string" } },
+        "partial_paths": { "type": "array", "items": { "type": "string" } },
+        "asked_question_fingerprints": { "type": "array", "items": { "type": "string" } },
+        "extraction_events": { "type": "array", "items": { "type": "object" } },
+        "soft_limit_warning_shown": { "type": "boolean" },
+        "candidate_attempts": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "required": ["question_count", "content_question_count", "manually_ended", "blocking_conflicts", "stale_paths", "explicit_unknown_paths", "partial_paths", "candidate_attempts", "asked_question_fingerprints", "extraction_events", "soft_limit_warning_shown"]
+    },
+    "completion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interview_finished": { "type": "boolean" },
+        "session_closed": { "type": "boolean" },
+        "final_confirmed": { "type": "boolean" },
+        "question_limit_reached": { "type": "boolean" },
+        "clarification_pending": { "type": "boolean" },
+        "anchor_complete": { "type": "boolean" },
+        "strategy_ready": { "type": "boolean" },
+        "missing_anchor_paths": { "type": "array", "items": { "type": "string" } },
+        "unresolved_execution_paths": { "type": "array", "items": { "type": "string" } },
+        "stale_paths": { "type": "array", "items": { "type": "string" } },
+        "blocking_conflicts": { "type": "array", "items": { "type": "string" } },
+        "followup_questions": { "type": "array", "items": { "type": "string" }, "maxItems": 5 }
+      },
+      "required": ["interview_finished", "session_closed", "final_confirmed", "question_limit_reached", "clarification_pending", "anchor_complete", "strategy_ready", "missing_anchor_paths", "unresolved_execution_paths", "stale_paths", "blocking_conflicts", "followup_questions"]
+    }
+  },
+  "required": [
+    "schema_version", "company", "offer", "transaction_strategy",
+    "strategy_tracks", "future_candidates", "shared_proofs", "field_meta",
+    "answer_records", "question_states", "interview_state", "completion"
+  ]
+}

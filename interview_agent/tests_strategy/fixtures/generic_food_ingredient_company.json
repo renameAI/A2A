@@ -1,0 +1,20 @@
+{
+  "name": "food_ingredient_company",
+  "updates": {
+    "offer.chosen_solution": "균사체 기반 식품 원료 분말",
+    "offer.transaction_unit": "hardware",
+    "transaction_strategy.primary_goal": "cmo_mass_production",
+    "strategy_tracks.A.market.country_or_region": "유럽",
+    "strategy_tracks.A.target.organization_type": "글로벌 식품기업 R&D 조직",
+    "strategy_tracks.A.target.buying_situation": "차세대 안전 원료를 탐색하고 샘플을 검토하는 단계",
+    "strategy_tracks.A.recipient.first_reviewer": "식품 R&D팀",
+    "strategy_tracks.A.purchase_logic.purchase_reason": "안전성과 기능성을 함께 만족하는 신규 원료 확보",
+    "strategy_tracks.A.purchase_logic.key_benefit_priority": ["problem_solving", "risk_reduction"],
+    "strategy_tracks.A.proof_strategy.primary_proof": "중금속·미생물 검사성적서와 원료 샘플",
+    "strategy_tracks.A.proof_strategy.sample_or_demo_availability": "immediate",
+    "strategy_tracks.A.entry_strategy.primary_channel": "direct_end_customer",
+    "strategy_tracks.A.cta_strategy.primary_cta": "sample_test_offer",
+    "strategy_tracks.A.cta_strategy.conversion_flow": ["원료 샘플 테스트", "파일럿 생산", "CMO 대량생산 계약 검토"],
+    "strategy_tracks.A.execution_constraints.highest_risk": "유럽 식품 원료 규제와 수출 적합성"
+  }
+}

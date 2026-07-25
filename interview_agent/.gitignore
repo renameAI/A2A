@@ -1,0 +1,7 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+runs/strategy_first/*
+!runs/strategy_first/.gitkeep
+tests_strategy/.tmp_output/
