@@ -235,9 +235,14 @@ class _OpenAICompatExtractor:
                      f"응답 수신 — {time.time() - t0:.1f}초 · "
                      f"완료 토큰 {usage.get('completion_tokens', '?')} · "
                      f"finish={choice.get('finish_reason')}")
-        # reasoning이 예산을 다 먹어 본문이 잘렸으면 thinking 끄고 1회 재시도
+        # reasoning이 예산을 다 먹은 경우 — 전체 재호출(콜 2배 → 300초 타임아웃의
+        # 직접 원인)은 본문이 아예 빈 경우에만 한다. 부분 본문이 있으면 그대로 쓴다.
         if choice.get("finish_reason") == "length" and thinking and self._thinking_kwargs:
-            progress.log(self._label, "⚠ reasoning이 토큰 예산 소진 — thinking OFF로 재시도")
+            if content.strip():
+                progress.log(self._label,
+                             "⚠ 추론이 예산 소진했으나 본문 존재 — 재호출 없이 사용(loop 절약)")
+                return content
+            progress.log(self._label, "⚠ 추론 예산 소진·본문 없음 — thinking OFF로 재시도")
             return self._chat(system, user, schema=schema, thinking=False,
                               max_tokens=max_tokens, temperature=temperature)
         if choice.get("finish_reason") == "length":
@@ -261,15 +266,21 @@ class _OpenAICompatExtractor:
     def extract_json(self, system: str, user: str, schema: dict,
                      deep: bool = False) -> dict:
         if deep:
+            # 추론 토큰 예산 — 클수록 상(像)이 깊지만 시간·타임아웃 위험이 커진다.
+            # 실측(represent 300초 타임아웃): 16384 예산이 사고사슬을 끝까지 늘려
+            # 시간 대부분을 먹는다. 환경변수로 낮출 수 있게 한다(기본 16384 보존 —
+            # 데모 8423에선 LLM_REASON_MAX_TOKENS=9000 등으로 loop를 줄인다).
+            import os as _os
+            reason_max = int(_os.environ.get("LLM_REASON_MAX_TOKENS", "16384"))
             with progress.node("llm.reason", "깊은 추론 (reasoning ON)"):
-                progress.log("추론", "1단계 — 깊은 추론 시작 (자유 서술, 수 분 소요될 수 있음)")
+                progress.log("추론", f"1단계 — 깊은 추론 시작 (예산 {reason_max:,}토큰)")
                 analysis = self._chat(
                     system,
                     user + "\n\n지시된 절차대로 깊게 추론한 뒤, 요구된 모든 항목의 내용을 "
                            "하나도 빠짐없이 자연어로 서술하라. (JSON이 아니라 서술문으로. "
                            "빈 항목을 남기지 말 것 — 모르면 '미상'과 그 이유를 쓴다. "
                            "자료에 없는 고유명사·수치·날짜를 절대 지어내지 마라.)",
-                    thinking=True, max_tokens=16384,
+                    thinking=True, max_tokens=reason_max,
                     # 실측(E11 게이트): 온도 미지정 시 동일 입력 재실행 일치율 0.06
                     # (매번 다른 서사 창작) — 그런데 0.2로 낮추자 300초 타임아웃이
                     # 2/10→4/5로 급증(reasoning 모델의 알려진 실패모드: 온도가
