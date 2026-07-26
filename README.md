@@ -75,6 +75,29 @@ curl -N -X POST http://localhost:8425/a2a \
 - 웹 UI: `http://localhost:8423/` · 엔진 API 문서: `/docs`
 - 테스트: `.venv/bin/python -m pytest tests/ -q` (항상 Mock — API 비용 0)
 
+### 외부 후보 pool 확장 (`.claude/launch.json`, 로컬 전용 — 커밋 안 됨)
+
+기본 pool은 시드 7개뿐이라 대부분의 실제 매칭 요청에서 후보를 못 찾는다. 아래
+환경변수를 켜면 외부 리서치 pool이 합쳐진다(둘 다 안 켜면 기존 시드만 — 테스트·
+골든셋은 영향 없음). `.claude/launch.json`의 `runtimeArgs`에 이어 붙인다:
+
+```bash
+A2A_POOL_DIR=/절대/경로/judge_cases/company_pool \
+A2A_E11_POOL_PATH=/절대/경로/dataset/represent_sft_raw.jsonl \
+exec .venv/bin/uvicorn app.main:app --port ${PORT:-8423}
+```
+
+- `A2A_POOL_DIR` — 코스닥 201사 (`judge_cases/company_pool/*.json`, sector/product
+  텍스트 기반 — problem_solved 등은 뭉뚱그려 추론)
+- `A2A_E11_POOL_PATH` — E11 증류 코퍼스 932사 (`dataset/represent_sft_raw.jsonl`,
+  실제 교사 추출 problem_solved/solution/target_customer — 더 구체적이라 같은
+  회사명이 겹치면 이쪽이 우선한다)
+- 이름이 겹치지 않으면 시드 7 + 201 + 932 = 총 1140개까지 합쳐진다
+- **주의**: preview 도구로 서버를 이름 기반(`name: "a2a-engine"`)으로 띄우면 세션
+  중 launch.json을 다시 안 읽고 첫 실행 커맨드를 캐시하는 경우가 있었다(실측 —
+  env var를 나중에 추가했는데 pool이 계속 6개로 나왔던 원인). 값을 바꾼 뒤엔
+  `lsof -t -i :8423 | xargs kill` 후 새 프로세스로 직접 띄워서 확인할 것.
+
 ### LLM 프로바이더 (`LLM_PROVIDER`) — 고정 선택, 모델 개입 없음
 
 | 값 | 모델 | 용도 |
