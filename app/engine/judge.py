@@ -183,6 +183,30 @@ def _reasoning_moves(req: JudgeRequest, dims: list[CategoryJudgment],
 _SOFT_YES = {DecisionType.recommend, DecisionType.conditional}
 
 
+def _apply_evidence_gate(result: JudgeResult) -> None:
+    """근거 없는 recommend 차단 (L3 하드 게이트, in-place).
+
+    실측(공감만세×AdForUs): 5차원이 **전부 caution**인데 LLM이 "전략적 잠재력"을
+    이유로 recommend를 냈다 — 근거 없는 낙관이 최상위 추천으로 나가는 오판. 판단은
+    "차원 근거의 집계"라는 계약(JDG-02)상, fit이 하나도 없으면 recommend는 성립할 수
+    없다. 결정을 프롬프트가 아니라 코드가 캡한다(decision_gate.py와 같은 원리).
+
+    conditional로만 낮춘다 — 근거 부족이지 부적합 판정은 아니므로 hold/terminate로
+    과교정하지 않는다(정보 부재 ≠ unfit)."""
+    if result.decision != DecisionType.recommend:
+        return
+    dims = result.category_judgments or []
+    if not dims or any(d.verdict == VerdictType.fit for d in dims):
+        return
+    result.decision = DecisionType.conditional
+    result.decision_rationale = (
+        f"차원 판정에 fit이 하나도 없음({len(dims)}개 전부 caution/unfit) — "
+        f"근거 없는 자동 recommend를 조건부로 캡 (L3 근거 게이트). "
+        f"원 판정 근거: {result.decision_rationale}")
+    progress.log("Judge", f"⚠ L3 근거 게이트 — fit 차원 0개: "
+                          f"recommend→conditional (근거 없는 추천 차단)")
+
+
 def _apply_consistency_gate(result: JudgeResult, agreement: "float | None",
                             settings) -> None:
     """소프트 판단 → 하드 코드 게이트 이전 (L3). in-place로 result를 조인다.
@@ -412,6 +436,7 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
             req, extractor, deep, settings.judge_samples)   # L2 자기일관성 투표
         result.sample_agreement = agreement
         pre_gate = result.decision.value                    # 감사용 원 결정 보존 (F3)
+        _apply_evidence_gate(result)                        # L3 근거 게이트
         _apply_consistency_gate(result, agreement, settings)   # L3 하드 게이트
         with progress.node("audit", "감사 로그 (SYS-04)"):
             _audit_judge(req, result, pre_gate_decision=pre_gate, engine_mode="llm")
@@ -465,6 +490,7 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         deal_structure=deal_structure,
         confidence_band=band,
     )
+    _apply_evidence_gate(result)      # LLM 경로와 같은 근거 게이트 (규칙 경로도 동일 계약)
     with progress.node("audit", "감사 로그 (SYS-04)"):
         _audit_judge(req, result, engine_mode="mock")
     return result

@@ -82,7 +82,11 @@ class TestRetrieveRerank:
         pool = [_cand("co-aaa", self.PAIN), _cand("co-bbb", self.PAIN)]
         monkeypatch.setattr(R, "get_pool", lambda: pool)
         # co-bbb에 더 높은 학습 점수 — 휴리스틱 tie-break(id순)면 co-aaa가 앞이었다
-        monkeypatch.setattr(SC, "score_batch", lambda pairs: [3.0, 8.5])
+        # retrieve()는 함수 안에서 scorer_client를 import하므로 호출 시점에
+        # SC.score_batch_timed를 다시 읽는다 — 패치는 SC(원본 모듈)에 해야
+        # 닿는다. 기존 테스트는 SC.score_batch(미사용 함수)를 패치해
+        # 재랭킹 경로가 무검증으로 남아 있었다.
+        monkeypatch.setattr(SC, "score_batch_timed", lambda pairs: ([3.0, 8.5], 5))
         res = R.retrieve(_req())
         assert [c.company_id for c in res.candidates][:2] == ["co-bbb", "co-aaa"]
         assert res.candidates[0].learned_relatedness == 8.5
@@ -92,7 +96,7 @@ class TestRetrieveRerank:
         """서버 부재(None) — 순서·필드 모두 기존 동작 그대로 (회귀 0)."""
         pool = [_cand("co-aaa", self.PAIN), _cand("co-bbb", self.PAIN)]
         monkeypatch.setattr(R, "get_pool", lambda: pool)
-        monkeypatch.setattr(SC, "score_batch", lambda pairs: None)
+        monkeypatch.setattr(SC, "score_batch_timed", lambda pairs: (None, None))
         res = R.retrieve(_req())
         assert [c.company_id for c in res.candidates][:2] == ["co-aaa", "co-bbb"]
         assert all(c.learned_relatedness is None for c in res.candidates)
@@ -102,8 +106,8 @@ class TestRetrieveRerank:
         pool = [_cand("co-aaa", self.PAIN),
                 _cand("co-zzz", "무관한 반도체 장비 수출")]   # τ 미달 예상
         monkeypatch.setattr(R, "get_pool", lambda: pool)
-        monkeypatch.setattr(SC, "score_batch",
-                            lambda pairs: [1.0] * len(pairs))
+        monkeypatch.setattr(SC, "score_batch_timed",
+                            lambda pairs: ([1.0] * len(pairs), 5))
         res = R.retrieve(_req())
         ids = [c.company_id for c in res.candidates]
         assert "co-zzz" not in ids                     # 학습 점수로 게이트 못 뚫음
@@ -113,3 +117,47 @@ def test_profile_facts_matches_training_format():
     t = SC.profile_facts("한화", "화학", "한국", "방산·화학 대기업")
     assert t.startswith("한화 — 산업 섹터: 화학, 국가: 한국.")
     assert "방산" in t
+
+
+class TestListwisePermutation:
+    """RankGPT(arXiv:2304.09542) listwise 순열 파서 — 후보 소실 0이 계약.
+
+    LLM은 항목을 빠뜨리거나 중복·범위밖을 뱉는다. 조용히 후보를 삭제하면 랭킹에서
+    회사가 증발하므로, 누락분은 원래 순서로 뒤에 붙여 **항상 전수를 보존**한다.
+    """
+
+    @staticmethod
+    def _all_present(order, n):
+        return order is None or sorted(order) == list(range(n))
+
+    def test_normal_permutation(self):
+        assert SC._parse_permutation("[2] > [1] > [3]", 3) == [1, 0, 2]
+
+    def test_missing_items_appended_in_original_order(self):
+        # [2]가 누락 — 뒤에 붙어 전수 보존
+        assert SC._parse_permutation("[3] > [1]", 3) == [2, 0, 1]
+
+    def test_duplicates_ignored(self):
+        assert SC._parse_permutation("[1] > [1] > [2] > [3]", 3) == [0, 1, 2]
+
+    def test_out_of_range_dropped(self):
+        assert SC._parse_permutation("[9] > [2] > [1] > [3]", 3) == [1, 0, 2]
+
+    def test_prose_and_fence_tolerated(self):
+        assert SC._parse_permutation("순위: [2] > [3] > [1] 입니다", 3) == [1, 2, 0]
+        fence = "```" + "[2] > [1] > [3]" + "```"
+        assert SC._parse_permutation(fence, 3) == [1, 0, 2]
+
+    def test_no_permutation_returns_none_for_fallback(self):
+        # 정직 폴백 — 못 읽으면 휴리스틱 순서를 유지해야 하므로 None
+        assert SC._parse_permutation("죄송합니다 순위를 매길 수 없습니다", 3) is None
+        assert SC._parse_permutation("", 3) is None
+        assert SC._parse_permutation("2 > 1 > 3", 3) is None   # 대괄호 없음
+
+    def test_never_loses_candidates(self):
+        for text in ("[2] > [1] > [3]", "[3] > [1]", "[9] > [2]", "[1]"):
+            assert self._all_present(SC._parse_permutation(text, 3), 3)
+
+    def test_listwise_off_without_key(self, monkeypatch):
+        """키 없으면 HTTP 전에 (None, None) — 테스트가 유료 API를 때리지 않는다."""
+        assert SC.api_rank_listwise("q", ["a", "b"]) == (None, None)

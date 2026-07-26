@@ -244,3 +244,59 @@ class TestA2AFixes:
         except SystemExit:
             pass
         assert job.status == JobStatus.error   # running 고착 아님
+
+
+class TestEvidenceGate:
+    """L3 근거 게이트 — fit 차원 0개면 recommend 불가 (실측 오판: 공감만세×AdForUs).
+
+    5차원이 전부 caution인데 LLM이 '전략적 잠재력'을 이유로 recommend를 낸 사례.
+    판단은 차원 근거의 집계(JDG-02)라, 근거 없는 낙관이 최상위 추천으로 나가면 안 된다.
+    """
+
+    @staticmethod
+    def _result(verdicts, decision):
+        from app.schemas import (CategoryJudgment, ConfidenceBand, DecisionType,
+                                 Dimension, JudgeResult, MatchSummary, VerdictType)
+        dims = [CategoryJudgment(dimension=d, verdict=v, rationale="r")
+                for d, v in zip([Dimension.industry_fit, Dimension.purpose_alignment,
+                                 Dimension.resource_complementarity,
+                                 Dimension.stage_compatibility,
+                                 Dimension.demonstrability], verdicts)]
+        return JudgeResult(
+            decision=decision, decision_rationale="전략적 잠재력",
+            category_judgments=dims, risks=[], fit_reasons=["x"], gap_factors=[],
+            match_summary=MatchSummary(problem_solution="ps", value_proposition="vp",
+                                       reference="ref"),
+            confidence_band=ConfidenceBand.medium, reasoning_moves=[], trajectory="t")
+
+    def test_all_caution_recommend_is_capped_to_conditional(self):
+        from app.engine.judge import _apply_evidence_gate
+        from app.schemas import DecisionType, VerdictType
+        r = self._result([VerdictType.caution] * 5, DecisionType.recommend)
+        _apply_evidence_gate(r)
+        assert r.decision == DecisionType.conditional
+        assert "전략적 잠재력" in r.decision_rationale   # 원 근거 보존 (감사 가능)
+
+    def test_one_fit_keeps_recommend(self):
+        from app.engine.judge import _apply_evidence_gate
+        from app.schemas import DecisionType, VerdictType
+        r = self._result([VerdictType.fit] + [VerdictType.caution] * 4,
+                         DecisionType.recommend)
+        _apply_evidence_gate(r)
+        assert r.decision == DecisionType.recommend
+
+    def test_non_recommend_decisions_untouched(self):
+        from app.engine.judge import _apply_evidence_gate
+        from app.schemas import DecisionType, VerdictType
+        for dec in (DecisionType.conditional, DecisionType.hold):
+            r = self._result([VerdictType.caution] * 5, dec)
+            _apply_evidence_gate(r)
+            assert r.decision == dec        # 근거 부족 ≠ unfit — 과교정 금지
+
+    def test_empty_dimensions_not_overcorrected(self):
+        from app.engine.judge import _apply_evidence_gate
+        from app.schemas import DecisionType, VerdictType
+        r = self._result([VerdictType.caution] * 5, DecisionType.recommend)
+        r.category_judgments = []
+        _apply_evidence_gate(r)
+        assert r.decision == DecisionType.recommend

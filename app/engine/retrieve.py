@@ -21,6 +21,8 @@ _STRONG_THRESHOLD = 0.12   # 이하이면 "강한 후보 없음" (RET-06). 실 L
                            # well-defined 매칭(0.176~) vs 노이즈(≤0.070) 청정갭 정중앙 확인.
 _MARGIN_BAND = 0.03        # 임계 근처 |s-τ| — 재실행 시 뒤집힐 위험이 큰 경계 후보
 _ANCHOR_MIN = 0.05         # pool-max ov_anchor 하한 — 미만이면 과소정의 프로필(저신뢰)
+_API_RERANK_MAX = 5        # E9 부재 시 API(236B) 폴백 재랭킹 상한 — 개별 호출이라
+                           # 후보당 ~1.5s. 상위 5개면 판단 대상(캐스케이드 top3)을 덮는다.
 
 
 def template_counterpart(req: RetrieveRequest) -> str:
@@ -182,7 +184,7 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
         # 학습 스코어러 재랭킹 (선택적) — 게이트는 위 휴리스틱 τ가 이미 결정했고,
         # 여기서는 통과 후보의 '순서'만 학습 점수로 다시 매긴다. 서버 부재 시
         # score_batch가 None → 휴리스틱 순서 그대로 (정직 폴백, 조용한 대체 없음).
-        from .scorer_client import (api_score_batch, profile_facts,
+        from .scorer_client import (api_rank_listwise, api_score_batch, profile_facts,
                                      score_batch_timed)
         rb = req.requester_profile.basic
         req_facts = profile_facts(rb.name, rb.industry, rb.country,
@@ -213,8 +215,36 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
             progress.log("검색", f"학습 스코어러 재랭킹 적용 — {len(window)}건 "
                                  f"(순서=학습 점수, 게이트=휴리스틱 τ 유지)")
         else:
-            ranked = [(r, s, None) for r, s in strong]
+            # E9 부재 폴백 — 휴리스틱(bigram 겹침)만 남으면 "유사도≠보완성"이 무너져
+            # 키워드 매칭으로 후퇴한다(실측: 공감만세→광고사·SI가 상위). API(236B)로
+            # 같은 보완성 기준을 채점해 순서를 되살린다. E9(로컬 ms급)와 달리 개별
+            # 호출이라 느려 상위 _API_RERANK_MAX개만. 게이트는 여전히 휴리스틱 τ.
+            head = window[:_API_RERANK_MAX]          # window와 pairs는 같은 순서
+            order = None
+            if head:
+                progress.log("검색", f"⚠ 학습 스코어러 부재 — API(236B) listwise 재랭킹 "
+                                     f"상위 {len(head)}건 (키워드 매칭 후퇴 방지)")
+                # RankGPT(arXiv:2304.09542): 후보별 절대점수(pointwise, N회 호출)보다
+                # 한 번에 놓고 상대 비교하는 listwise 순열이 호출 1회 + 변별력이 낫다.
+                # 쿼리는 synth(이상적 상대의 상) — 이미 보완성으로 변환된 문장이라
+                # '그 상과의 유사도 = 우리에 대한 보완성'이 된다(HyDE와 같은 구조).
+                order, ms = api_rank_listwise(synth, [b for _, b in pairs[:len(head)]])
+                if order is not None:
+                    api_ms = ms
+                    progress.log("검색", f"listwise 순열 적용 — 1회 호출 {ms}ms "
+                                         f"(pointwise였다면 {len(head)}회)")
+            if order is not None:
+                # 순열은 순서만 준다 — 점수가 아니므로 learned/api 점수칸은 비운다
+                # (랭크를 0~10 점수로 위장하면 UI가 없는 신뢰도를 표시하게 된다).
+                ranked = [(head[i][0], head[i][1], None) for i in order]
+                ranked += [(r, s, None) for r, s in strong[len(head):]]
+            else:
+                ranked = [(r, s, None) for r, s in strong]
 
+        # 정직 표기: ranked의 3번째 원소는 E9(learned)일 때만 learned_relatedness에
+        # 담는다. API 폴백 경로의 점수는 api_relatedness(api_by_cid)로만 나간다 —
+        # API 점수를 learned로 흘리면 UI가 "🧠 1.2B"로 잘못 표시한다(조용한 대체 금지).
+        learned_ranked = learned is not None
         candidates = []
         for r, s, l in ranked[: req.k]:
             av = api_by_cid.get(r.company_id)
@@ -224,7 +254,8 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
                 pool=r.pool,
                 match_points=_match_points(synth, anchor, r),
                 retrieval_score=s,
-                learned_relatedness=round(l, 2) if l is not None else None,
+                learned_relatedness=(round(l, 2)
+                                     if learned_ranked and l is not None else None),
                 api_relatedness=round(av, 2) if av is not None else None,
                 weak=weak_fallback,
             ))

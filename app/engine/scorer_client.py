@@ -75,6 +75,78 @@ def _parse_score(text: str) -> Optional[int]:
         return int(m.group(1)) if m else None
 
 
+# RankGPT(arXiv:2304.09542) 스타일 listwise 재랭킹 프롬프트.
+# pointwise(_API_SYS)는 후보마다 절대점수를 따로 매겨 호출이 N회 들고 점수가
+# 뭉갠다(실측: 상위 후보들이 0.104/0.099/0.098로 변별 안 됨). listwise는 후보를
+# 한 번에 놓고 '상대 비교'로 순열만 뱉게 해 호출 1회 + 변별력을 얻는다.
+_RANK_SYS = (
+    "너는 B2B 매칭 애널리스트다. 주어진 '이상적 상대의 상'에 가장 잘 맞는 순서로 "
+    "후보 기업을 정렬한다. 기준은 유사도가 아니라 보완성 — 내 솔루션이 상대의 "
+    "결핍/수요를 메우는가. 동종 경쟁사·공급사는 뒤로 보낸다.\n"
+    "출력은 식별자 순열 하나만. 예: [2] > [1] > [3]\n"
+    "설명·인사·코드펜스 금지. 모든 후보를 빠짐없이 한 번씩 포함할 것.")
+
+
+def _parse_permutation(text: str, n: int) -> Optional[list[int]]:
+    """'[2] > [1] > [3]' → [1, 0, 2] (0-based 원본 인덱스 순위).
+
+    모델이 항목을 빠뜨리거나 중복·범위 밖을 뱉는 일이 잦다(RankGPT 논문도 후처리를
+    전제). 정직 규칙: 중복·범위밖은 버리고, **누락된 후보는 원래 순서로 뒤에 붙인다**
+    — 조용히 후보를 삭제하지 않는다. 유효 항목이 하나도 없으면 None(폴백).
+    """
+    import re
+    seen, order = set(), []
+    for tok in re.findall(r"\[(\d+)\]", text):
+        i = int(tok) - 1                       # 프롬프트는 1-based
+        if 0 <= i < n and i not in seen:
+            seen.add(i)
+            order.append(i)
+    if not order:
+        return None
+    order += [i for i in range(n) if i not in seen]   # 누락분 보존
+    return order
+
+
+def api_rank_listwise(query: str, docs: list[str]
+                      ) -> tuple[Optional[list[int]], Optional[int]]:
+    """RankGPT listwise 재랭킹 — 1회 호출로 전체 순열. → (순위 인덱스, 지연ms).
+
+    query: 이상적 상대의 상(이미 보완성으로 변환된 문장 — HyDE와 같은 구조)
+    docs:  후보 기업 facts 텍스트
+    반환:  docs의 0-based 인덱스를 '좋은 순'으로 정렬한 리스트. 실패 시 (None, None).
+
+    후보 수가 적어(≤ 재랭킹 창) 슬라이딩 윈도우 없이 단일 호출로 끝낸다.
+    """
+    s = get_settings()
+    if not (s.friendli_token and s.friendli_endpoint_id) or not docs:
+        return None, None
+    listing = "\n\n".join(f"[{i + 1}] {d[:900]}" for i, d in enumerate(docs))
+    user = (f"[이상적 상대의 상]\n{query[:1500]}\n\n"
+            f"[후보 {len(docs)}개]\n{listing}\n\n"
+            f"위 {len(docs)}개를 보완성이 높은 순서로 정렬해 순열만 출력하라.")
+    t0 = time.time()
+    try:
+        with httpx.Client(timeout=s.scorer_timeout) as client:
+            r = client.post(
+                "https://api.friendli.ai/dedicated/v1/chat/completions",
+                headers={"Authorization": f"Bearer {s.friendli_token}"},
+                json={"model": s.friendli_endpoint_id, "temperature": 0.0,
+                      "max_tokens": 256, "messages": [
+                          {"role": "system", "content": _RANK_SYS},
+                          {"role": "user", "content": user}],
+                      "chat_template_kwargs": {"enable_thinking": False}})
+            r.raise_for_status()
+            content = r.json()["choices"][0]["message"]["content"] or ""
+        order = _parse_permutation(content, len(docs))
+        if order is None:
+            progress.log("검색", f"⚠ listwise 순열 파싱 실패 — 폴백 (응답: {content[:80]})")
+            return None, None
+        return order, int((time.time() - t0) * 1000)
+    except Exception as e:  # noqa: BLE001
+        progress.log("검색", f"⚠ listwise 재랭킹 폴백 — {type(e).__name__}: {e}")
+        return None, None
+
+
 def api_score_batch(pairs) -> tuple[Optional[list[float]], Optional[int]]:
     """API(K-EXAONE-236B, Friendli)로 같은 쌍을 채점 → (점수, 지연ms).
 
