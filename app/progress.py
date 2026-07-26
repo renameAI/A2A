@@ -23,6 +23,7 @@ class RunLog:
         self._t_end: float | None = None
         self._node_stack: list[str] = []
         self._lock = threading.Lock()
+        self.llm_calls = 0            # LLM(K-EXAONE 등) 호출 횟수 — loop 예산 계측
 
     @property
     def elapsed(self) -> float:
@@ -56,6 +57,30 @@ class RunLog:
         with self._lock:
             return self._node_stack[-1] if self._node_stack else None
 
+    def tick_llm(self) -> None:
+        """LLM 1회 호출 계측 — llm._chat이 호출 직전에 부른다."""
+        with self._lock:
+            self.llm_calls += 1
+
+    def stage_timings(self) -> dict[str, float]:
+        """node_start/node_end 쌍에서 노드별 소요(초)를 집계 — 재진입 노드는 합산.
+
+        depth 1(최상위) 노드만 집계해 단계 총시간(represent/retrieve/judge/…)을
+        본다. 중첩 노드(llm.reason 등)는 상위에 이미 포함되므로 뺀다."""
+        opens: dict[str, float] = {}
+        totals: dict[str, float] = {}
+        for e in self.entries:
+            if e.get("depth") != 1:
+                continue
+            node = e.get("node")
+            if not node:
+                continue
+            if e.get("type") == "node_start":
+                opens[node] = e["t"]
+            elif e.get("type") == "node_end" and node in opens:
+                totals[node] = round(totals.get(node, 0.0) + (e["t"] - opens.pop(node)), 1)
+        return totals
+
 
 def bind() -> RunLog:
     """job 실행 시작 시 호출 — 이후 같은 컨텍스트의 log()/node()가 여기로 모인다."""
@@ -68,6 +93,13 @@ def log(stage: str, message: str) -> None:
     run = _current.get()
     if run is not None:
         run.add(stage, message)
+
+
+def tick_llm() -> None:
+    """LLM 호출 계측 — job 컨텍스트 없으면 no-op."""
+    run = _current.get()
+    if run is not None:
+        run.tick_llm()
 
 
 def current() -> RunLog | None:

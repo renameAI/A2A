@@ -183,6 +183,7 @@ class _OpenAICompatExtractor:
               thinking: bool = False, max_tokens: int = 8192,
               temperature: Optional[float] = None) -> str:
         host = urlparse(self._url).netloc or self._url
+        progress.tick_llm()
         progress.log(self._label,
                      f"호출 시작 — reasoning {'ON(깊은 추론)' if thinking else 'OFF'}"
                      f"{' · 스키마 강제' if schema else ''} · 입력 {len(system) + len(user):,}자"

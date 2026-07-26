@@ -48,9 +48,13 @@ class _RestoredLog:
     def __init__(self, entries: list[dict], elapsed: float):
         self.entries = entries
         self.elapsed = elapsed
+        self.llm_calls = 0
 
     def add(self, *a, **k) -> None:      # 종료된 job에는 no-op
         pass
+
+    def stage_timings(self) -> dict:     # 되살린 job은 계측 재구성 안 함
+        return {}
 
 
 class JobStore:

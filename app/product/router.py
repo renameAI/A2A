@@ -71,7 +71,9 @@ def product_job(job_id: str):
     return {"job_id": job.job_id, "status": job.status.value,
             "a2a_state": job_state_to_a2a(job.status.value, job.result, job.error),
             "result": job.result, "error": job.error,
-            "logs": job.log.entries, "elapsed": job.log.elapsed}
+            "logs": job.log.entries, "elapsed": job.log.elapsed,
+            "stage_timings": job.log.stage_timings(),
+            "llm_calls": getattr(job.log, "llm_calls", 0)}
 
 
 # ── 업로드 (IR덱 PDF) ────────────────────────────────────────────────
