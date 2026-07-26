@@ -263,13 +263,27 @@ def _ontology_hint(req: JudgeRequest) -> "str | None":
     나온다(순수 함수 + 캐시) — _audit_judge가 재호출해도 실제 전송 프롬프트와
     감사 로그의 input_text가 어긋나지 않는다.
     """
+    p1, p2 = req.self_profile, req.counterpart_profile
+    parts: list[str] = []
+    # ① 도메인 실증 루브릭 (materials/*.md — demonstrability 한 줄)
     try:
         from ..ontology.retrieve import domain_hint
+        d = domain_hint(p1.basic.industry, p1.description,
+                        p2.basic.industry, p2.description)
+        if d:
+            parts.append(d)
     except Exception:                             # 재료 파일 문제로 판단을 막지 않는다
-        return None
-    p1, p2 = req.self_profile, req.counterpart_profile
-    return domain_hint(p1.basic.industry, p1.description,
-                       p2.basic.industry, p2.description)
+        pass
+    # ② 박사님 가설 카드 + feedback_loop 조정 규칙 (렌즈=vantage로 매칭)
+    try:
+        from ..ontology.hypotheses import ontology_cards
+        query = f"{p1.basic.industry} {p1.description} {p2.basic.industry} {p2.description}"
+        cards = ontology_cards(req.vantage.value, query)
+        if cards:
+            parts.append(cards)
+    except Exception:
+        pass
+    return "\n\n".join(parts) if parts else None
 
 
 import re as _re
