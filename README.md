@@ -12,7 +12,7 @@
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 의존성 (버전 고정)
-cp .env.example .env   # FRIENDLI_TOKEN·FRIENDLI_ENDPOINT_ID 입력 (없으면 Mock 모드)
+cp .env.example .env   # FRIENDLI_TOKEN·FRIENDLI_ENDPOINT_ID 입력 (필수 — 없으면 실패)
 .venv/bin/uvicorn app.main:app --port 8423   # → http://localhost:8423 (웹 UI)
 ```
 
@@ -23,7 +23,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env   # 필요 시만 키 입력
 mkdir -p data uploads pages
-LLM_PROVIDER=mock .venv/bin/uvicorn app.main:app --port 8425 --reload
+.venv/bin/uvicorn app.main:app --port 8425 --reload   # .env에 실 키 필요
 ```
 
 - UI 확인
@@ -73,7 +73,8 @@ curl -N -X POST http://localhost:8425/a2a \
 ```
 
 - 웹 UI: `http://localhost:8423/` · 엔진 API 문서: `/docs`
-- 테스트: `.venv/bin/python -m pytest tests/ -q` (항상 Mock — API 비용 0)
+- 테스트: `.venv/bin/python -m pytest tests/ -q` (mock 제거로 다수가 실 키를 요구한다 —
+  아래 '테스트 상태' 참고)
 
 ### 외부 후보 pool 확장 (`.claude/launch.json`, 로컬 전용 — 커밋 안 됨)
 
@@ -105,7 +106,6 @@ exec .venv/bin/uvicorn app.main:app --port ${PORT:-8423}
 | `friendli` (기본) | K-EXAONE-236B (Friendli dedicated) | 소버린 트랙 |
 | `local` | 로컬 OpenAI 호환 모델 (Ollama·llama.cpp) | **완전 오프라인** — 외부 API 없음 |
 | `anthropic` | Claude | 대안 |
-| `mock` | 규칙 파서 | LLM 없이 계약·흐름만 |
 
 **오프라인/저사양 실행** — 인터넷 없이 로컬 모델로 돌리려면:
 ```bash
@@ -150,7 +150,8 @@ cp .env.example .env    # FRIENDLI_TOKEN + FRIENDLI_ENDPOINT_ID 설정 (K-EXAONE
 - **K-EXAONE-236B** (Friendli dedicated, OpenAI 호환): controllable reasoning 특성에 맞춰
   **"깊게 추론(thinking ON) → 구조화(thinking OFF + json_schema)" 2단계** 패턴 사용.
   Represent·Judge는 deep 경로(품질 우선, 호출당 4~5분), Compose·합성은 단일 호출.
-- 키가 없으면 Mock으로 동작 (`engine_mode: "mock"` 표기). 테스트는 항상 Mock(비용 0).
+- 키가 없으면 **즉시 실패**한다 (config_error). 조용한 규칙 대체(mock)는 2026-07 제거 —
+  가짜 결과가 진짜처럼 보이는 통로였다. 실 API로만 검증한다.
 - 실측: 다이브인→리비 하노이 판단이 CoT #01 전문가 결론(조건부·PMS 선결·소규모 PoC)과 수렴 확인.
 
 설계·요구사항: [docs/PHASE2_수집추출_설계.md](docs/PHASE2_수집추출_설계.md)
@@ -164,7 +165,7 @@ cp .env.example .env    # FRIENDLI_TOKEN + FRIENDLI_ENDPOINT_ID 설정 (K-EXAONE
 - **노드 상태**: 대기(회색 점선) → 실행 중(주황 펄스) → 완료(초록) / 실패(빨강, 예외 메시지 포함)
 - **소요 시간**: 노드마다 `완료 · 0.3s` 식으로 표기, 실행 중이면 서버 경과시간 기준 실시간 갱신
 - **노드 간 연결**: 완료된 경로는 실선, 진행 중인 경로는 애니메이션 점선, 이번 실행에서
-  건너뛴 분기(예: LLM 키 없어 Mock 경로를 탄 경우)는 옅은 점선으로 표시
+  건너뛴 분기는 옅은 점선으로 표시
 - **협상(negotiate)은 동적 DAG**: 라운드마다 노드가 새로 생기고, 그 라운드 내부의
   결격 게이트·판단·감사 단계가 자식 노드로 세로로 이어진다 (라운드 = 부모, 내부 단계 = 자식)
 - **로그 필터**: 노드를 클릭하면 그 구간에서 찍힌 로그만 필터링해서 보여준다
@@ -179,21 +180,17 @@ cp .env.example .env    # FRIENDLI_TOKEN + FRIENDLI_ENDPOINT_ID 설정 (K-EXAONE
 기존 `LLM_PROVIDER` 설정을 그대로 재사용한다 — 이 기능만을 위한 별도 키·환경변수는 없다.
 
 ```bash
-# 무료 스모크 테스트 (키 없이 바로 흐름 확인)
-LLM_PROVIDER=mock .venv/bin/uvicorn app.main:app --port 8425
+# 스모크 테스트 (.env에 실 키 필요)
+.venv/bin/uvicorn app.main:app --port 8425   # .env에 실 키 필요
 # 웹 UI → ① 자료 입력 → 프로필 분석 → "②+ AI 컨설턴트 인터뷰" 섹션 → "인터뷰 시작"
 ```
 
-- **Mock 경로**: 검증된 실제 인터뷰 3건을 기반으로 한 고정 10턴 스크립트
-  (`_MOCK_SCRIPT`, [engine/consultant.py](app/engine/consultant.py)) — 비용 0, 완전 오프라인,
-  매번 같은 흐름이라 UI·계약 검증용으로 적합.
 - **실제 LLM 경로** (`friendli`/`local`/`anthropic`): 매 턴 회사의 상(像)에서 새로 도출한
   질문+4~6지선다(힌트 포함)를 생성. `.env`에 `FRIENDLI_TOKEN`+`FRIENDLI_ENDPOINT_ID`를 넣거나
   (상단 "오프라인/저사양 실행" 참고) 로컬 모델을 띄운 뒤 같은 UI 흐름으로 확인.
 - **API 직접 호출**: `POST /product/consult {company_id, history:[{question,answer}]}` →
   비동기 job, `GET /product/jobs/{id}`로 폴링. 10슬롯이 다 차면 `done:true`+`hypothesis` 반환.
-- **테스트**: `.venv/bin/python -m pytest tests/test_consultant.py -v` (5건, 전부 Mock 경로 —
-  오프라인·비용 0으로 계약 검증)
+- **테스트**: `.venv/bin/python -m pytest tests/test_consultant.py -v`
 
 ## A2A 전송 계층 — JSON-RPC 2.0 + SSE 스트리밍
 

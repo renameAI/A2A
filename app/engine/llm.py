@@ -348,23 +348,35 @@ class LocalExtractor(_OpenAICompatExtractor):
             f"Local({settings.local_model})", thinking_kwargs=False)
 
 
-def get_extractor(settings: Settings) -> Optional[Extractor]:
-    """LLM_PROVIDER에 고정된 어댑터만 사용 (다른 모델 개입 없음). 없으면 None(→ Mock)."""
+def get_extractor(settings: Settings) -> Extractor:
+    """LLM_PROVIDER에 고정된 어댑터만 사용 (다른 모델 개입 없음).
+
+    mock 제거 (2026-07): 예전엔 provider=mock이거나 키가 없으면 None을 돌려주고
+    호출측이 규칙 기반 결과로 조용히 대체했다. 그 경로는 '가짜 결과가 진짜처럼
+    보이는' 통로였다 — 실측으로 두 번 물렸다:
+      · LLM_PROVIDER=mock인데 .env가 자동 로드돼 스코어러는 실 API를 호출(비용·비결정)
+      · 골든셋을 mock으로 재다가 결정적 앵커 경로만 검증하고 실제 경로를 놓칠 뻔함
+    이제 키가 없으면 **조용히 대체하지 않고 즉시 실패**한다."""
     provider = settings.llm_provider
     if provider == "friendli":
         if settings.friendli_token and settings.friendli_endpoint_id:
             return FriendliExtractor(settings)
-        return None
+        raise EngineError(500, "config_error",
+                          "LLM_PROVIDER=friendli인데 FRIENDLI_TOKEN·"
+                          "FRIENDLI_ENDPOINT_ID가 없습니다 (.env 확인) — "
+                          "조용한 대체 없음")
     if provider == "local":
         if settings.local_base_url and settings.local_model:
             return LocalExtractor(settings)
-        return None
+        raise EngineError(500, "config_error",
+                          "LLM_PROVIDER=local인데 LOCAL_LLM_BASE_URL·"
+                          "LOCAL_LLM_MODEL이 없습니다 — 조용한 대체 없음")
     if provider == "anthropic":
         if settings.anthropic_api_key:
             return AnthropicExtractor(settings)
-        return None
-    if provider == "mock":
-        return None
+        raise EngineError(500, "config_error",
+                          "LLM_PROVIDER=anthropic인데 ANTHROPIC_API_KEY가 "
+                          "없습니다 — 조용한 대체 없음")
     raise EngineError(500, "config_error",
                       f"알 수 없는 LLM_PROVIDER: {provider} "
-                      "(friendli|local|anthropic|mock)")
+                      "(friendli|local|anthropic)")
