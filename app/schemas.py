@@ -5,7 +5,8 @@
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, field_validator,
+                      model_validator)
 
 
 # ── 공통 enum (스키마 §2~4) ──────────────────────────────────────────
@@ -103,6 +104,20 @@ class BasicInfo(BaseModel):
     city: Optional[str] = None
     founded_year: Optional[int] = None
     industry: str
+
+    @field_validator("founded_year")
+    @classmethod
+    def _plausible_year(cls, v):
+        """명백한 오파싱은 코드가 막는다 — 실측: "4년간 모금액 23배 성장"에서
+        founded_year=4가 나왔다. LLM에게 맡길 수 없는 종류의 검증이라(스키마상
+        정수면 통과) 범위를 코드로 못박는다. 범위 밖은 버리고 None — 틀린 값을
+        그럴듯하게 남기느니 '미상'이 정직하다."""
+        if v is None:
+            return None
+        import datetime
+        if not (1800 <= v <= datetime.date.today().year + 1):
+            return None
+        return v
 
 
 class CompanyPortrait(BaseModel):

@@ -242,11 +242,18 @@ def _load_e11_pool() -> list[CandidateRecord]:
                 research = r.get("research_text") or ""
             except Exception:                      # noqa: BLE001 — 불량 라인은 건너뜀
                 continue
+            # 산업은 E11 코퍼스에 없다 — 추출된 solution·problem 텍스트에서 코드로
+            # 유도한다(LLM 추가 호출 0). "unknown"을 그대로 두면 온톨로지 보너스가
+            # 원천 불가하고, industry_adjacent의 unknown 처리에도 걸린다.
+            from .common import normalize_industry
+            ind = normalize_industry(
+                f"{target.get('solution', {}).get('value', '')} "
+                f"{target.get('problem_solved', {}).get('value', '')}")
             out.append(CandidateRecord(
                 company_id=f"e11-{name}",
                 pool=PoolKind.external,
                 profile=Profile(
-                    basic=BasicInfo(name=name, country="한국", industry="unknown"),
+                    basic=BasicInfo(name=name, country="한국", industry=ind),
                     description=research[:600],
                     problem_solved=_e11_field(target.get("problem_solved", {})),
                     solution=_e11_field(target.get("solution", {})),

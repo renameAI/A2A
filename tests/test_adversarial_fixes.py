@@ -300,3 +300,64 @@ class TestEvidenceGate:
         r.category_judgments = []
         _apply_evidence_gate(r)
         assert r.decision == DecisionType.recommend
+
+
+class TestFoundedYearValidation:
+    """명백한 오파싱은 코드가 막는다 — 실측: "4년간 모금액 23배 성장"에서
+    founded_year=4가 나왔다. 스키마상 정수면 통과하므로 LLM에 맡길 수 없다.
+    범위 밖은 None으로 버린다 — 틀린 값을 그럴듯하게 남기느니 '미상'이 정직하다."""
+
+    @staticmethod
+    def _year(v):
+        from app.schemas import BasicInfo
+        return BasicInfo(name="x", country="한국", industry="saas",
+                         founded_year=v).founded_year
+
+    def test_implausible_years_dropped(self):
+        for bad in (4, 0, -1, 1799, 2100):
+            assert self._year(bad) is None, f"{bad}이 통과됨"
+
+    def test_plausible_years_kept(self):
+        import datetime
+        for good in (1800, 1999, 2020, datetime.date.today().year):
+            assert self._year(good) == good
+
+    def test_none_stays_none(self):
+        assert self._year(None) is None
+
+
+class TestIndustryNormalization:
+    """자유서술 산업명 → 통제 어휘. 소비처(industry_adjacent)가 통제 어휘를
+    기대하는데 생산처(LLM·리서치 풀)는 자유서술을 쓰던 계약 불일치를 코드가 흡수.
+    실측: 풀 1,140개 중 통제 어휘 해당이 6개(0.5%)뿐이라 +0.10 온톨로지 보너스가
+    99%에서 원천 불가였다 → 텍스트 유도 정규화로 80.8%까지 회복."""
+
+    def test_freeform_maps_to_controlled_vocab(self):
+        from app.engine.common import normalize_industry as N
+        assert N("고향사랑기부_민간_1위_플랫폼_운영") == "govtech"
+        assert N("소프트웨어 개발 및 공급업") == "software"
+        assert N("특수 목적용 기계 제조업") == "manufacturing"
+        assert N("금융 지원 서비스업") == "finance"
+        assert N("hospitality") == "hospitality"
+
+    def test_unconfident_stays_unknown(self):
+        """확신 없으면 unknown — 억지 매칭보다 무가산이 안전."""
+        from app.engine.common import normalize_industry as N
+        for t in ("", "unknown", "미상", "기타", "자연과학 및 공학 연구개발업"):
+            assert N(t) == "unknown"
+
+    def test_unknown_is_never_adjacent(self):
+        """실측 폭탄: a == b면 True라 industry='unknown'인 후보 933개가 서로 인접
+        판정을 받았다. +0.10은 τ=0.12를 단독으로 넘길 수 있는 크기라 요청자 산업이
+        미상이면 풀 전체가 가산을 받는 구조였다. 모르는 것끼리는 '판단 불가'다."""
+        from app.engine.common import industry_adjacent as adj
+        assert adj("unknown", "unknown") is False
+        assert adj("", "") is False
+        assert adj("미상", "미상") is False
+        assert adj("unknown", "software") is False
+
+    def test_real_adjacency_still_works(self):
+        from app.engine.common import industry_adjacent as adj
+        assert adj("고향사랑기부 플랫폼", "결제 정산 서비스") is True   # govtech↔finance
+        assert adj("소프트웨어 개발", "소프트웨어 공급") is True         # 동일
+        assert adj("고향사랑기부 플랫폼", "특수 목적용 기계 제조업") is False
