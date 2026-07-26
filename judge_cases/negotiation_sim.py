@@ -725,8 +725,10 @@ def sanitize_session(session: Dict[str, Any]) -> None:
     for (side, bid, field), (allowed, default) in _ENUM_FIELDS.items():
         node = states[side].get(bid, {})
         v = node.get(field)
-        if v is not None and v not in allowed:
-            node["note"] = (node.get("note", "") + f" [정규화: {field}='{v}'→'{default}']").strip()
+        # dict/list 등 비문자열 값(unhashable 포함)도 열거형 이탈로 간주해 기본값으로 강등
+        if v is not None and (not isinstance(v, str) or v not in allowed):
+            shown = json.dumps(v, ensure_ascii=False)[:80] if not isinstance(v, str) else v
+            node["note"] = (node.get("note", "") + f" [정규화: {field}='{shown}'→'{default}']").strip()
             node[field] = default
     b3 = session["buyer_state"].get("BB3_substitute", {})
     if isinstance(b3.get("substitute_types"), list):
@@ -735,8 +737,10 @@ def sanitize_session(session: Dict[str, Any]) -> None:
         if dropped:
             b3["note"] = (b3.get("note", "") + f" [정규화 제외: {dropped}]").strip()
         b3["substitute_types"] = kept
-    for bid, f in (("BB6_execution_gate", "dealbreaker"), ("BB8_trust", "exploitation_detected")):
-        node = session["buyer_state"].get(bid, {})
+    for side, bid, f in (("buyer_state", "BB6_execution_gate", "dealbreaker"),
+                         ("buyer_state", "BB8_trust", "exploitation_detected"),
+                         ("seller_state", "SB8_champion_arming", "champion_mode")):
+        node = session[side].get(bid, {})
         if f in node and not isinstance(node[f], bool):
             node[f] = str(node[f]).lower() in ("true", "1", "yes")
     # 조건: 문자열 → {condition, check_method} 객체, check_method 누락 보정
