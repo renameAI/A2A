@@ -472,6 +472,46 @@ def judge_candidate(req: JudgeCallRequest, background: BackgroundTasks):
     return _submit(background, _run)
 
 
+class JudgeBatchRequest(BaseModel):
+    company_id: str
+    candidate_ids: list[str]        # retrieve 랭킹 순 (E9 스코어러 정렬)
+    intent: Intent
+    top_k: int = Field(default=3, ge=1, le=10)   # 캐스케이드 — 상위 K만 deep 판단
+    max_workers: int = Field(default=4, ge=1, le=8)
+
+
+@router.post("/judge-batch", status_code=202)
+def judge_batch(req: JudgeBatchRequest, background: BackgroundTasks):
+    """상위 K 후보를 병렬로 판단 (loop 3분 목표). retrieve가 이미 E9로 랭킹했으니
+    상위 K만 deep judge(캐스케이드) + ThreadPool 동시 실행(병렬). K 미만 후보는
+    판단 생략 — 결과에 cascade_skipped로 정직 표시."""
+    from ..engine.judge import judge_many
+
+    rec = _require_company(req.company_id)
+    targets = req.candidate_ids[:req.top_k]              # 캐스케이드
+    cands = [(cid, pool_module.find(cid)) for cid in targets]
+    missing = [cid for cid, c in cands if c is None]
+    if missing:
+        raise EngineError(404, "not_found", f"후보 없음: {missing}")
+
+    def _run() -> dict:
+        reqs = [JudgeRequest(
+            vantage=Vantage.seller, objective=Objective.exploration_budget,
+            self_profile=rec.profile, self_private_state=rec.private_state,
+            counterpart_profile=c.profile, intent=req.intent) for _, c in cands]
+        results = judge_many(reqs, max_workers=req.max_workers)   # 병렬
+        judgments = []
+        for (cid, _), r in zip(cands, results):
+            if isinstance(r, Exception):
+                judgments.append({"candidate_id": cid, "error": str(r)})
+            else:
+                judgments.append({"candidate_id": cid,
+                                  "judge_result": r.model_dump(mode="json")})
+        return {"judgments": judgments, "judged": len(targets),
+                "cascade_skipped": len(req.candidate_ids) - len(targets)}
+    return _submit(background, _run)
+
+
 # ── 발굴 기업 판단 — Scout 웹 후보를 Judge에 태운다 ─────────────────
 # 웹 발굴 후보는 프로필이 얇다(이름·요약·국가뿐). 얇은 대로 정직하게 ask 위주
 # 프로필을 구성해 판단한다 — Judge 루브릭이 '정보 부재=caution+확인 방법'을

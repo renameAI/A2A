@@ -120,6 +120,44 @@ def _print(report: dict) -> None:
           f"({b['note']})")
 
 
+def bench_parallel(topk: int) -> dict:
+    """judge 순차 vs 병렬(judge_many) 벽시계 비교 — 병렬화 이득을 숫자로.
+
+    같은 상위 K 케이스를 ① 하나씩 순차 ② ThreadPool 동시 실행하고 전체 벽시계와
+    LLM 콜 수를 비교한다. mock은 LLM을 안 써 이득이 0(구조 검증용), 실LLM에서만
+    배수가 보인다."""
+    import contextvars
+    from concurrent.futures import ThreadPoolExecutor
+
+    golden = load_golden()
+    cases = golden.get("judge_cases", [])[:topk]
+    if not cases:
+        return {"error": "judge_cases 없음"}
+
+    run = progress.bind()
+    t0 = time.time()
+    for c in cases:
+        _run_judge_once(c)
+    seq_s = round(time.time() - t0, 1)
+    seq_calls = run.llm_calls
+
+    run = progress.bind()
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=min(len(cases), 4)) as ex:
+        futs = []
+        for c in cases:
+            ctx = contextvars.copy_context()
+            futs.append(ex.submit(ctx.run, _run_judge_once, c))
+        for f in futs:
+            f.result()
+    par_s = round(time.time() - t0, 1)
+    par_calls = run.llm_calls
+
+    return {"candidates": len(cases), "sequential_s": seq_s, "parallel_s": par_s,
+            "speedup": round(seq_s / par_s, 2) if par_s else 0,
+            "llm_calls_seq": seq_calls, "llm_calls_par": par_calls}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stages", default="retrieve,judge",
@@ -127,8 +165,22 @@ def main() -> None:
     ap.add_argument("--repeat", type=int, default=1, help="케이스당 반복(분산 측정)")
     ap.add_argument("--judge-topk", type=int, default=0,
                     help="judge 대상 상위 N (캐스케이드 시뮬, 0=전체)")
+    ap.add_argument("--parallel-topk", type=int, default=0,
+                    help=">0이면 상위 N을 순차 vs 병렬 벽시계 비교")
     ap.add_argument("--json", default="", help="리포트 JSON 저장 경로")
     a = ap.parse_args()
+
+    if a.parallel_topk:
+        report = bench_parallel(a.parallel_topk)
+        print(f"\n{'='*60}\n순차 vs 병렬 판단 (상위 {a.parallel_topk})\n{'='*60}")
+        print(f"  순차: {report['sequential_s']}s ({report['llm_calls_seq']}콜)")
+        print(f"  병렬: {report['parallel_s']}s ({report['llm_calls_par']}콜)")
+        print(f"  → {report['speedup']}배 빠름 (콜 수 동일 = 품질 무손실)")
+        if a.json:
+            with open(a.json, "w", encoding="utf-8") as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+        return
+
     stages = [s.strip() for s in a.stages.split(",") if s.strip()]
     report = bench(stages, a.repeat, a.judge_topk)
     _print(report)

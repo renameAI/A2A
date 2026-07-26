@@ -454,3 +454,46 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
     with progress.node("audit", "감사 로그 (SYS-04)"):
         _audit_judge(req, result, engine_mode="mock")
     return result
+
+
+def judge_many(reqs: "list[JudgeRequest]", deep: bool = True,
+               max_workers: int = 4) -> "list[JudgeResult | Exception]":
+    """여러 판단을 병렬 실행 (loop 3분 목표 — judge×N 순차가 병목).
+
+    각 판단은 독립이라 동시에 쏜다. contextvars.copy_context()로 부모 job의
+    RunLog(progress 컨텍스트)를 각 워커에 전파 — 로그·llm_calls가 한 job에
+    정확히 모인다(RunLog는 lock으로 thread-safe). K-EXAONE dedicated endpoint의
+    동시성 한계를 고려해 max_workers 상한(기본 4).
+
+    캐스케이드(상위 K만 판단)는 호출자가 reqs를 슬라이싱해 넘긴다 — 이 함수는
+    병렬화만 담당한다. 한 판단이 던진 예외(DealBreaker 등)는 그 자리에 담아
+    반환한다(배치를 죽이지 않음, 결과 순서 = 입력 순서)."""
+    import contextvars
+    from concurrent.futures import ThreadPoolExecutor
+
+    if not reqs:
+        return []
+    if len(reqs) == 1:
+        try:
+            return [judge(reqs[0], deep=deep)]
+        except Exception as e:                       # noqa: BLE001
+            return [e]
+
+    progress.log("판단", f"병렬 판단 시작 — {len(reqs)}건 "
+                         f"(동시 최대 {min(len(reqs), max_workers)})")
+
+    def _one(req):
+        try:
+            return judge(req, deep=deep)
+        except Exception as e:                       # noqa: BLE001 — 후보별 격리
+            return e
+
+    results: "list[JudgeResult | Exception | None]" = [None] * len(reqs)
+    with ThreadPoolExecutor(max_workers=min(len(reqs), max_workers)) as ex:
+        futs = {}
+        for i, req in enumerate(reqs):
+            ctx = contextvars.copy_context()         # 각 워커 = 독립 컨텍스트, 같은 RunLog
+            futs[ex.submit(ctx.run, _one, req)] = i
+        for fut in futs:
+            results[futs[fut]] = fut.result()
+    return results

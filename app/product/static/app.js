@@ -1458,7 +1458,16 @@ function renderLatency(data) {
 }
 
 function renderCandidates(candidates) {
-  $("#candidates").innerHTML = candidates.map((c) => `
+  const topk = Math.min(3, candidates.length);
+  const batchBar = candidates.length > 1
+    ? `<div class="batch-bar">
+         <button type="button" id="btn-judge-batch" class="primary"
+           title="retrieve 랭킹 상위 ${topk}개만 병렬로 판단 — 순차 대비 빠름(캐스케이드+병렬)">
+           ⚡ 상위 ${topk} 일괄 판단 (병렬)
+         </button>
+         <span class="batch-note">나머지 ${candidates.length - topk}개는 개별 '판단 실행'으로</span>
+       </div>` : "";
+  $("#candidates").innerHTML = batchBar + candidates.map((c) => `
     <div class="cand" id="cand-${esc(c.company_id)}">
       <div class="cand-head">
         <h3>${esc(c.name)} <small>(${esc(c.country)} · ${esc(c.pool)} 풀)</small></h3>
@@ -1473,6 +1482,45 @@ function renderCandidates(candidates) {
       <div class="judge-area"></div>
     </div>`).join("");
   document.querySelectorAll(".j-btn").forEach((b) => b.onclick = () => judgeCandidate(b.dataset.id, b));
+  const bb = document.getElementById("btn-judge-batch");
+  if (bb) bb.onclick = () => judgeBatch(candidates);
+}
+
+/* 상위 K 후보를 병렬로 판단 (캐스케이드 + 병렬). 한 job에 K개 결과가 모여 온다. */
+async function judgeBatch(candidates) {
+  const topk = Math.min(3, candidates.length);
+  const targets = candidates.slice(0, topk);
+  const btn = document.getElementById("btn-judge-batch");
+  btn.disabled = true; btn.textContent = "병렬 판단 중...";
+  targets.forEach((c) => setCandState(c.company_id, "running"));
+  const logBox = ensureLogBox($("#candidates"));
+  try {
+    const data = await runJob("/product/judge-batch",
+      { company_id: state.companyId, candidate_ids: candidates.map((c) => c.company_id),
+        intent: state.intent || collectIntent(), top_k: topk }, logBox, "judge");
+    logBox.classList.add("log-collapsed");
+    logBox.onclick = () => logBox.classList.toggle("log-collapsed");
+    for (const j of data.judgments) {
+      const area = $(`#cand-${CSS.escape(j.candidate_id)} .judge-area`);
+      if (!area) continue;
+      if (j.error) {
+        setCandState(j.candidate_id, "error", j.error.includes("deal") ? "terminate" : null);
+        area.insertAdjacentHTML("beforeend", `<div class="error">${esc(j.error)}</div>`);
+      } else {
+        state.judged[j.candidate_id] = j.judge_result;
+        setCandState(j.candidate_id, "done", j.judge_result.decision);
+        area.innerHTML = renderJudgment(j.judge_result, j.candidate_id);
+        area.querySelector(".c-btn").onclick = (e) => composeDraft(j.candidate_id, e.target);
+        area.querySelector(".n-btn").onclick = (e) => negotiateSim(j.candidate_id, e.target);
+      }
+    }
+  } catch (err) {
+    showError("#match-error", `${err.code || ""} ${err.message}`);
+    targets.forEach((c) => setCandState(c.company_id, "error"));
+  } finally {
+    btn.disabled = false; btn.textContent = `⚡ 상위 ${topk} 일괄 판단 (병렬)`;
+    refreshNodeGates();
+  }
 }
 
 /* ── ④ 판단 ─────────────────────────────────────────────────── */
