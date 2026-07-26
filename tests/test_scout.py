@@ -296,3 +296,43 @@ class TestCompanyExtraction:
                 {"title": "t", "url": "https://x.com/a", "snippet": "s", "domain": "co.com"}])
         assert res.companies == []
         assert res.engine_mode == "mock"
+
+
+class TestShortlistDomainDedup:
+    """도메인 dedup은 '가장 잘 맞는 가설'을 남겨야 한다 (순회 순서 독립).
+
+    수정 전 실측 결함: 같은 히트가 두 가설에 걸리면 먼저 만난 쪽이 도메인을 선점해
+    relevance가 0.1667 vs 1.0(6배)로 갈렸다. UI 관련도 과소표기 + 가설 오귀속 +
+    상위 k 탈락까지 이어진다.
+    """
+
+    HIT = {"title": "노후 호텔 객실 리모델링 전문 시공",
+           "snippet": "노후 호텔 객실 리모델링 전문 시공",
+           "url": "https://acme.co.kr/a", "domain": "acme.co.kr"}
+
+    @staticmethod
+    def _hyp(track, q):
+        from app.schemas import PartnerHypothesis
+        return PartnerHypothesis(track=track, hypothesis=q, grounded_in=["x"],
+                                 search_query=q, partner_type="파트너")
+
+    def test_keeps_best_matching_hypothesis_regardless_of_order(self):
+        from app.engine.scout import _shortlist
+        from app.schemas import HypothesisTrack
+        weak = self._hyp(HypothesisTrack.exploit, "호텔 파트너")
+        strong = self._hyp(HypothesisTrack.exploit, "노후 호텔 객실 리모델링 전문 시공")
+        a, _ = _shortlist([(weak, [self.HIT]), (strong, [self.HIT])], 5, 0.0)
+        b, _ = _shortlist([(strong, [self.HIT]), (weak, [self.HIT])], 5, 0.0)
+        assert len(a) == len(b) == 1                      # 도메인 1개로 dedup
+        assert a[0].relevance == b[0].relevance == 1.0    # 최고 점수 채택
+        assert a[0].hypothesis == b[0].hypothesis == strong.hypothesis   # 올바른 귀속
+
+    def test_noise_domains_still_counted_not_swallowed(self):
+        from app.engine.scout import _shortlist
+        from app.schemas import HypothesisTrack
+        h = self._hyp(HypothesisTrack.exploit, "노후 호텔 객실 리모델링 전문 시공")
+        noise = {**self.HIT, "domain": "wikipedia.org",
+                 "url": "https://wikipedia.org/a"}
+        picked, n_noise = _shortlist([(h, [noise, self.HIT])], 5, 0.0)
+        assert n_noise == 1                               # 정직 집계
+        assert [c.domain for c in picked] == ["acme.co.kr"]

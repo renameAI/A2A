@@ -226,14 +226,17 @@ def _score(hit: dict, hyp: PartnerHypothesis) -> float:
 def _shortlist(per_hyp_hits: list[tuple[PartnerHypothesis, list[dict]]],
                k: int, explore_ratio: float) -> list[ScoutCandidate]:
     """도메인 dedup → 트랙별 정렬 → explore 쿼터 배분(JDG-09) → 부족분 백필."""
-    seen_domains: set[str] = set()
-    pool: dict[HypothesisTrack, list[ScoutCandidate]] = {
-        HypothesisTrack.exploit: [], HypothesisTrack.explore: []}
+    # 도메인 dedup은 '가장 잘 맞는 가설'을 남긴다 — 먼저 만난 가설이 아니라.
+    # 실측 결함(수정 전): 같은 히트·같은 도메인이 두 가설에 걸리면 순회 순서에 따라
+    # relevance가 0.1667 vs 1.0(6배)로 갈렸다. 셋 다 실害였다 —
+    #   ① UI 관련도가 과소 표기 ② 후보를 찾아낸 가설이 잘못 귀속(틀린 이유를 보여줌)
+    #   ③ 점수가 낮게 박혀 상위 k에서 탈락.
+    best: dict[str, ScoutCandidate] = {}
     n_noise = 0
     for hyp, hits in per_hyp_hits:
         for hit in hits:
             domain = hit["domain"]
-            if not domain or domain in seen_domains:
+            if not domain:
                 continue
             if _is_noise(domain):
                 n_noise += 1                     # 정직 집계 — 조용히 삼키지 않는다
@@ -241,11 +244,17 @@ def _shortlist(per_hyp_hits: list[tuple[PartnerHypothesis, list[dict]]],
             rel = _score(hit, hyp)
             if rel < _MIN_RELEVANCE:
                 continue
-            seen_domains.add(domain)
-            pool[hyp.track].append(ScoutCandidate(
+            prev = best.get(domain)
+            if prev is not None and rel <= prev.relevance:
+                continue                         # 동점이면 먼저 것 유지 — 결정적
+            best[domain] = ScoutCandidate(
                 track=hyp.track, hypothesis=hyp.hypothesis,
                 title=hit["title"], url=hit["url"], snippet=hit["snippet"],
-                domain=domain, relevance=rel))
+                domain=domain, relevance=rel)
+    pool: dict[HypothesisTrack, list[ScoutCandidate]] = {
+        HypothesisTrack.exploit: [], HypothesisTrack.explore: []}
+    for cand in best.values():
+        pool[cand.track].append(cand)
     for track in pool:
         pool[track].sort(key=lambda c: (-c.relevance, c.domain))
 

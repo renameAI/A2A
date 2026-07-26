@@ -200,3 +200,68 @@ def test_judge_scout_profile_marks_unknown_as_unverified():
         summary="대만 기어 감속기 제조업체", country="대만"))
     assert "미확인" in p.description
     assert p.problem_solved.provenance.value == "ask"   # 지어내지 않음
+
+
+class TestAutoScoutWiring:
+    """풀에 강한 후보가 없을 때만 웹 스카우트로 풀 밖을 충원한다.
+
+    실측 근거: 공감만세(B2G)는 지자체를 원하는데 풀 1,140개가 전부 민간기업이라
+    어떤 랭킹 알고리즘으로도 못 고친다 — 후보 '공급'의 문제. 다만 스카우트는
+    LLM+웹검색 비용이 드므로 강한 후보가 있으면 태우지 않는다.
+    """
+
+    @staticmethod
+    def _patch_scout(monkeypatch, calls):
+        import app.engine.scout as S
+        from app.schemas import ScoutResponse
+
+        def fake(req, settings=None, **kw):
+            calls.append(req)
+            return ScoutResponse(knowledge=[], hypotheses=[], shortlist=[],
+                                 companies=[], engine_mode="mock",
+                                 web_search_used=False)
+        monkeypatch.setattr(S, "scout", fake)
+
+    def test_scout_fires_when_no_strong_candidate(self, monkeypatch):
+        import app.product.router as R
+        from app.errors import NoStrongCandidate
+        calls = []
+        self._patch_scout(monkeypatch, calls)
+        monkeypatch.setattr(R, "retrieve",
+                            lambda req: (_ for _ in ()).throw(NoStrongCandidate()))
+        cid = _onboard()
+        job = _run_job("/product/match", {
+            "company_id": cid, "intent": INTENT, "pool": "external", "k": 5,
+            "auto_scout": True})
+        assert job["status"] == "done", job.get("error")
+        assert len(calls) == 1                      # 풀 밖 충원 시도
+        assert job["result"]["weak_fallback"] is True
+        assert "scout" in job["result"]
+
+    def test_no_strong_candidate_still_errors_without_auto_scout(self, monkeypatch):
+        """auto_scout를 안 켜면 기존 계약(RET-06 422) 그대로 — 억지 후보 금지."""
+        import app.product.router as R
+        from app.errors import NoStrongCandidate
+        calls = []
+        self._patch_scout(monkeypatch, calls)
+        monkeypatch.setattr(R, "retrieve",
+                            lambda req: (_ for _ in ()).throw(NoStrongCandidate()))
+        cid = _onboard()
+        job = _run_job("/product/match", {
+            "company_id": cid, "intent": INTENT, "pool": "external", "k": 5})
+        assert job["status"] == "error"
+        assert job["error"]["code"] == "no_strong_candidate"
+        assert calls == []                          # 비용 지출 없음
+
+    def test_scout_skipped_when_strong_candidates_exist(self, monkeypatch):
+        """강한 후보가 있으면 스카우트를 태우지 않는다 (LLM+웹검색 비용 절약)."""
+        calls = []
+        self._patch_scout(monkeypatch, calls)
+        cid = _onboard()
+        job = _run_job("/product/match", {
+            "company_id": cid, "intent": INTENT, "pool": "external", "k": 5,
+            "auto_scout": True})
+        assert job["status"] == "done", job.get("error")
+        if not job["result"]["weak_fallback"]:      # 강한 후보가 실제로 잡힌 경우만
+            assert calls == []
+            assert "scout" not in job["result"]

@@ -381,6 +381,10 @@ class MatchRequest(BaseModel):
     k: int = Field(default=5, ge=1, le=20)
     compare_api: bool = False        # UI 토글 — 1.2B와 API(K-EXAONE) 같이 채점·비교
     allow_weak: bool = False         # UI 토글 — 강한 후보 0건이어도 상위 약한 후보를 표시
+    # 풀에 강한 후보가 없을 때만 웹 스카우트로 풀 밖 후보를 충원 (LLM+웹검색 비용 발생).
+    # 실측 근거: 공감만세(B2G)는 지자체를 원하는데 풀 1,140개가 전부 민간기업이라
+    # 어떤 랭킹 알고리즘으로도 못 고친다 — 랭킹이 아니라 후보 공급의 문제.
+    auto_scout: bool = False
 
 
 def _require_company(company_id: str):
@@ -402,12 +406,20 @@ def match(req: MatchRequest, background: BackgroundTasks):
                           {"open_threads": [t.model_dump(mode="json") for t in open_threads]})
 
     def _run() -> dict:
-        result = retrieve(RetrieveRequest(
-            requester_profile=rec.profile, intent=req.intent,
-            direction=RetrieveDirection.sell_outreach, pool=req.pool, k=req.k,
-            compare_api=req.compare_api, allow_weak=req.allow_weak))
+        from ..errors import NoStrongCandidate
+        result = None
+        try:
+            result = retrieve(RetrieveRequest(
+                requester_profile=rec.profile, intent=req.intent,
+                direction=RetrieveDirection.sell_outreach, pool=req.pool, k=req.k,
+                compare_api=req.compare_api, allow_weak=req.allow_weak))
+        except NoStrongCandidate:
+            if not req.auto_scout:
+                raise            # 기존 계약 유지 — 억지 후보를 채우지 않는다 (RET-06)
+            progress.log("검색", "풀에 강한 후보 없음 — 웹 스카우트로 풀 밖 충원 시도")
+
         enriched = []
-        for cand in result.candidates:
+        for cand in (result.candidates if result else []):
             record = pool_module.find(cand.company_id)
             enriched.append({
                 **cand.model_dump(mode="json"),
@@ -415,11 +427,27 @@ def match(req: MatchRequest, background: BackgroundTasks):
                 "country": record.profile.basic.country if record else "",
                 "summary": record.profile.description if record else "",
             })
-        return {"candidates": enriched,
-                "synthesized_counterpart": result.synthesized_counterpart,
-                "scorer_latency_ms": result.scorer_latency_ms,
-                "api_latency_ms": result.api_latency_ms,
-                "weak_fallback": result.weak_fallback}
+        payload = {
+            "candidates": enriched,
+            "synthesized_counterpart": result.synthesized_counterpart if result else "",
+            "scorer_latency_ms": result.scorer_latency_ms if result else None,
+            "api_latency_ms": result.api_latency_ms if result else None,
+            "weak_fallback": result.weak_fallback if result else True,
+        }
+        # 풀 밖 충원 — 풀 자체에 맞는 상대가 없을 때만 (LLM+웹검색 비용이 든다).
+        # 실측 근거: 공감만세(B2G)는 지자체를 원하는데 풀 1,140개가 전부 민간기업이라
+        # 랭킹으로는 못 고친다 — 후보 '공급'의 문제라 풀 밖에서 찾아야 한다.
+        if req.auto_scout and (result is None or result.weak_fallback):
+            from ..engine.scout import scout as scout_engine
+            from ..schemas import ScoutRequest
+            with progress.node("scout", "웹 스카우트 (풀 밖 충원)"):
+                scout_res = scout_engine(ScoutRequest(
+                    profile=rec.profile, intent=req.intent, k=req.k))
+            payload["scout"] = scout_res.model_dump(mode="json")
+            progress.log("검색", f"스카우트 — 기업 {len(scout_res.companies)}건 · "
+                                 f"숏리스트 {len(scout_res.shortlist)}건 "
+                                 f"(웹검색 {'사용' if scout_res.web_search_used else '실패'})")
+        return payload
     return _submit(background, _run)
 
 
