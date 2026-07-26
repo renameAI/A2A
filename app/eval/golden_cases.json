@@ -6,21 +6,117 @@
       "외부 검증된 골든 라벨이 아니라, 시드 풀의 '의도된 역할'을 라벨로 인코딩한 소량 v0 셋(7 케이스).",
       "audit 로그(엔진 자기 출력)는 순환이라 라벨로 쓰지 않음.",
       "anchor(divein×livi=conditional)와 deal-breaker/distractor 역할은 강한 근거, bangkok/casablanca 매칭 극성은 약한 근거.",
-      "decision 극성(engage/defer/reject)으로 채점 — 정확 decision보다 극성 일치가 1차 지표."
+      "decision 극성(engage/defer/reject)으로 채점 — 정확 decision보다 극성 일치가 1차 지표.",
+      "retrieve 케이스는 시드 풀(7개) 통제 조건에서만 유효하다 — A2A_POOL_DIR·A2A_E11_POOL_PATH를 켜면 후보가 1,140개로 늘어 기대값이 깨진다. 벤치 실행 시 두 환경변수를 끄고 돌릴 것."
     ],
-    "polarity_map": {"recommend": "engage", "conditional": "engage", "hold": "defer", "terminate": "reject"}
+    "polarity_map": {
+      "recommend": "engage",
+      "conditional": "engage",
+      "hold": "defer",
+      "terminate": "reject"
+    }
   },
   "retrieve_cases": [
     {
       "case_id": "R-cot01-divein-베트남",
       "source": "CoT #01·#02 — divein 판매 아웃리치, 베트남 노후 객실 매칭",
       "requester_ref": "mem-divein",
-      "intent": {"value_props": ["revenue_growth"], "target_region": "베트남"},
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ],
+        "target_region": "베트남"
+      },
       "direction": "sell_outreach",
       "expected": {
         "top_should_be": "ext-livi-hanoi",
-        "should_exclude": ["ext-competitor-interior", "ext-hanoi-luxury-new", "ext-global-aero"],
+        "should_exclude": [
+          "ext-competitor-interior",
+          "ext-hanoi-luxury-new",
+          "ext-global-aero"
+        ],
         "note": "경쟁사(인테리어 시공)·distractor(신축 럭셔리, 노후 문제 없음)·타산업(항공)은 강한 후보에서 빠져야"
+      }
+    },
+    {
+      "case_id": "R-02-태국-지역steering",
+      "source": "CoT #03 — 방콕 중가 호텔. 시드 풀 설계 역할(pool.py)",
+      "requester_ref": "mem-divein",
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ],
+        "target_region": "태국"
+      },
+      "direction": "sell_outreach",
+      "expected": {
+        "top_should_be": "ext-bangkok-mid",
+        "should_exclude": [
+          "ext-competitor-interior",
+          "ext-hanoi-luxury-new",
+          "ext-global-aero"
+        ],
+        "note": "지역 steering — 같은 '노후 객실' 후보 중 의도 지역(태국)이 1위여야. 베트남 livi가 이기면 지역 신호 소실"
+      }
+    },
+    {
+      "case_id": "R-03-모로코-지역steering",
+      "source": "CoT #04 — 카사블랑카(인바운드·Willingness 높음). pool.py 설계 역할",
+      "requester_ref": "mem-divein",
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ],
+        "target_region": "모로코"
+      },
+      "direction": "sell_outreach",
+      "expected": {
+        "top_should_be": "ext-casablanca-odyssee",
+        "should_exclude": [
+          "ext-competitor-interior",
+          "ext-hanoi-luxury-new",
+          "ext-global-aero"
+        ],
+        "note": "지역 steering + 인바운드 의향(willingness_purchase=high) 후보가 1위"
+      }
+    },
+    {
+      "case_id": "R-04-지역미지정-순수보완성",
+      "source": "지역 보너스 없이 보완성만으로 판정 (RET-02)",
+      "requester_ref": "mem-divein",
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ]
+      },
+      "direction": "sell_outreach",
+      "expected": {
+        "top_should_be": "ext-livi-hanoi",
+        "should_exclude": [
+          "ext-competitor-interior",
+          "ext-hanoi-luxury-new",
+          "ext-global-aero"
+        ],
+        "note": "지역 미지정 — 지역 가산 없이 '노후 객실 매출 정체' 신호가 가장 강한 후보가 1위"
+      }
+    },
+    {
+      "case_id": "R-05-purchase-방향전환",
+      "source": "같은 회사가 방향에 따라 경쟁사↔공급사 (RET-02 방향 계약)",
+      "requester_ref": "mem-divein",
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ],
+        "target_region": "베트남"
+      },
+      "direction": "purchase_sourcing",
+      "expected": {
+        "top_should_be": "ext-livi-hanoi",
+        "should_exclude": [
+          "ext-global-aero"
+        ],
+        "note": "구매 방향에선 인테리어 시공사가 '경쟁사'가 아니라 공급 후보로 올라와야 — sell에선 강등 대상이던 회사. 항공 대기업은 여전히 무관"
       }
     }
   ],
@@ -33,8 +129,16 @@
       "counterpart_ref": "ext-livi-hanoi",
       "vantage": "seller",
       "objective": "exploration_budget",
-      "intent": {"value_props": ["revenue_growth"], "target_region": "베트남"},
-      "expected": {"decision": "conditional", "polarity": "engage"}
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ],
+        "target_region": "베트남"
+      },
+      "expected": {
+        "decision": "conditional",
+        "polarity": "engage"
+      }
     },
     {
       "case_id": "J-cot04-divein-casablanca",
@@ -44,8 +148,15 @@
       "counterpart_ref": "ext-casablanca-odyssee",
       "vantage": "seller",
       "objective": "exploration_budget",
-      "intent": {"value_props": ["revenue_growth"]},
-      "expected": {"polarity": "engage", "note": "상대 열림(high)이라 진행 극성 기대"}
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ]
+      },
+      "expected": {
+        "polarity": "engage",
+        "note": "상대 열림(high)이라 진행 극성 기대"
+      }
     },
     {
       "case_id": "J-dealbreaker-divein-aero",
@@ -55,9 +166,16 @@
       "counterpart_ref": "ext-global-aero",
       "vantage": "seller",
       "objective": "exploration_budget",
-      "intent": {"value_props": ["revenue_growth"]},
-      "expected": {"polarity": "reject", "deal_breaker_ok": true,
-                   "note": "deal-breaker 게이트 발화 또는 terminate — 둘 다 정답(추격 자원 회수)"}
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ]
+      },
+      "expected": {
+        "polarity": "reject",
+        "deal_breaker_ok": true,
+        "note": "deal-breaker 게이트 발화 또는 terminate — 둘 다 정답(추격 자원 회수)"
+      }
     },
     {
       "case_id": "J-distractor-divein-competitor",
@@ -67,8 +185,15 @@
       "counterpart_ref": "ext-competitor-interior",
       "vantage": "seller",
       "objective": "exploration_budget",
-      "intent": {"value_props": ["revenue_growth"]},
-      "expected": {"polarity_not": "engage", "note": "경쟁사는 추천 극성이 아니어야(hold/terminate 허용)"}
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ]
+      },
+      "expected": {
+        "polarity_not": "engage",
+        "note": "경쟁사는 추천 극성이 아니어야(hold/terminate 허용)"
+      }
     },
     {
       "case_id": "J-distractor-divein-luxury",
@@ -78,8 +203,16 @@
       "counterpart_ref": "ext-hanoi-luxury-new",
       "vantage": "seller",
       "objective": "exploration_budget",
-      "intent": {"value_props": ["revenue_growth"], "target_region": "베트남"},
-      "expected": {"polarity_not": "engage", "note": "노후 문제 없는 상대는 강한 진행이 아니어야"}
+      "intent": {
+        "value_props": [
+          "revenue_growth"
+        ],
+        "target_region": "베트남"
+      },
+      "expected": {
+        "polarity_not": "engage",
+        "note": "노후 문제 없는 상대는 강한 진행이 아니어야"
+      }
     }
   ]
 }
