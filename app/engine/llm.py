@@ -301,10 +301,17 @@ class _OpenAICompatExtractor:
             return self._retry_json(system, user, schema)
 
     def _retry_json(self, system: str, user: str, schema: dict) -> dict:
+        # 구조화 출력 상한 — 비대 프로필(자료 인용 다수)에서 judge JSON이 8192를
+        # 넘겨 잘리는 사례(finish_reason=length) 실측. 기본 16384로 상향, 환경변수로
+        # 조정. cap은 상한일 뿐이라 정상 출력은 EOS로 일찍 멈춰 지연·비용 영향 없음
+        # (긴 꼬리만 완주). Friendli N-gram speculative(엔드포인트 토글)와 결합하면
+        # 그 꼬리도 병렬 검증으로 당겨진다.
+        import os as _os
+        struct_max = int(_os.environ.get("LLM_STRUCT_MAX_TOKENS", "16384"))
         for attempt in (1, 2):
             try:
                 return self._parse_json(self._chat(
-                    system, user, schema=schema, thinking=False, max_tokens=8192,
+                    system, user, schema=schema, thinking=False, max_tokens=struct_max,
                     # 스키마 강제 구조화라 반복 루프 위험이 낮음(문법 제약) — 0.2 유지.
                     temperature=0.2))
             except EngineError as e:
