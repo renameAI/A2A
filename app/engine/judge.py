@@ -243,7 +243,17 @@ def _strip_ungrounded_claims(result: JudgeResult, req: JudgeRequest,
 
 def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
     """LLM 판단 경로 — 프롬프트가 판단 구조를, 스키마가 출력 계약을 강제한다.
-    출력 계약은 규칙 경로와 동일하므로 API·테스트 구조는 그대로다."""
+    출력 계약은 규칙 경로와 동일하므로 API·테스트 구조는 그대로다.
+
+    실측(2026-07-27, 축을 7→10개로 늘린 직후 첫 실 루프): K-EXAONE이 finish=stop으로
+    스스로 멈추고 뒤 4축(BB7~BB10)을 아예 안 쓴 채 응답을 끝냈다(잘림이 아니라 모델이
+    "충분하다"고 판단하고 멈춘 것). 처음엔 놓친 축을 콕 집어 재시도했는데, 그 재시도가
+    deep=True 전체(추론+구조화 2단계)를 다시 돌아 173초가 걸렸다 — 이 엔진은 전체
+    loop 3분 예산으로 설계됐는데(FORMALIZATION.md), 후보 하나의 축 누락이 예산 전체를
+    먹어버린다. LLM을 다시 부르는 대신 **로컬에서 채운다**: 누락 축은 verdict=na,
+    status=unknown으로 합성 — 지연 0ms고, 이미 검증된 decision_gate의
+    "미검증≥3 → hold" 경로로 정직하게 수렴한다(casablanca 실측: 10축 전부
+    unknown/caution → hold, 이 백필과 결과적으로 같은 자리)."""
     from .. import progress
     progress.log("Judge", f"{req.self_profile.basic.name} → "
                           f"{req.counterpart_profile.basic.name} 판단 시작 "
@@ -259,15 +269,19 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
         data["reasoning_moves"] = ["risk_triage"]
     with progress.node("validate", "차원 계약 검증 (JDG-02)"):
         result = JudgeResult.model_validate(data)
-        # 축 계약 검증 — 누락 시 명시적 실패가 조용한 오판보다 낫다.
-        # 렌즈와 무관하게 BB 10축 전부를 요구한다(JUDGE_DIMENSIONS 주석 참고).
+        # 축 계약 검증 — 렌즈와 무관하게 BB 10축 전부를 요구한다(JUDGE_DIMENSIONS
+        # 주석 참고). 누락은 재호출이 아니라 로컬 백필로 3분 예산을 지킨다.
         dims = {d.dimension for d in result.category_judgments}
-        required = set(JUDGE_DIMENSIONS)
-        missing = required - dims
+        missing = set(JUDGE_DIMENSIONS) - dims
         if missing:
-            from ..errors import EngineError
-            raise EngineError(502, "llm_error",
-                              f"판단 차원 누락: {[d.value for d in missing]} — 재시도 필요")
+            progress.log("Judge", f"⚠ 축 누락({len(missing)}개, LLM 응답에 없음) — "
+                                  f"재호출 없이 미검증으로 백필(3분 예산 보존): "
+                                  f"{[d.value for d in missing]}")
+            result.category_judgments += [
+                CategoryJudgment(dimension=d, verdict=VerdictType.na,
+                                 status=AxisStatus.unknown,
+                                 rationale="모델 응답에 이 축이 없었음 — 재호출 없이 미검증 처리")
+                for d in missing]
         n_stripped = _strip_ungrounded_claims(result, req, hint)
         progress.log("Judge", f"판단 완료 — 결정: {result.decision.value} "
                               f"({len(result.category_judgments)}차원 · "
