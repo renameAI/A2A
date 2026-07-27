@@ -1,0 +1,380 @@
+{
+  "seller_company": "이노메트리",
+  "buyer_company": "대원",
+  "rounds": 1,
+  "buyer_state": {
+    "BB1_purpose_fit": {
+      "status": "assumed",
+      "verdict": "na"
+    },
+    "BB2_value_hierarchy": {
+      "status": "assumed",
+      "verdict": "na"
+    },
+    "BB3_substitute": {
+      "status": "assumed",
+      "verdict": "na"
+    },
+    "BB4_opportunity_cost": {
+      "status": "assumed",
+      "verdict": "na"
+    },
+    "BB5_evidence": {
+      "status": "assumed",
+      "verdict": "na"
+    },
+    "BB6_execution_gate": {
+      "status": "assumed",
+      "verdict": "na",
+      "dealbreaker": false
+    },
+    "BB7_timing": {
+      "status": "assumed",
+      "verdict": "na"
+    },
+    "BB8_trust": {
+      "status": "assumed",
+      "verdict": "na",
+      "authenticity_gate": "na",
+      "exploitation_detected": false
+    },
+    "BB9_decision_structure": {
+      "status": "assumed",
+      "verdict": "na"
+    },
+    "BB10_contract_protection": {
+      "status": "assumed",
+      "verdict": "na"
+    }
+  },
+  "buyer_decision": {
+    "decision": "conditional",
+    "rationale": "제안된 PoC 기반 검증은 층간소음 저감 검증 시스템 도입 목적에 부합하며, 전환비용 대비 우위와 낮은 실패 리스크로 조건부 수용 가능하나, 구조적 실행 전제와 검증 데이터 확보가 선행되어야 함.",
+    "conditions": [
+      {
+        "condition": "PoC 검증 완료 및 성능 데이터 확보",
+        "check_method": "PoC 현장 적용 후 성능 보고서 및 재현성 테스트 결과 제출"
+      },
+      {
+        "condition": "MDR 인증 완료 및 캐파 증설 로드맵 검증",
+        "check_method": "인증 기관 확인서 및 증설 일정에 대한 서면 로드맵 제출"
+      },
+      {
+        "condition": "AS 체계 및 내부 품질 기준 충족",
+        "check_method": "AS 매뉴얼, 품질관리 프로세스 문서, 현장 적용 가이드라인 제출"
+      },
+      {
+        "condition": "결정권자 승인 자료 확보",
+        "check_method": "기술개발본부장 및 시공본부장 공동 서명된 PoC 승인 요청서 제출"
+      },
+      {
+        "condition": "계약 보호 조건 명시",
+        "check_method": "NDA 체결 여부, IP 귀속 조항, 독점 범위 명시 여부 확인"
+      },
+      {
+        "condition": "(미기재)",
+        "check_method": "(미기재 — 후속 지정 필요)"
+      }
+    ],
+    "risks": []
+  },
+  "seller_state": {
+    "SB1_pitch_alignment": {
+      "status": "confirmed",
+      "buyer_real_reason": "direction→소구교체",
+      "misread_type": "unknown",
+      "evidence": "구매자는 정밀도보다 '검증 실적'을 더 중시하며, 기존 장비와의 비교를 요구함",
+      "note": "[정규화: misread_type='direction→소구교체'→'unknown']"
+    },
+    "SB2_value_positioning": {
+      "status": "confirmed",
+      "position": "unknown",
+      "evidence": "스토리보다 '검증 실적'과 'MDR 인증' 같은 도메인 화폐를 우선시함",
+      "note": "[정규화: position='low'→'unknown']"
+    },
+    "SB3_evidence_packaging": {
+      "status": "confirmed",
+      "evidence_offered": [
+        "정밀도와 검증 실적",
+        "월 15대 생산 캐파",
+        "글로벌 인증 제한",
+        "2024년 말 캐파 25대 및 MDR 인증 완료 목표"
+      ]
+    },
+    "SB4_substitute_defense": {
+      "status": "confirmed",
+      "substitute_type": "unknown",
+      "evidence": "특허·시간가치·검증실적을 '대체불가' 논거로 제시",
+      "note": "[정규화: substitute_type='make-vs-buy'→'unknown']"
+    },
+    "SB5_threshold_design": {
+      "status": "confirmed",
+      "downside_removers": [
+        "소량 PoC",
+        "성과 조건부",
+        "MG 없음",
+        "15분 검증 프로세스"
+      ]
+    },
+    "SB6_execution_honesty": {
+      "status": "confirmed",
+      "limits_disclosed": [
+        "월 15대 생산 캐파",
+        "글로벌 인증 제한",
+        "단계적 증설 필요"
+      ],
+      "resolution_path": "2020년 말까지 캐파 25대, MDR 인증 완료"
+    },
+    "SB7_authenticity_structure": {
+      "status": "confirmed",
+      "evidence": "주체(판매자) + 보상(검증 실적) + 투명성(제한 공개) 구조"
+    },
+    "SB8_champion_arming": {
+      "status": "unknown",
+      "evidence": "구매자 내부 결정자 여부 미확인"
+    },
+    "SB9_protection_screening": {
+      "status": "unknown",
+      "screening": "unknown"
+    },
+    "SB10_strategic_relationship": {
+      "status": "confirmed",
+      "stance": "withdraw_structural",
+      "evidence": "구조적 요건 미달(인증 제한, 캐파 부족)이지만 재접촉 여지 존재"
+    }
+  },
+  "seller_outcome": {
+    "outcome": "poc^POC_agreed",
+    "rationale": "(근거 미산출)"
+  },
+  "hypotheses": [
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "구매자가 PoC 검증 후 추가 캐파 확장에 동의할 가능성 탐색",
+      "dimension": "SB5_threshold_design",
+      "evidence_needed": "PoC 검증 결과 및 내부 승인 여부"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "MDR 인증 완료 시점이 구매 결정의 키포인트가 될 수 있음",
+      "dimension": "SB6_execution_honesty",
+      "evidence_needed": "인증 일정의 구체성 및 검증 기관의 피드백"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "구매자 내부에 PoC 검증을 주도할 챔피언 존재 가능성 탐색",
+      "dimension": "SB8_champion_arming",
+      "evidence_needed": "기술 담당자 또는 품질 담당자의 관심 여부"
+    }
+  ],
+  "audit": [
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer_final",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "verified",
+        "verdict": "conditional"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "confirmed",
+        "buyer_real_reason": "direction→소구교체",
+        "misread_type": "direction→소구교체",
+        "evidence": "구매자는 정밀도보다 '검증 실적'을 더 중시하며, 기존 장비와의 비교를 요구함"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB2_value_positioning",
+      "update": {
+        "status": "confirmed",
+        "position": "low",
+        "evidence": "스토리보다 '검증 실적'과 'MDR 인증' 같은 도메인 화폐를 우선시함"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "confirmed",
+        "evidence_offered": [
+          "정밀도와 검증 실적",
+          "월 15대 생산 캐파",
+          "글로벌 인증 제한",
+          "2024년 말 캐파 25대 및 MDR 인증 완료 목표"
+        ]
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB4_substitute_defense",
+      "update": {
+        "status": "confirmed",
+        "substitute_type": "make-vs-buy",
+        "evidence": "특허·시간가치·검증실적을 '대체불가' 논거로 제시"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "confirmed",
+        "downside_removers": [
+          "소량 PoC",
+          "성과 조건부",
+          "MG 없음",
+          "15분 검증 프로세스"
+        ]
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "confirmed",
+        "limits_disclosed": [
+          "월 15대 생산 캐파",
+          "글로벌 인증 제한",
+          "단계적 증설 필요"
+        ],
+        "resolution_path": "2020년 말까지 캐파 25대, MDR 인증 완료"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB7_authenticity_structure",
+      "update": {
+        "status": "confirmed",
+        "evidence": "주체(판매자) + 보상(검증 실적) + 투명성(제한 공개) 구조"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "unknown",
+        "evidence": "구매자 내부 결정자 여부 미확인"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "status": "unknown",
+        "screening": "unknown"
+      }
+    },
+    {
+      "round": 1,
+      "side": "seller_final",
+      "basis": "SB10_strategic_relationship",
+      "update": {
+        "status": "confirmed",
+        "stance": "withdraw_structural",
+        "evidence": "구조적 요건 미달(인증 제한, 캐파 부족)이지만 재접촉 여지 존재"
+      }
+    }
+  ],
+  "provenance": {
+    "buyer_side": "simulated",
+    "seller_side": "simulated",
+    "outcome_anchor": false
+  }
+}

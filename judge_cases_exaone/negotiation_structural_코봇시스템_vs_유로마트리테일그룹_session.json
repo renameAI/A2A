@@ -1,0 +1,177 @@
+{
+  "seller_company": "코봇시스템",
+  "buyer_company": "유로마트 리테일 그룹",
+  "rounds": 1,
+  "buyer_state": {
+    "BB1_purpose_fit": {
+      "status": "assumed",
+      "verdict": "caution",
+      "evidence": "혁신적인 제품임을 강조하나, 당사의 핵심 목적인 매대 회전율 및 마진 기여도에 대한 소명이 전혀 없음."
+    },
+    "BB2_value_hierarchy": {
+      "status": "confirmed",
+      "verdict": "unfit",
+      "evidence": "판매자는 CES 혁신상 등 기술적 우위와 스토리를 강조하지만, 당사의 1순위 구매 이유(마진, 회전율)와는 불일치함.",
+      "seller_asset_position": "bonus"
+    },
+    "BB3_substitute": {
+      "status": "unknown",
+      "verdict": "na",
+      "evidence": "기존 대안 대비 전환 비용이나 우위가 논의되지 않음."
+    },
+    "BB4_opportunity_cost": {
+      "status": "unknown",
+      "verdict": "na",
+      "evidence": "실패 손실에 대한 구체적 논의 없음."
+    },
+    "BB5_evidence": {
+      "status": "assumed",
+      "verdict": "caution",
+      "evidence": "CES 수상 데이터는 제시되었으나, 당사 도메인(대형 유통망)에서 요구하는 실증(판매 데이터 등)은 부족함."
+    },
+    "BB6_execution_gate": {
+      "status": "confirmed",
+      "verdict": "unfit",
+      "dealbreaker": true,
+      "evidence": "소량 PoC 제안은 당사의 전 매장 일괄 입점 정책에 위배되며, CE 인증, 배상책임보험, EDI 연동 등 필수 선결 조건이 미비함."
+    },
+    "BB7_timing": {
+      "status": "confirmed",
+      "verdict": "unfit",
+      "evidence": "판매자의 현재 생산 캐파 및 준비 상태가 당사의 대규모 유통망에 진입하기에는 너무 이른 시점임."
+    },
+    "BB8_trust": {
+      "status": "assumed",
+      "verdict": "fit",
+      "authenticity_gate": "passed",
+      "exploitation_detected": false,
+      "evidence": "CES 수상 등 객관적 사실을 바탕으로 접근하였으며, 소량 PoC를 제안하는 등 현재의 한계를 투명하게 드러내어 착취적 의도는 보이지 않음."
+    },
+    "BB9_decision_structure": {
+      "status": "confirmed",
+      "verdict": "unfit",
+      "evidence": "필수 서류 미비로 인해 내부 시스템 등록 및 승인 절차 자체를 시작할 수 없음."
+    },
+    "BB10_contract_protection": {
+      "status": "unknown",
+      "verdict": "na",
+      "evidence": "계약 및 독점, IP 관련 논의 단계에 이르지 못함."
+    }
+  },
+  "buyer_decision": {
+    "decision": "terminate_structural",
+    "rationale": "당사의 물류 정책상 전 매장 일괄 입점만 가능하나 판매자가 소량 PoC를 제안하여 구조적으로 수용이 불가합니다. 또한 CE 인증, 배상책임보험, EDI 연동 등 벤더 등록을 위한 필수 선결 조건과 1,200개 매장 대응 캐파가 확인되지 않아 현재 시점에서는 거래를 진행할 수 없습니다.",
+    "conditions": [],
+    "risks": [
+      {
+        "type": "precondition",
+        "desc": "필수 인증(CE), 보험, EDI 연동 미비 및 대규모 물량(1,200개 매장) 대응 캐파 부족으로 인한 벤더 등록 불가 리스크"
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 목적 정합(BB1_purpose_fit)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 혁신적인 제품임을 강조하나, 당사의 핵심 목적인 매대 회전율 및 마진 기여도에 대한 소명이 전혀 없음."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 가치 서열(BB2_value_hierarchy)=unfit — 타 차원 fit 과 불일치, 확인 필요. 근거: 판매자는 CES 혁신상 등 기술적 우위와 스토리를 강조하지만, 당사의 1순위 구매 이유(마진, 회전율)와는 불일치함."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 실증 신호(BB5_evidence)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: CES 수상 데이터는 제시되었으나, 당사 도메인(대형 유통망)에서 요구하는 실증(판매 데이터 등)은 부족함."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 실행·선결 게이트(BB6_execution_gate)=unfit — 타 차원 fit 과 불일치, 확인 필요. 근거: 소량 PoC 제안은 당사의 전 매장 일괄 입점 정책에 위배되며, CE 인증, 배상책임보험, EDI 연동 등 필수 선결 조건이 미비함."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 단계·타이밍(BB7_timing)=unfit — 타 차원 fit 과 불일치, 확인 필요. 근거: 판매자의 현재 생산 캐파 및 준비 상태가 당사의 대규모 유통망에 진입하기에는 너무 이른 시점임."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 결정 구조(BB9_decision_structure)=unfit — 타 차원 fit 과 불일치, 확인 필요. 근거: 필수 서류 미비로 인해 내부 시스템 등록 및 승인 절차 자체를 시작할 수 없음."
+      }
+    ]
+  },
+  "seller_state": {
+    "SB1_pitch_alignment": {
+      "status": "confirmed",
+      "buyer_real_reason": "1,200개 매장 일괄 입점, CE 인증, EDI 연동 등 대규모 벤더 인프라 요건 충족",
+      "misread_type": "unknown",
+      "note": "[정규화: misread_type='방향'→'unknown']"
+    },
+    "SB2_value_positioning": {
+      "status": "confirmed",
+      "position": "unknown",
+      "note": "[정규화: position='CES 혁신상 등 기술적 임팩트를 내세웠으나, 상대는 양산 캐파와 시스템 연동 등 운영 역량을 요구함'→'unknown']"
+    },
+    "SB3_evidence_packaging": {
+      "status": "confirmed",
+      "evidence_offered": [
+        "CES 혁신상 2관왕 검증 데이터",
+        "귀사 환경에 맞춘 성능 검증 자료"
+      ]
+    },
+    "SB4_substitute_defense": {
+      "status": "unknown",
+      "substitute_type": "unknown"
+    },
+    "SB5_threshold_design": {
+      "status": "confirmed",
+      "downside_removers": [
+        "소량 PoC"
+      ]
+    },
+    "SB6_execution_honesty": {
+      "status": "assumed",
+      "limits_disclosed": []
+    },
+    "SB7_authenticity_structure": {
+      "status": "unknown"
+    },
+    "SB8_champion_arming": {
+      "status": "unknown"
+    },
+    "SB9_protection_screening": {
+      "status": "confirmed",
+      "screening": "unknown",
+      "note": "[정규화: screening='상대의 대규모 요구(1,200개 매장)에 대해 현재 캐파 한계로 인한 철수'→'unknown']"
+    },
+    "SB10_strategic_relationship": {
+      "status": "confirmed",
+      "stance": "unknown",
+      "note": "[정규화: stance='walk_away_structural'→'unknown']"
+    }
+  },
+  "seller_outcome": {
+    "outcome": "walk_away_structural",
+    "rationale": "구매자는 1,200개 유럽 매장 동시 입점, CE 인증, EDI 연동 등 확고한 대규모 벤더 요건을 요구하며 소규모 PoC를 거절했습니다. 당사의 현재 캐파와 인프라로는 즉각적인 대응이 불가능한 구조적 한계가 명확하므로, 요건 충족 시점까지 논의를 중단하는 구조적 철수가 적합합니다."
+  },
+  "hypotheses": [
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "판매자가 향후 대량 생산 캐파와 유럽 필수 인증을 확보한다면, 당사의 표준 벤더 요건을 충족하여 정식 입점 논의가 가능할 것이다.",
+      "dimension": "BB6_execution_gate",
+      "evidence_needed": "CE 인증서, 배상책임보험 증권, EDI 연동 완료 증빙 및 1,200개 매장 초도/리오더 물량 생산 가능 증빙 서류 제출"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "CE 인증 및 대량 생산 캐파 확보 로드맵을 수립하여 공유하면, 향후 벤더 등록을 위한 재접촉 시 긍정적인 반응을 얻을 수 있을 것이다.",
+      "dimension": "SB10_strategic_relationship",
+      "evidence_needed": "CE 인증 취득 계획 및 양산 인프라 구축 타임라인"
+    },
+    {
+      "frame": "exploit",
+      "lens": "sell",
+      "statement": "현재의 소량 PoC 기반 접근은 대규모 유통망보다는 혁신 기술 도입에 유연한 중소규모 전문 채널이나 B2B 기관에 더 효과적일 것이다.",
+      "dimension": "SB1_pitch_alignment"
+    }
+  ],
+  "provenance": {
+    "buyer_side": "simulated",
+    "seller_side": "simulated",
+    "outcome_anchor": false
+  }
+}

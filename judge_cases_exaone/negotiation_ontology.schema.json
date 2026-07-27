@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kimu/ontology/negotiation_session.schema.json",
+  "title": "협상 세션 상태 (Negotiation Session)",
+  "description": "buyer AI(BB1~BB10)와 seller AI(SB1~SB10)가 각자의 온톨로지에 근거해 협상한 한 세션의 최종 상태를 검증한다. 근거: buyer_ontology.yaml / seller_ontology.yaml.",
+  "type": "object",
+
+  "$defs": {
+    "status": { "type": "string", "enum": ["unknown", "assumed", "confirmed"] },
+    "verdict": { "type": "string", "enum": ["fit", "caution", "unfit", "na"] },
+    "bbBase": {
+      "type": "object",
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "evidence": { "type": "string" },
+        "note": { "type": "string" }
+      },
+      "required": ["status", "verdict"]
+    },
+    "sbBase": {
+      "type": "object",
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "note": { "type": "string" }
+      },
+      "required": ["status"]
+    },
+    "strArr": { "type": "array", "items": { "type": "string" } }
+  },
+
+  "properties": {
+    "seller_company": { "type": "string" },
+    "buyer_company": { "type": "string" },
+    "rounds": { "type": "integer", "minimum": 0 },
+
+    "buyer_state": {
+      "type": "object",
+      "properties": {
+        "BB1_purpose_fit":         { "$ref": "#/$defs/bbBase" },
+        "BB2_value_hierarchy": {
+          "allOf": [{ "$ref": "#/$defs/bbBase" }],
+          "properties": {
+            "seller_asset_position": { "type": "string",
+              "enum": ["reverse_signal", "premise", "bonus", "weapon", "core", "mission", "unknown"] }
+          }
+        },
+        "BB3_substitute": {
+          "allOf": [{ "$ref": "#/$defs/bbBase" }],
+          "properties": {
+            "substitute_types": { "type": "array", "items": { "type": "string",
+              "enum": ["existing_pool", "in_house_capability", "make_vs_buy", "competitor", "status_quo_installed", "none"] } }
+          }
+        },
+        "BB4_opportunity_cost":    { "$ref": "#/$defs/bbBase" },
+        "BB5_evidence": {
+          "allOf": [{ "$ref": "#/$defs/bbBase" }],
+          "properties": { "trust_currency": { "type": "string" } }
+        },
+        "BB6_execution_gate": {
+          "allOf": [{ "$ref": "#/$defs/bbBase" }],
+          "properties": { "dealbreaker": { "type": "boolean" } }
+        },
+        "BB7_timing":              { "$ref": "#/$defs/bbBase" },
+        "BB8_trust": {
+          "allOf": [{ "$ref": "#/$defs/bbBase" }],
+          "properties": {
+            "authenticity_gate": { "type": "string", "enum": ["passed", "failed", "na"] },
+            "exploitation_detected": { "type": "boolean" }
+          }
+        },
+        "BB9_decision_structure":  { "$ref": "#/$defs/bbBase" },
+        "BB10_contract_protection": { "$ref": "#/$defs/bbBase" }
+      },
+      "required": ["BB1_purpose_fit", "BB2_value_hierarchy", "BB3_substitute",
+                   "BB4_opportunity_cost", "BB5_evidence", "BB6_execution_gate",
+                   "BB7_timing", "BB8_trust", "BB9_decision_structure",
+                   "BB10_contract_protection"]
+    },
+
+    "buyer_decision": {
+      "type": "object",
+      "properties": {
+        "decision": { "type": "string",
+          "enum": ["recommend", "conditional", "hold", "terminate_structural", "terminate_values"] },
+        "rationale": { "type": "string", "minLength": 1 },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "조건에는 반드시 채점 방법(check_method)이 붙는다 — '판단이란 확인 리스크와 검증 계획을 남기는 행위'(README §4.1)",
+            "properties": {
+              "condition": { "type": "string", "minLength": 1 },
+              "check_method": { "type": "string", "minLength": 1 }
+            },
+            "required": ["condition", "check_method"]
+          }
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["precondition", "profitability", "dismissed"] },
+              "desc": { "type": "string" }
+            },
+            "required": ["type", "desc"]
+          }
+        }
+      },
+      "required": ["decision", "rationale"],
+      "allOf": [
+        {
+          "if": { "properties": { "decision": { "const": "conditional" } } },
+          "then": { "properties": { "conditions": { "minItems": 1 } }, "required": ["conditions"] }
+        }
+      ]
+    },
+
+    "hypotheses": {
+      "type": "array",
+      "description": "이 세션에서 추출된 가설 카드(스키마 v1.1 hypothesis 형식). explore 는 evidence_needed 필수(JDG-13: 무가설 explore 금지).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "frame": { "type": "string", "enum": ["exploit", "explore"] },
+          "lens": { "type": "string", "enum": ["buy", "sell"] },
+          "statement": { "type": "string", "minLength": 1 },
+          "dimension": { "type": "string" },
+          "evidence_needed": { "type": "string" }
+        },
+        "required": ["frame", "lens", "statement", "dimension"],
+        "allOf": [
+          {
+            "if": { "properties": { "frame": { "const": "explore" } } },
+            "then": { "required": ["evidence_needed"],
+                      "properties": { "evidence_needed": { "minLength": 1 } } }
+          }
+        ]
+      }
+    },
+
+    "provenance": {
+      "type": "object",
+      "description": "데이터 등급 태깅(README §6). observed=실측/실BD, constructed=AI 구성, simulated=시뮬 산출",
+      "properties": {
+        "buyer_side": { "type": "string", "enum": ["observed", "constructed", "simulated"] },
+        "seller_side": { "type": "string", "enum": ["observed", "constructed", "simulated"] },
+        "outcome_anchor": { "type": "boolean",
+          "description": "실제 성사/거절 결과로 앵커되었는가 (시뮬 산출이면 false)" }
+      },
+      "required": ["buyer_side", "seller_side", "outcome_anchor"]
+    },
+
+    "seller_state": {
+      "type": "object",
+      "properties": {
+        "SB1_pitch_alignment": {
+          "allOf": [{ "$ref": "#/$defs/sbBase" }],
+          "properties": {
+            "buyer_real_reason": { "type": "string" },
+            "misread_type": { "type": "string", "enum": ["direction", "evidence", "culture", "none", "unknown"] }
+          }
+        },
+        "SB2_value_positioning": {
+          "allOf": [{ "$ref": "#/$defs/sbBase" }],
+          "properties": {
+            "position": { "type": "string",
+              "enum": ["reverse_signal", "premise", "bonus", "weapon", "core", "mission", "unknown"] }
+          }
+        },
+        "SB3_evidence_packaging": {
+          "allOf": [{ "$ref": "#/$defs/sbBase" }],
+          "properties": { "trust_currency": { "type": "string" }, "evidence_offered": { "$ref": "#/$defs/strArr" } }
+        },
+        "SB4_substitute_defense": {
+          "allOf": [{ "$ref": "#/$defs/sbBase" }],
+          "properties": {
+            "substitute_type": { "type": "string",
+              "enum": ["existing_pool", "in_house", "make_vs_buy", "status_quo", "competitor", "none", "unknown"] },
+            "defense_used": { "$ref": "#/$defs/strArr" }
+          }
+        },
+        "SB5_threshold_design": {
+          "allOf": [{ "$ref": "#/$defs/sbBase" }],
+          "properties": { "cta_offered": { "type": "string" }, "downside_removers": { "$ref": "#/$defs/strArr" } }
+        },
+        "SB6_execution_honesty": {
+          "allOf": [{ "$ref": "#/$defs/sbBase" }],
+          "properties": { "limits_disclosed": { "$ref": "#/$defs/strArr" }, "resolution_paths": { "$ref": "#/$defs/strArr" } }
+        },
+        "SB7_authenticity_structure": { "$ref": "#/$defs/sbBase" },
+        "SB8_champion_arming": {
+          "allOf": [{ "$ref": "#/$defs/sbBase" }],
+          "properties": { "champion_mode": { "type": "boolean" }, "arming_assets": { "$ref": "#/$defs/strArr" } }
+        },
+        "SB9_protection_screening": {
+          "allOf": [{ "$ref": "#/$defs/sbBase" }],
+          "properties": {
+            "screening": { "type": "string", "enum": ["clean", "caution", "exploitative", "unknown"] },
+            "protections": { "$ref": "#/$defs/strArr" }
+          }
+        },
+        "SB10_strategic_relationship": {
+          "allOf": [{ "$ref": "#/$defs/sbBase" }],
+          "properties": {
+            "strategic_value": { "type": "string" },
+            "stance": { "type": "string",
+              "enum": ["pursue", "hold", "withdraw_structural", "withdraw_values", "unknown"] }
+          }
+        }
+      },
+      "required": ["SB1_pitch_alignment", "SB2_value_positioning", "SB3_evidence_packaging",
+                   "SB4_substitute_defense", "SB5_threshold_design", "SB6_execution_honesty",
+                   "SB7_authenticity_structure", "SB8_champion_arming",
+                   "SB9_protection_screening", "SB10_strategic_relationship"]
+    },
+
+    "seller_outcome": {
+      "type": "object",
+      "properties": {
+        "outcome": { "type": "string",
+          "enum": ["meeting_agreed", "poc_agreed", "deal_structured", "hold",
+                   "walk_away_structural", "walk_away_values", "no_agreement"] },
+        "rationale": { "type": "string", "minLength": 1 }
+      },
+      "required": ["outcome", "rationale"]
+    }
+  },
+
+  "required": ["seller_company", "buyer_company", "rounds",
+               "buyer_state", "buyer_decision", "seller_state", "seller_outcome",
+               "hypotheses", "provenance"],
+
+  "allOf": [
+    {
+      "description": "완결성: buyer 가 recommend/conditional 이면 핵심 basis(BB1·BB2·BB6)가 unknown 이어선 안 된다",
+      "if": {
+        "properties": { "buyer_decision": {
+          "properties": { "decision": { "enum": ["recommend", "conditional"] } } } }
+      },
+      "then": {
+        "properties": { "buyer_state": {
+          "properties": {
+            "BB1_purpose_fit":     { "properties": { "status": { "enum": ["assumed", "confirmed"] } } },
+            "BB2_value_hierarchy": { "properties": { "status": { "enum": ["assumed", "confirmed"] } } },
+            "BB6_execution_gate":  { "properties": { "status": { "enum": ["assumed", "confirmed"] } } }
+          } } }
+      }
+    },
+    {
+      "description": "정합성: buyer 가 terminate_structural 이면 BB6 dealbreaker 표기",
+      "if": {
+        "properties": { "buyer_decision": {
+          "properties": { "decision": { "const": "terminate_structural" } } } }
+      },
+      "then": {
+        "properties": { "buyer_state": {
+          "properties": { "BB6_execution_gate": {
+            "properties": { "dealbreaker": { "const": true } }, "required": ["dealbreaker"] } } } }
+      }
+    }
+  ]
+}

@@ -1,0 +1,191 @@
+---
+# =====================================================================
+# BUYER 판단 온톨로지 — 기계 정의 (정규 소스)
+# 근거: judge_cases 19케이스 교차 분석 (buyer_ontology_구매판단.md 와 1:1)
+# 용도: 구매자 역할 AI가 "살 것인가"를 결정하는 대화 판단 근거.
+#       매 턴 대화 문맥을 각 basis 에 대조 → 갭 선정 → 검증질문 발화.
+# provenance 주의: 구매측 원자료는 [구성](시뮬레이션) — 구조는 신뢰,
+#       도메인별 임계값은 실데이터 보정 대상.
+# =====================================================================
+
+ontology:
+  id: buyer_judge
+  version: "1.0"
+  lens: buy
+  status_enum: [unknown, assumed, confirmed]
+  verdict_enum: [fit, caution, unfit, na]
+  goal: >
+    상대(판매자) 제안을 10개 basis 로 판정하여 recommend / conditional /
+    hold / terminate(2종) 중 하나의 구조화 결정(근거·조건·리스크 포함)을 내린다.
+
+  principles:
+    - "내가 사는 가치 ≠ 상대가 파는 가치 — 판단 기준은 '나는 이것으로 무엇을 하려는가'"
+    - "산업 fit 은 필요조건일 뿐 — 실행 게이트 하나로 결렬된다"
+    - "높은 Willingness(상대 열의·내 감동)는 판단이 아니다 — 실질을 따로 판정"
+    - "미온 ≠ 거절 — 방향/증거/문화 중 원인을 구분해 표현한다"
+    - "결정은 점수가 아니라 4종 + 근거·부족·리스크"
+
+  bases:
+    - id: BB1_purpose_fit
+      name: 목적 정합
+      core_value: "제안이 '내 목적'(과 내 고객의 목적)에 직접 기여하는가"
+      signals:
+        - 내 사용 맥락을 이해한 제안인가(범용 제안 감점)
+        - 구매자의 구매자(최종고객·OEM·클라이언트·펀딩기관)까지 짚는가
+      purpose_by_buyer_type:   # 유형별 목적 이동 (케이스 실증)
+        brand: 최종소비자 판매력
+        agency_intermediary: 현재 피칭/클라이언트 적합
+        curator: 미적·담론적 정당성
+        csr_org: 조직 ESG KPI
+        nonprofit_public: 수혜자 성과·정책 실적
+        research: 논문·펀딩 성과
+        reseller_compounder: 내 고객이 사는가 + 내 마진
+      questions:
+        - "우리 목적은 [X]다. 그 관점에서 이 제안이 정확히 어떻게 기여하나?"
+        - "(중간자) 우리 고객에게 뭐라고 말할 수 있게 해주나?"
+        - "특정 [캠페인/모델/프로젝트] 염두인가, 범용 제안인가?"
+      verdict_rule: "fit=내 목적 언어로 구체 기여 / caution=방향 맞으나 맥락 미반영 / unfit=방향 상이 또는 가치충돌"
+
+    - id: BB2_value_hierarchy
+      name: 가치 서열
+      core_value: "상대의 강조점이 내 '1순위 구매 이유'와 일치하는가"
+      signals:
+        - 판매자의 자랑 포인트가 내겐 전제/보너스/역신호일 수 있음
+        - 부가가치는 1순위 충족 후에만 의미
+      value_spectrum: [reverse_signal, premise, bonus, weapon, core, mission]
+      questions:
+        - "우리에게 결정적인 건 [1순위]다. 그 기준의 답은?"
+        - "[부가가치]는 좋지만 [1순위]가 안 되면 무의미 — 1순위부터 보자"
+      verdict_rule: "fit=1순위 직접 충족 / caution=1순위 미확인 / unfit=역신호 자산 고집"
+
+    - id: BB3_substitute
+      name: 대체재 우위
+      core_value: "기존 대안 대비 '전환 비용을 넘는' 우위"
+      substitute_types: [existing_pool, in_house_capability, make_vs_buy, competitor, status_quo_installed]
+      signals:
+        - status_quo(기존 도입 대안)가 있으면 이 basis 가 딜을 지배할 수 있음(L1)
+        - make_vs_buy 방어 논거 = 특허 회피 비용·개발 시간·실패 위험(C1)
+      questions:
+        - "이미 [대안]을 쓴다. 그것 대비 무엇이 얼마나 나은가?"
+        - "우리가 직접 만들면 안 되나? 특허·시간·리스크로 설명하라"
+        - "기존 것과 '나란히 비교'할 방법(비교 PoC)을 제안할 수 있나?"
+      verdict_rule: "fit=대체불가 요소 입증 / caution=주장뿐 / unfit=기존으로 충분"
+
+    - id: BB4_opportunity_cost
+      name: 기회비용·다운사이드
+      core_value: "포기하는 것과 실패 손실이 감수 가능한가 — 낮으면 '밑져야 본전' 수락"
+      signals: [희소 슬롯 소모, 최소보장(MG)·선투자 요구, 최소단위 시험 가능, 성공시 업사이드]
+      questions:
+        - "실패하면 정확히 무엇을 잃나? 최소보장을 요구하나?"
+        - "가장 작은 단위로 먼저 시험할 수 있나?"
+        - "성공하면 무엇이 커지나(재원·레퍼런스·확장)?"
+      verdict_rule: "fit=다운사이드 낮음+업사이드 / caution=축소 가능 / unfit=손실 구조 큼"
+
+    - id: BB5_evidence
+      name: 실증 신호
+      core_value: "주장이 '내 도메인의 신뢰 화폐'로 증명되는가"
+      trust_currency_by_domain:
+        consumer_living: 실물 샘플 품질
+        agency_content: IP·상업 사용권 클리어 문서
+        gallery_culture: 담론 내 위치
+        csr_esg: 수혜자 수·배분 투명성
+        welfare_edu: 재활·교육 성과 지표
+        materials: 등급 물성 데이터(열안정성·VOC·내후성)
+        public_pilot: KPI 정량화(탄소·생산성·소득)
+        medical_device: 규제·보험 데이터(FDA/CE·수가·PL)
+        food_ingredient: 식품안전 규제 상태(Novel Food)
+        research: peer-review 학술 검증
+        field_adoption: 현지 레퍼런스 + 나란히 비교 데이터
+      questions:
+        - "[내 화폐]에 해당하는 데이터/문서/실물이 있나? 언제 가능한가?"
+        - "그 증거를 미팅 전에 보낼 수 있나?"
+        - "직접 검증 방법(샘플 자체평가·비교 PoC)을 제공하나?"
+      verdict_rule: "fit=화폐로 증명+자체검증 경로 / caution=준비중(해소경로 합의) / gate=선결형 증거 부재시 미팅 무의미"
+
+    - id: BB6_execution_gate
+      name: 실행·선결 게이트
+      core_value: "실제로 감당하는가 — 미달은 소구로 못 푸는 deal-breaker"
+      gate: true
+      signals: [인증·규제 적합, 양산·공급 캐파, 캐파 확장 경로(CMO), 배상책임보험, AS·현지 대응, 현지화, 기존 계약 충돌]
+      questions:
+        - "미팅 전 서류 확인 — 인증·캐파·보험 되나?"
+        - "본 물량은 어떻게 감당하나? 확장 경로가 있나?"
+        - "문제 발생 시 누가 어디서 얼마 만에 대응하나?"
+        - "기존 계약(독점 등)과 충돌하지 않나?"
+      verdict_rule: "fit=게이트 통과/해소경로 / caution=시간·비용으로 확보 가능 / unfit=구조적 미달 → terminate_structural(관계 보존)"
+
+    - id: BB7_timing
+      name: 단계·타이밍
+      core_value: "내 캘린더·사이클의 '지금'에 맞물리는가"
+      clock_types:
+        season_calendar: 제약 (시즌 N개월 전, 전시 6~12개월 전)
+        live_deadline: 촉매 (진행 중 피칭·마감)
+        dev_cert_cycle: 장기 제약 (개발 2~3년, 샘플 6개월+승인 수년)
+        budget_approval_cycle: 절차 제약 (연간 예산·학기·품의)
+      questions:
+        - "우리 사이클상 지금 들어오면 [X]까지 가능 — 그 일정 감당하나?"
+        - "이 미팅이 '딜의 초입'임을 이해하나?"
+        - "당신의 [승인] 일정이 우리 계획과 맞물리나?"
+      verdict_rule: "fit=맞물림(또는 데드라인 촉매) / caution=다음 사이클 이월 가능 / unfit=사이클 불일치"
+
+    - id: BB8_trust
+      name: 신뢰·진정성
+      core_value: "실재하고, 구조로 뒷받침되며, 정직한가"
+      gate: true
+      sub_gates:
+        authenticity_gate: "(인바운드 선행) 실재·공식·검증가능 — 통과는 시작일 뿐"
+        exploitation_detect: "착취·카피 신호 → terminate_values(관계·정보 차단)"
+      signals: [워싱·토크니즘 방어 구조(주체·보상·투명), 한계의 정직 공개(신뢰 가산), 문화적 절제 표현 판독]
+      questions:
+        - "그 가치 주장을 구조로 보여라 — 누가 어떻게 보상받고 무엇이 공개되나?"
+        - "현재 '안 되는 것'은 무엇인가? (정직성 테스트)"
+        - "(인바운드) 구체 실행 계획과 담당자가 있나?"
+      verdict_rule: "fit=구조 증명+정직 / caution=주장뿐 / unfit=진위 미달·착취 의도"
+
+    - id: BB9_decision_structure
+      name: 결정 구조
+      core_value: "실제 승인자는 누구이며 내부 관문을 통과할 수 있는가 (담당자≠결정권자)"
+      signals: [승인 단계 수, 부서 분리(구매≠R&D), 내부 설득 자료 필요(수치·앵글·예산소관), 품의 문화 속도]
+      questions:
+        - "(자기) 내가 좋다고 해도 누구를 더 설득해야 하나? 무엇이 있으면 통과되나?"
+        - "내부 보고용 [수치·구조·앵글] 자료를 만들어 줄 수 있나?"
+        - "다음 미팅에 [R&D/규제/법무]를 부르겠다 — 준비되나?"
+      verdict_rule: "fit=승인 경로+통과 자료 / caution=다단계·장기 / unfit=통과 불가 구조"
+
+    - id: BB10_contract_protection
+      name: 계약·정보 보호
+      core_value: "권리 깨끗, 정보 교환 순서 안전, 계약 구조 수용 가능"
+      signals: [IP·사용권 클리어, 상호 NDA 순서, 발표권 분리, 독점 범위·기간·성과 조건, 표준 벤더 계약, 로열티·크레딧]
+      questions:
+        - "저작권·사용권이 완전히 클리어되나? 문서로 확인 가능한가?"
+        - "상세 논의 전 상호 NDA 부터 — 동의하나?"
+        - "독점을 원하면 지역·기간·성과 조건은?"
+      verdict_rule: "fit=구조 합의 / caution=조율 필요 / unfit=권리 불투명·착취 구조"
+
+  gap_priority:   # 다음 질문 선정 우선순위
+    - [BB6_execution_gate, BB8_trust]          # 게이트(선결형)
+    - [BB1_purpose_fit, BB2_value_hierarchy, BB3_substitute]   # 사는 이유
+    - [BB4_opportunity_cost, BB5_evidence, BB7_timing]         # 진행 형태
+    - [BB9_decision_structure, BB10_contract_protection]       # 절차
+
+  decisions:
+    recommend:
+      when: "대부분 fit + 남은 caution 관리 가능. BB4 다운사이드 낮으면 caution 남아도 진행('밑져야 본전')"
+    conditional:
+      when: "핵심 fit + 선결조건 명시(규제·비교PoC·현지화·규모축소). 조건+검증방법 필수"
+      requires: conditions
+    hold:
+      when: "관심 있으나 확정 불가(속도·문화·미확인). 실패 아님 — 자료·샘플로 관계 유지"
+    terminate_structural:
+      when: "BB6 deal-breaker: 상대가 요건을 못 갖춤 → 관계 보존, 조건 변화시 재접촉"
+    terminate_values:
+      when: "BB8 착취·가치충돌 감지 → 관계·정보 차단"
+  risk_types: [precondition, profitability, dismissed]
+
+  protocol:   # 대화 AI 루프
+    - "대조: 대화 문맥 → BB1~BB10 상태·판정 갱신"
+    - "게이트: BB6 unfit / BB8 착취 → 즉시 종결(유형 구분)"
+    - "갭 선정: gap_priority 순 미확정 1개"
+    - "발화: 해당 basis 검증질문 1개, 내 1순위 언어로 되받기"
+    - "재질문: 회피·모호시 형태 바꿔 최대 2~3회, 초과시 리스크로 남기고 결정 등급 하향"
+    - "종료: 결정 + 근거·조건·리스크 문장화"

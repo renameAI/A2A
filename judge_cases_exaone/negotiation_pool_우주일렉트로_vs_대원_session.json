@@ -1,0 +1,1099 @@
+{
+  "seller_company": "우주일렉트로",
+  "buyer_company": "대원",
+  "rounds": 7,
+  "buyer_state": {
+    "BB1_purpose_fit": {
+      "status": "assumed",
+      "verdict": "caution",
+      "evidence": "판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 언급하며 내 목적(층간소음 저감을 위한 고신뢰성 커넥터 도입)에 연결하려는 시도가 있으나, 여전히 구체적 성능 데이터나 기술 기여 없이 '신뢰성'과 '리스크 감소'라는 추상적 가치에 의존하고 있음."
+    },
+    "BB2_value_hierarchy": {
+      "status": "assumed",
+      "verdict": "caution",
+      "evidence": "판매자가 '성과 기반 계약'과 '리스크 감소'를 강조하나, 이는 내 1순위 구매이유인 '고신뢰성'과 부분 정렬되나, 핵심 가치인 '성능 안정성'보다 계약 구조에 집중한 점에서 정렬도 낮음. reverse_signal 가능성 유지.",
+      "seller_asset_position": "reverse_signal"
+    },
+    "BB3_substitute": {
+      "status": "assumed",
+      "verdict": "caution",
+      "evidence": "판매자가 '소량 샘플 제공'과 '성과 기반 계약'을 제안함으로써 기존 대체재(자체개발, 경쟁사 제품, 현상유지) 대비 낮은 전환비용과 빠른 검증 가능성을 암시하나, 구체적 우위 입증 없이 '유연한 확장 구조'라는 추상적 주장만 제시함.",
+      "substitute_types": [
+        "existing_pool",
+        "status_quo_installed",
+        "make_vs_buy"
+      ]
+    },
+    "BB4_opportunity_cost": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "판매자가 '초기 단계 리스크 감소'를 위해 '소량 PoC'를 제안함으로써 실패 시 손실이 제한적임을 암시. 이는 내 다운사이드 성향(소규모 현장 검증 선호)과 정렬되며, '밑져야 본전' 전략 수용 가능성을 높임."
+    },
+    "BB5_evidence": {
+      "status": "assumed",
+      "verdict": "caution",
+      "evidence": "판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 예고하며 자료·데모·분석 약속을 포함하나, 구체적 성능 데이터나 검증 경로는 제시되지 않아 'confirmed' 불가. 주장 수준에 머무름.",
+      "ver.": "caution"
+    },
+    "BB6_execution_gate": {
+      "status": "confirmed",
+      "verdict": "caution",
+      "dealbreaker": false,
+      "evidence": "판매자가 ISO/TS 16949 인증 보유를 언급하며 일부 구조적 요건 충족을 시사하나, 소음 저감 관련 환경기준 적합성 인증은 '주요 고객사와 공동 PoC'로 대응 가능하다고 하여 구조적 미달 여부 미확정. 생산 캐파 안정성은 '유연한 확장 구조'로 대응 가능하다고 주장하나, 구체적 캐파 수치나 확장 로드맵 미제시로 dealbreaker로 보기엔 근거 부족.",
+      "^dealbreaker": "false"
+    },
+    "BB7_timing": {
+      "status": "assumed",
+      "verdict": "fit",
+      "evidence": "판매자가 '2주 내 검증 일정'을 제안함으로써 내 타이밍 요구(2025년 3분기 내 납품 가능 여부 결정)에 부합하는 신속한 검증 경로를 제시함. 이는 내 사이클의 '지금' 요구와 정렬되며 촉매 역할 가능."
+    },
+    "BB8_trust": {
+      "status": "assumed",
+      "verdict": "caution",
+      "authenticity_gate": "na",
+      "exploitation_detected": false,
+      "evidence": "판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 예고하며 자료·데모·분석 약속을 포함하나, 구체적 검증 경로(자료·데모·분석 약속)는 제시되지 않아 authenticity_gate 미통과. 그러나 착취·기만 신호는 없어 exploitation_det0ected=false."
+    },
+    "BB9_decision_structure": {
+      "status": "confirmed",
+      "verdict": "na",
+      "evidence": "판매자가 내부 승인 절차나 기술 검토 프로세스에 대해 언급하지 않아, 내 결정구조(기술본부장+R&D 책임자 공동 승인)에 필요한 자료 제출 여부 미확인. 그러나 명시적 미달은 아니므로 dealbreaker 아님.",
+      "^dealbreaker": "false",
+      "dealbreaker": "false"
+    },
+    "BB10_contract_protection": {
+      "status": "assumed",
+      "verdict": "na",
+      "evidence": "판매자가 IP, NDA, 독점 범위, 표준 절차 등 계약 보호 요소에 대해 언급하지 않아, 내 요구 기준 충족 여부 미확인. 그러나 명시적 미달은 아니므로 dealbreaker 아님."
+    }
+  },
+  "buyer_decision": {
+    "decision": "conditional",
+    "rationale": "판매자가 구조적 요건(인증, 캐파, 실증 경로)에 대한 부분적 대응을 제시했으나, 핵심 성능 데이터(특히 dB 감소 실적)와 환경기준 적합성 인증 보유 여부, 생산 캐파의 구체적 수치 및 확장 로드맵이 미제공됨. PoC 제안은 리스크 완화 측면에서 긍정적이나, 내 1순위 구매이유인 '고신뢰성'과 '층간소음 저감'에 대한 직접적 기여 입증이 부족함.",
+    "conditions": [
+      {
+        "condition": "소음 저감 관련 환경기준 적합성 인증 보유 여부",
+        "check_method": "공식 인증서 제출 또는 공인 기관의 적합성 평가 보고서 확인"
+      },
+      {
+        "condition": "아파트 현장 적용 사례에서의 dB 감소 실적 데이터",
+        "check_method": "실제 시공 사례의 측정 보고서(측정 위치, 조건, 장비, 감소량) 제출 및 검증"
+      },
+      {
+        "condition": "베트남 거점의 생산 캐파 안정성 및 PoC 검증 수준 충족 가능성",
+        "check_method": "월 생산 실적 기반 캐파 수치, 확장 로드맵, 샘플 생산 일정, 품질 안정성 보고서 제출"
+      }
+    ],
+    "risks": [
+      {
+        "type": "precondition",
+        "desc": "핵심 구조적 요건(인증, 실적 데이터, 캐파 안정성) 미충족 시 PoC 검증 자체가 무의미해질 수 있음."
+      },
+      {
+        "type": "profitability",
+        "desc": "성능 데이터 미제공으로 인해 실제 도입 시 층간소음 저감 효과 불확실, ROI 산정 불가로 인한 기회비용 증가 가능성."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 목적 정합(BB1_purpose_fit)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 언급하며 내 목적(층간소음 저감을 위한 고신뢰성 커넥터 도입)에 연결하려는 시도가 있으나, 여전히 구체적 성능 데이터나 기술 기여 없이 '신뢰성'과 '리스크 감소'라는 추상적 가치에 의존하고 있음."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 가치 서열(BB2_value_hierarchy)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 판매자가 '성과 기반 계약'과 '리스크 감소'를 강조하나, 이는 내 1순위 구매이유인 '고신뢰성'과 부분 정렬되나, 핵심 가치인 '성능 안정성'보다 계약 구조에 집중한 점에서 정렬도 낮음. reverse_signal 가능성 유지."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 대체재 우위(BB3_substitute)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 판매자가 '소량 샘플 제공'과 '성과 기반 계약'을 제안함으로써 기존 대체재(자체개발, 경쟁사 제품, 현상유지) 대비 낮은 전환비용과 빠른 검증 가능성을 암시하나, 구체적 우위 입증 없이 '유연한 확장 구조'라는 추상적 주장만 제시함."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 실증 신호(BB5_evidence)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 예고하며 자료·데모·분석 약속을 포함하나, 구체적 성능 데이터나 검증 경로는 제시되지 않아 'confirmed' 불가. 주장 수준에 머무름."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 실행·선결 게이트(BB6_execution_gate)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 판매자가 ISO/TS 16949 인증 보유를 언급하며 일부 구조적 요건 충족을 시사하나, 소음 저감 관련 환경기준 적합성 인증은 '주요 고객사와 공동 PoC'로 대응 가능하다고 하여 구조적 미달 여부 미확정. 생산 캐파 안정성은 '유연한 확장 구조'로 대응 가능하다고 주장하나, 구체적 캐파 수치나 확장 로드맵 미제시로 dealbreaker로 보기엔 근거 부족."
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 신뢰·진정성(BB8_trust)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 예고하며 자료·데모·분석 약속을 포함하나, 구체적 검증 경로(자료·데모·분석 약속)는 제시되지 않아 authenticity_gate 미통과. 그러나 착취·기만 신호는 없어 exploitation_det0ected=false."
+      }
+    ]
+  },
+  "seller_state": {
+    "SB1_pitch_alignment": {
+      "status": "confirmed",
+      "buyer_real_reason": "리스크 완화 측면에서 PoC 제안이 긍정적이나, 구체적인 성능 데이터 및 검증 경로(자료·데모·분석 약속)가 없으면 논의 불가",
+      "misread_type": "evidence",
+      "note": "구매자는 PoC 자체보다 '도메인 신뢰 화폐'로서의 실증 경로를 요구함 → 증거 제시 필요"
+    },
+    "SB2_value_positioning": {
+      "status": "unknown",
+      "position": "unknown"
+    },
+    "SB3_evidence_packaging": {
+      "status": "assumed",
+      "note": "구매자가 '도메인 신뢰 화폐'로 자료·데모·분석 약속을 요구함 → 증거 패키징 필요, CTA와 결합 전 예고 필요",
+      "evidence_offered": [
+        "ISO/TS 16949 인증 현황",
+        "소음 저감 테스트 분석 보고서 및 데모 영상 링크",
+        "베트남 거점 실적 기반 캐파 안정성 자료"
+      ]
+    },
+    "SB4_substitute_defense": {
+      "status": "assumed",
+      "substitute_type": "existing_pool",
+      "note": "구매자는 내부 승인을 위해 구조적 요건(ISO/TS 16949, 환경기준 적합성, 생산 캐파 안정성)을 제시 → 기존 대체재 풀 내 경쟁 또는 내부"
+    },
+    "SB5_threshold_design": {
+      "status": "assumed",
+      "note": "구매자가 '구조적 요건 충족 시 PoC 논의 가능'이라 선언 → 문턱 설계에서 다운사이드(인증·안정성) 제거 필요",
+      "seller_downside_removers": [
+        "ISO/TS 16949 인증 보유",
+        "소음 저감 환경기준 적합성 테스트는 주요 고객사와 공동 진행 중",
+        "생산 캐파 안정성은 베트남 거점 실적 기반 유연 확장 구조"
+      ]
+    },
+    "SB6_execution_honesty": {
+      "status": "unknown"
+    },
+    "SB7_authenticity_structure": {
+      "status": "unknown"
+    },
+    "SB8_champion_arming": {
+      "status": "assumed",
+      "champion_mode": false,
+      "note": "구매자가 내부 승인 요건을 제시 → 결정자가 아닐 가능성 있음, 내부 설득 자료 필요"
+    },
+    "SB9_protection_screening": {
+      "status": "assumed",
+      "screening": "caution",
+      "note": "구매자가 '도메인 신뢰 화폐' 요구 → 정보 공유에 신중 필요, 시안 선요청·로열티 거부·재해석 언급 없음 → exploitative 아님",
+      "state": "updated"
+    },
+    "SB10_strategic_relationship": {
+      "status": "unknown",
+      "stance": "pursue"
+    }
+  },
+  "seller_outcome": {
+    "outcome": "deal_structured",
+    "rationale": "구매자는 PoC 제안에 긍정적이지만, 도메인 신뢰 화폐로서의 구체적 성능 데이터와 검증 경로(자료·데모·분석 약속)가 없으면 논의 불가. 구조적 요건(ISO/TS ंध 16949, 환경기준 적합성, 생산 캐파 안정성) 충족 시 검증 항목 정의 논의 가능. 현재 판매자는 일부 인증은 보유 중이나 일부 단계적 PoC 중으로 완전한 공개 제한됨."
+  },
+  "hypotheses": [
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "판매자가 제시한 '도메인 신뢰 화폐' 경로가 실제 내 도메인(층간소음 저감, 전기차 신뢰성)에서 검증 가능한 실증 경로로 전환될 수 있는지 시험",
+      "dimension": "BB5_evidence",
+      "evidence_needed": "소음 저감 테스트의 dB 감소 데이터, 측정 조건, 분석 프로세스, 데모 영상 또는 현장 검증 보고서"
+    },
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "베트남 거점의 생산 캐파가 PoC 검증 수준을 충족할 수 있는지, 샘플 생산 및 품질 안정성 확보 가능성을 탐색",
+      "dimension": "BB6_execution_gate",
+      "evidence_needed": "월 생산 실적, 샘플 생산 일정, 품질 관리 프로세스, 확장 로드맵"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "소음 저감 테스트의 dB 감소 데이터와 아파트 시공 사례를 도메인 신뢰 화폐로 제시하여 검증 항목 정의 협의",
+      "dimension": "SB3_evidence_packaging",
+      "evidence_needed": "아파트 현장에서의 dB 감소 실적 데이터, 소음 저감 관련 환경기준 적합성 인증 보유 여부, 베트남 거점 생산 캐파 안정성 자료"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "NDA 체결 후 분석 보고서 및 데모 영상 공유를 제안하여 신뢰 구축",
+      "dimension": "SB3_evidence_packaging",
+      "evidence_needed": "NDA 체결 여부"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "내부 승인을 위한 설득 자료(성과 조건부 계약 구조) 제시하여 챔피언 무장",
+      "dimension": "SB8_champion_arming",
+      "evidence_needed": "내부 승인 요건에 부합하는 설득 자료(성과 조건부 계약 구조, PoC 검증 항목 정의)"
+    }
+  ],
+  "audit": [
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '신뢰성 검증을 위한 소량 PoC'를 제안하며 내 목적(층간소음 저감을 위한 고신뢰성 커넥터 도입)에 직접 연결하려는 시도가 있으나, 구체적 기술 기여도나 성능 데이터 없이 '신뢰성'이라는 추상적 가치만 제"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '성과 기반 계약'과 '리스크 감소'를 강조하나, 이는 내 1순위 구매이유인 '고신뢰성'과 부분적으로 정렬되지만, '자랑≠구매이유' 원칙에 따라 '성과 기반'이라는 표현이 reverse_signal일 가능성",
+        "seller_asset_position": "reverse_signal"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '소량 샘플 제공'을 제안함으로써 '자체개발' 대비 낮은 전환비용과 빠른 검증 가능성을 암시하나, 기존 대체재(경쟁사 제품, 현상유지) 대비 우위를 입증하지 않음.",
+        "substitute_types": [
+          "existing_pool",
+          "status_quo_installed"
+        ]
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "판매자가 '초기 단계 리스크 감소'를 위해 '소량 PoC'를 제안함으로써 실패 시 손실이 제한적임을 암시. 이는 내 다운사이드 성향(소규모 현장 검증 선호)과 정렬되며, '밑져야 본전' 전략 수용 가능성을 높임."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "판매자가 '성과 기반 계약'을 제안하나, 이는 주장일 뿐이며 내 도메인 신뢰 화폐(실증 데이터, 인증, 실계약 증빙)로 입증되지 않음. 검증 경로(자료·데모·분석 약속)가 제시되지 않아 confirmed 불가."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 인증(ISO/TS 16949), 환경기준 적합성, 생산 캐파 안정성 확보를 언급하지 않아 구조적 미달 여부 미확인. 그러나 '성과 기반 계약'이 일부 리스크 완화 수단으로 작용할 수 있으나, dealbrea",
+        "dealbreaker": "false"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "판매자가 '15일 내 샘플 제공'을 제안함으로써 내 타이밍 요구(2025년 3분기 내 납품 가능 여부 결정)에 부합하는 신속한 검증 경로를 제시함. 이는 내 사이클의 '지금' 요구와 정렬되며 촉매 역할 가능."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '리스크 감소'와 '성과 기반 계약'을 강조하며 정직한 접근을 시도하나, 구체적 검증 경로(자료·데모·분석 약속)가 제시되지 않아 authenticity_gate 미통과. 그러나 착취·기만 신호는 없어 ex",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "판매자가 내부 승인 절차나 기술 검토 프로세스에 대해 언급하지 않아, 내 결정구조(기술본부장+R&D 책임자 공동 승인)에 필요한 자료 제출 여부 미확인."
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "판매자가 IP, NDA, 독점 범위, 표준 절차 등 계약 보호 요소에 대해 언급하지 않아, 내 요구 기준 충족 여부 미확인."
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB1",
+      "update": {
+        "status": "evidence",
+        "buyer_real_reason": "ISO/TS 16949 및 소음 저감 관련 환경기준 적합성 인증 여부, 생산 캐파 안정성 확보 계획",
+        "misread_type": "evidence"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB4",
+      "update": {
+        "status": "evidence",
+        "substitute_type": "make_vs_buy"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB5",
+      "update": {
+        "status": "evidence",
+        "note": "상대가 PoC 이전에 구조적 요건 충족을 전제로 제시함 → 문턱설계(SB5) 관점에서 '성과 조건부' 및 '소량 PoC' 전략이 수용 가능함을 시사"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB9",
+      "update": {
+        "status": "evidence",
+        "screening": "clean",
+        "note": "정보 요청은 선요청(ISO 인증, 환경기준, 생산 안정성)으로, 시안 선요청+로열티 거부+재해석 언급 없음 → exploitative 신호 없음"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB2",
+      "update": {
+        "status": "evidence",
+        "position": "premise",
+        "note": "상대가 '리스크 완화'를 매력적이라 인정하되, 내부 승인을 위한 전제조건을 제시함 → 간판자산(SB2)의 노출 수위는 '전제 충족 시'로 조절 필요"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB3",
+      "update": {
+        "status": "evidence",
+        "note": "상대가 '성과 기반 계약'을 수용 가능하다고 언급 → 증거패키징(SB3) 관점에서 '성과 조건부' 및 '소량 PoC' 전략이 수용 가능함을 시사"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "evidence": "판매자가 '신뢰성 검증을 위한 소량 PoC'를 제안하며 내 목적(층간소음 저감을 위한 고신뢰성 커넥터 도입)에 직접 연결하려는 시도가 있으나, 구체적 성능 데이터나 기술 기여도 없이 '신뢰성'이라는 추상적 가치만 제"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "evidence": "판매자가 '성과 기반 계약'과 '리스크 감소'를 강조하나, 이는 내 1순위 구매이유인 '고신뢰성'과 부분적으로 정렬되지만, '성과 기반'이라는 표현이 reverse_signal일 가능성 있음. 핵심 가치인 '성능 안",
+        "seller_asset_position": "reverse_signal"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "evidence": "판매자가 '소량 샘플 제공'을 제안함으로써 '자체개발' 대비 낮은 전환비용과 빠른 검증 가능성을 암시하나, 기존 대체재(경쟁사 제품, 현상유지) 대비 우위를 입증하지 않음.",
+        "substitute_types": [
+          "existing_pool",
+          "status_quo_installed"
+        ]
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "판매자가 '초기 단계 리스크 감소'를 위해 '소량 PoC'를 제안함으로써 실패 시 손실이 제한적임을 암시. 이는 내 다운사이드 성향(소규모 현장 검증 선호)과 정렬되며, '밑져야 본전' 전략 수용 가능성을 높임."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "판매자가 '성과 기반 계약'을 제안하나, 이는 주장일 뿐이며 내 도메인 신뢰 화폐(실증 데이터, 인증, 실계약 증빙)로 입증되지 않음. 검증 경로(자료·데모·분석 약속)가 제시되지 않아 confirmed 불가."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "dealbreaker": "false",
+        "evidence": "판매자가 인증(ISO/TS 16949), 환경기준 적합성, 생산 캐파 안정성 확보를 언급하지 않아 구조적 미달 여부 미확인. 그러나 '성과 기반 계약'이 일부 리스크 완화 수단으로 작용할 수 있으나, dealbrea"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB7_tim025",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "판매자가 '15일 내 샘플 제공'을 제안함으로써 내 타이밍 요구(2025년 3분기 내 납품 가능 여부 결정)에 부합하는 신속한 검증 경로를 제시함. 이는 내 사이클의 '지금' 요구와 정렬되며 촉매 역할 가능."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false",
+        "evidence": "판매자가 '리스크 감소'와 '성과 기반 계약'을 강조하며 정직한 접근을 시도하나, 구체적 검증 경로(자료·데모·분석 약속)가 제시되지 않아 authenticity_gate 미통과. 그러나 착취·기만 신호는 없어 ex"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "판매자가 내부 승인 절차나 기술 검토 프로세스에 대해 언급하지 않아, 내 결정구조(기술본부장+R&D 책임자 공동 승인)에 필요한 자료 제출 여부 미확인."
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "판매자가 IP, NDA, 독점 범위, 표준 절차 등 계약 보호 요소에 대해 언급하지 않아, 내 요구 기준 충족 여부 미확인."
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "updated",
+        "buyer_real_reason": "리스크 완화 측면에서 PoC 제안이 긍정적이나, 구체적인 성능 데이터 및 검증 경로(자료·데모·분석 약속)가 없으면 논의 불가",
+        "misread_type": "evidence",
+        "note": "구매자는 PoC 자체보다 '도메인 신뢰 화폐'로서의 실증 경로를 요구함 → 증거 제시 필요"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '도메인 신뢰 화폐'로 자료·데모·분석 약속을 요구함 → 증거 패키징 필요, CTA와 결합 전 예고 필요"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB4_substitute_defense",
+      "update": {
+        "status": "updated",
+        "substitute_type": "existing_pool",
+        "note": "구매자는 내부 승인을 위해 구조적 요건(ISO/TS 16949, 환경기준 적합성, 생산 캐파 안정성)을 제시 → 기존 대체재 풀 내 경쟁 또는 내부 대체 가능성 존재"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '구조적 요건 충족 시 PoC 논의 가능'이라 선언 → 문턱 설계에서 다운사이드(인증·안정성) 제거 필요"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "status": "updated",
+        "screening": "caution",
+        "note": "구매자가 '도메인 신뢰 화폐' 요구 → 정보 공유에 신중 필요, 시안 선요청·로열티 거부·재해석 언급 없음 → exploitative 아님"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "updated",
+        "champion_mode": "false",
+        "note": "구매자가 내부 승인 요건을 제시 → 결정자가 아닐 가능성 있음, 내부 설득 자료 필요"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 언급하며 내 목적(층간소음 저감을 위한 고신뢰성 커넥터 도입)에 연결하려는 시도가 있으나, 여전히 구체적 성능 데이터나 기술 기여 없이 '신뢰성'과 '리스크 "
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '성과 기반 계약'과 '리스크 감소'를 강조하나, 이는 내 1순위 구매이유인 '고신뢰성'과 부분 정렬되나, 핵심 가치인 '성능 안정성'보다 계약 구조에 집중한 점에서 정렬도 낮음. reverse_signal"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '소량 샘플 제공'과 '성과 기반 계약'을 제안함으로써 기존 대체재(자체개발, 경쟁사 제품, 현상유지) 대비 낮은 전환비용과 빠른 검증 가능성을 암시하나, 구체적 우위 입증 없이 '유연한 확장 구조'라는 추",
+        "substitute_types": [
+          "existing_pool",
+          "status_quo_installed",
+          "make_vs_buy"
+        ]
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "판매자가 '초기 단계 리스크 감소'를 위해 '소량 PoC'를 제안함으로써 실패 시 손실이 제한적임을 암시. 이는 내 다운사이드 성향(소규모 현장 검증 선호)과 정렬되며, '밑져야 본전' 전략 수용 가능성을 높임."
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 예고하며 자료·데모·분석 약속을 포함하나, 구체적 성능 데이터나 검증 경로는 제시되지 않아 'confirmed' 불가. 주장 수준에 머무름."
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "^dealbreaker": "false",
+        "evidence": "판매자가 ISO/TS 16949 인증 보유를 언급하며 일부 구조적 요건 충족을 시사하나, 소음 저감 관련 환경기준 적합성 인증은 '주요 고객사와 공동 PoC'로 대응 가능하다고 하여 구조적 미달 여부 미확정. 생산 "
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "판매자가 '2주 내 검증 일정'을 제안함으로써 내 타이밍 요구(2025년 3분기 내 납품 가능 여부 결정)에 부합하는 신속한 검증 경로를 제시함. 이는 내 사이클의 '지금' 요구와 정렬되며 촉매 역할 가능."
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 예고하며 자료·데모·분석 약속을 포함하나, 구체적 검증 경로(자료·데모·분석 약속)는 제시되지 않아 authenticity_gate 미통과. 그러나 착취·기만"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "^dealbreaker": "false",
+        "evidence": "판매자가 내부 승인 절차나 기술 검토 프로세스에 대해 언급하지 않아, 내 결정구조(기술본부장+R&D 책임자 공동 승인)에 필요한 자료 제출 여부 미확인. 그러나 명시적 미달은 아니므로 dealbreaker 아님."
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "판매자가 IP, NDA, 독점 범위, 표준 절차 등 계약 보호 요소에 대해 언급하지 않아, 내 요구 기준 충족 여부 미확인. 그러나 명시적 미달은 아니므로 dealbreaker 아님."
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "updated",
+        "buyer_real_reason": "리스크 완화 측면에서 PoC 제안이 긍정적이나, 구체적인 성능 데이터 및 검증 경로(자료·데모·분석 약속)가 없으면 논의 불가",
+        "misread_type": "evidence",
+        "note": "구매자는 PoC 자체보다 '도메인 신뢰 화폐'로서의 실증 경로를 요구함 → 증거 제시 필요"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '도메인 신뢰 화폐'로 자료·데모·분석 약속을 요구함 → 증거 패키징 필요, CTA와 결합 전 예고 필요"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB4_substitute_defense",
+      "update": {
+        "status": "updated",
+        "substitute_type": "existing_pool",
+        "note": "구매자는 내부 승인을 위해 구조적 요건(ISO/TS 16949, 환경기준 적합성, 생산 캐파 안정성)을 제시 → 기존 대체재 풀 내 경쟁 또는 내부 대체 가능성 존재"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '구조적 요건 충족 시 PoC 논의 가능'이라 선언 → 문턱 설계에서 다운사이드(인증·안정성) 제거 필요"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "updated",
+        "champion_mode": "false",
+        "note": "구매자가 내부 승인 요건을 제시 → 결정자가 아닐 가능성 있음, 내부 설득 자료 필요"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "state": "updated",
+        "screening": "caution",
+        "note": "구매자가 '도메인 신뢰 화폐' 요구 → 정보 공유에 신중 필요, 시안 선요청·로열티 거부·재해석 언급 없음 → exploitative 아님"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB1",
+      "update": {
+        "buyer_real_reason": "도메인 신뢰 화폐 기반의 실증 경로를 통해 '내 목적'에 대한 명시 정합 여부를 판단할 수 있는 핵심 근거가 필요함",
+        "misread_type": "evidence",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB2",
+      "update": {
+        "position": "premise",
+        "status": "updated",
+        "note": "구매자가 구조적 요건(ISO/TS 16949, 환경기준 적합성, 생산 캐파 안정성)을 제시하며 PoC 전제 조건을 설정함 → 내 스토리/임팩트 노출 수위 조절 필요, 역신호 아님, 전제 기반 전략으로 접근 가능"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB1",
+      "update": {
+        "status": "updated",
+        "buyer_real_reason": "리스크 완화 측면에서 PoC 제안이 긍정적이나, 구체적인 성능 데이터 및 검증 경로(자료·데모·분석 약속)가 없으면 논의 불가",
+        "misread_type": "evidence",
+        "note": "구매자는 PoC 자체보다 '도메인 신뢰 화폐'로서의 실증 경로를 요구함 → 증거 제시 필요"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB2",
+      "update": {
+        "status": "updated",
+        "position": "premise",
+        "note": "구매자가 '구조적 요건 충족 시 PoC 논의 가능'이라 선언 → 내 가치(스토리·임팩트)는 아직 노출되지 않음. 역신호 아님. 전제 조건 제시 → 'premise' 위치로 판단. 노출 수위 조절 필요."
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB3",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '도메인 신뢰 화폐'로 자료·데모·분석 약속을 요구함 → 증거 패키징 필요, CTA와 결합 전 예고 필요. 증거 제시 전에 예고 단계에 있음."
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB4",
+      "update": {
+        "status": "updated",
+        "substitute_type": "existing_pool",
+        "note": "구매자가 내부 승인을 위해 구조적 요건(ISO/TS 16949, 환경기준 적합성, 생산 캐파 안정성)을 제시 → 기존 대체재 풀 내 경쟁 또는 내부 대체 가능성 존재. '존중 프레임' 후 '대체불가' 논거 필요."
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB5",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '구조적 요건 충족 시 PoC 논의 가능'이라 선언 → 문턱 설계에서 다운사이드(인증·안정성) 제거 필요. 15분·소량 PoC·MG 없음·성과 조건부 전략 적용 가능."
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB8",
+      "update": {
+        "status": "updated",
+        "champion_mode": "false",
+        "note": "구매자가 내부 승인 요건을 제시 → 결정자가 아닐 가능성 있음. 내부 설득 자료 필요. 챔피언 무장 전략 준비 필요."
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB9",
+      "update": {
+        "status": "updated",
+        "screening": "caution",
+        "note": "구매자가 '도메인 신뢰 화폐' 요구 → 정보 공유에 신중 필요. 시안 선요청·로열티 거부·재해석 언급 없음 → exploitative 아님. 'caution' 상태 유지."
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB10",
+      "update": {
+        "status": "updated",
+        "stance": "pursue",
+        "note": "매출 밖 가치 계산 필요. 구조적 요건 충족 시 재접촉 여지 있음 → '구조적 철수'가 아닌 'hold 인내' 전략 적용 가능."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB1",
+      "update": {
+        "buyer_real_reason": "리스크 완화 측면에서 PoC 제안이 긍정적이지만, 구체적인 성능 데이터 및 검증 경로(자료·데모·분석 약속)가 없으면 논의 불가",
+        "misread_type": "evidence",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB2",
+      "update": {
+        "position": "premise",
+        "status": "updated",
+        "note": "구매자가 구조적 요건(ISO/TS 16949, 환경기준 적합성, 생산 캐파 안정성)을 전제로 PoC 논의를 제안 → 내 간판자산 노출 수위 조절 필요, 역신호 시 감춤"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB3",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '도메인 신뢰 화폐'로 자료·데모·분석 약속을 요구 → 증거 패키징 필요, CTA와 결합 전 예고 필요"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB4",
+      "update": {
+        "substitute_type": "existing_pool",
+        "status": "updated",
+        "note": "구매자가 내부 승인을 위해 구조적 요건을 제시 → 기존 대체재 풀 내 경쟁 또는 내부 대체 가능성 존재"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB5",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '구조적 요건 충족 시 PoC 논의 가능'이라 선언 → 문턱 설계에서 다운사이드(인증·안정성) 제거 필요"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB8",
+      "update": {
+        "}).champion_mode": "false",
+        "status": "updated",
+        "note": "구매자가 내부 승인 요건을 제시 → 결정자가 아닐 가능성 있음, 내부 설득 자료 필요"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB9",
+      "update": {
+        "screening": "caution",
+        "status": "updated",
+        "note": "구매자가 '도메인 신뢰 화폐' 요구 → 정보 공유에 신중 필요, 시안 선요청·로열티 거부·재해석 언급 없음 → exploitative 아님"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 언급하며 내 목적(층간소음 저감을 위한 고신뢰성 커넥터 도입)에 연결하려는 시도가 있으나, 여전히 구체적 성능 데이터나 기술 기여 없이 '신뢰성'과 '리스크 "
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '성과 기반 계약'과 '리스크 감소'를 강조하나, 이는 내 1순위 구매이유인 '고신뢰성'과 부분 정렬되나, 핵심 가치인 '성능 안정성'보다 계약 구조에 집중한 점에서 정렬도 낮음. reverse_signal",
+        "seller_asset_position": "reverse_signal"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "판매자가 '소량 샘플 제공'과 '성과 기반 계약'을 제안함으로써 기존 대체재(자체개발, 경쟁사 제품, 현상유지) 대비 낮은 전환비용과 빠른 검증 가능성을 암시하나, 구체적 우위 입증 없이 '유연한 확장 구조'라는 추",
+        "substitute_types": [
+          "existing_pool",
+          "status_quo_installed",
+          "make_vs_buy"
+        ]
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "판매자가 '초기 단계 리스크 감소'를 위해 '소량 PoC'를 제안함으로써 실패 시 손실이 제한적임을 암시. 이는 내 다운사이드 성향(소규모 현장 검증 선호)과 정렬되며, '밑져야 본전' 전략 수용 가능성을 높임."
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "ver.": "caution",
+        "evidence": "판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 예고하며 자료·데모·분석 약속을 포함하나, 구체적 성능 데이터나 검증 경로는 제시되지 않아 'confirmed' 불가. 주장 수준에 머무름."
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "dealbreaker": "false",
+        "evidence": "판매자가 ISO/TS 16949 인증 보유를 언급하며 일부 구조적 요건 충족을 시사하나, 소음 저감 관련 환경기준 적합성 인증은 '주요 고객사와 공동 PoC'로 대응 가능하다고 하여 구조적 미달 여부 미확정. 생산 "
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "판매자가 '2주 내 검증 일정'을 제안함으로써 내 타이밍 요구(2025년 3분기 내 납품 가능 여부 결정)에 부합하는 신속한 검증 경로를 제시함. 이는 내 사이클의 '지금' 요구와 정렬되며 촉매 역할 가능."
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false",
+        "evidence": "판매자가 '도메인 신뢰 화폐로 제시 가능한 실증 경로'를 예고하며 자료·데모·분석 약속을 포함하나, 구체적 검증 경로(자료·데모·분석 약속)는 제시되지 않아 authenticity_gate 미통과. 그러나 착취·기만"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "판매자가 내부 승인 절차나 기술 검토 프로세스에 대해 언급하지 않아, 내 결정구조(기술본부장+R&D 책임자 공동 승인)에 필요한 자료 제출 여부 미확인. 그러나 명시적 미달은 아니므로 dealbreaker 아님.",
+        "dealbreaker": "false"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "판매자가 IP, NDA, 독점 범위, 표준 절차 등 계약 보호 요소에 대해 언급하지 않아, 내 요구 기준 충족 여부 미확인. 그러나 명시적 미달은 아니므로 dealbreaker 아님."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "confirmed",
+        "buyer_real_reason": "리스크 완화 측면에서 PoC 제안이 긍정적이나, 구체적인 성능 데이터 및 검증 경로(자료·데모·분석 약속)가 없으면 논의 불가",
+        "misread_type": "evidence",
+        "note": "구매자는 PoC 자체보다 '도메인 신뢰 화폐'로서의 실증 경로를 요구함 → 증거 제시 필요"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB2_value_positioning",
+      "update": {
+        "status": "unknown",
+        "position": "unknown"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "updated",
+        "evidence_offered": [
+          "ISO/TS 16949 인증 현황",
+          "소음 저감 테스트 분석 보고서 및 데모 영상 링크",
+          "베트남 거점 실적 기반 캐파 안정성 자료"
+        ],
+        "note": "구매자가 '도메인 신뢰 화폐'로 자료·데모·분석 약속을 요구함 → 증거 패키징 필요, CTA와 결합 전 예고 필요"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB4_substitute_defense",
+      "update": {
+        "status": "updated",
+        "substitute_type": "existing_pool",
+        "note": "구매자는 내부 승인을 위해 구조적 요건(ISO/TS 16949, 환경기준 적합성, 생산 캐파 안정성)을 제시 → 기존 대체재 풀 내 경쟁 또는 내부"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "seller_downside_removers": [
+          "ISO/TS 16949 인증 보유",
+          "소음 저감 환경기준 적합성 테스트는 주요 고객사와 공동 진행 중",
+          "생산 캐파 안정성은 베트남 거점 실적 기반 유연 확장 구조"
+        ],
+        "note": "구매자가 '구조적 요건 충족 시 PoC 논의 가능'이라 선언 → 문턱 설계에서 다운사이드(인증·안정성) 제거 필요"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "unknown"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB7_authenticity_structure",
+      "update": {
+        "status": "unknown"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "updated",
+        "champion_mode": "false",
+        "note": "구매자가 내부 승인 요건을 제시 → 결정자가 아닐 가능성 있음, 내부 설득 자료 필요"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "status": "updated",
+        "screening": "caution",
+        "note": "구매자가 '도메인 신뢰 화폐' 요구 → 정보 공유에 신중 필요, 시안 선요청·로열티 거부·재해석 언급 없음 → exploitative 아님"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB10_strategic_relationship",
+      "update": {
+        "status": "unknown",
+        "stance": "pursue"
+      }
+    }
+  ],
+  "provenance": {
+    "buyer_side": "simulated",
+    "seller_side": "simulated",
+    "outcome_anchor": false
+  }
+}

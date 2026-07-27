@@ -1,0 +1,1653 @@
+{
+  "seller_company": "우주일렉트로",
+  "buyer_company": "대원",
+  "rounds": 7,
+  "buyer_state": {
+    "BB1_purpose_fit": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "PoC 제안이 '층간소음 저감 기술 확보'와 '기술 리스크 회피'라는 1순위 구매이유에 직접 기여함"
+    },
+    "BB2_value_hierarchy": {
+      "status": "assumed",
+      "verdict": "caution",
+      "seller_asset_position": "premise",
+      "evidence": "기술 기반과 PoC 제안은 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+    },
+    "BB3_substitute": {
+      "status": "assumed",
+      "verdict": "na",
+      "substitute_types": [
+        "existing_pool",
+        "in_house_capability",
+        "make_vs_buy",
+        "competitor",
+        "status_quo_installed",
+        "none"
+      ],
+      "evidence": "경쟁사(우주일렉트로 자체 커넥터 기술 활용) 존재하나, PoC 제안은 전환비용 대비 우위 입증 전 단계"
+    },
+    "BB4_opportunity_cost": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "evidence": "소량 PoC 제안은 실패 시 손실이 낮아 '밑져야 본전' 수준의 기회비용 구조"
+    },
+    "BB5_evidence": {
+      "status": "assumed",
+      "verdict": "caution",
+      "__status": "assumed",
+      "evidence": "성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가",
+      " status": "assumed"
+    },
+    "BB6_execution_gate": {
+      "status": "confirmed",
+      "verdict": "fit",
+      "dealbreaker": false,
+      "evidence": "ISO/TS 16949 인증 보유 및 베트남 CE 기반 안전 인증 충족으로 PoC 납품 가능함을 명시하여 구조적 선결 조건 충족 확인"
+    },
+    "BB7_timing": {
+      "status": "confirmed",
+      "verdict": "na",
+      "evidence": "아파트 분양 사이클(2025년 Q4~2026년 Q1 착공) 및 베트남 프로젝트 2025년 하반기 데드라인 고려 시 '지금'이 촉매 타이밍일 수 있으나, 구체적 일정 제시 없음"
+    },
+    "BB8_trust": {
+      "status": "assumed",
+      "verdict": "caution",
+      "authenticity_gate": "na",
+      "exploitation_detected": false,
+      "evidence": "공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+    },
+    "BB9_decision_structure": {
+      "status": "confirmed",
+      "verdict": "na",
+      "evidence": "기술본부장이 제안 주도, 사업부문장이 예산 승인 및 최종 결정 — 내부 승인 통과 자료 필요 여부는 미확인"
+    },
+    "BB10_contract_protection": {
+      "status": "assumed",
+      "verdict": "na",
+      "evidence": "IP·NDA 순서·독점 범위·표준 절차 등 계약 보호 요소 미제시",
+      "ver.": "na"
+    }
+  },
+  "buyer_decision": {
+    "decision": "conditional",
+    "rationale": "PoC 제안은 구조적 게이트와 기회비용 측면에서 수용 가능하나, 성능 입증을 위한 실증 데이터와 검증 경로, IP 및 계약 보호 체계가 명확하지 않아 조건부 승인 필요함. 신뢰 구축을 위해 구체적 증거 제출이 선행되어야 함.",
+    "conditions": [
+      {
+        "condition": "층간소음 성능 KS F 2221 검증 경로 및 과거 유사 프로젝트 실증 데이터 제출",
+        "check_method": "제출된 검증 보고서 또는 제3자 시험 성적서 확인"
+      },
+      {
+        "condition": "IP 소유권 및 NDA 체결 순서, 검증 후 기술 활용 권한 범위에 대한 명확한 계약 프레임워크 제시",
+        "check_method": "법무팀 검토용 계약 초안 또는 보호 조항 요약본 제출"
+      },
+      {
+        "condition": "15일 이내 납품 가능 근거로서의 생산 캐파 할당 현황 및 기존 계약 영향 분석 보고서",
+        "check_method": "내부 생산 일정표 및 자원 할당 내역 확인"
+      }
+    ],
+    "risks": [
+      {
+        "type": "precondition",
+        "desc": "층간소음 성능 검증 경로 미확보 시 PoC 실패 가능성 존재"
+      },
+      {
+        "type": "profitability",
+        "desc": "PoC 성공 후 단계적 계약 전환 시 기술 활용 권한 범위 불명확으로 인한 협상 지연 리스크"
+      },
+      {
+        "type": "dismissed",
+        "desc": "과거 유사 프로젝트 사례 미제시로 신뢰 갭 지속 가능성"
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 가치 서열(BB2_value_hierarchy)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 기술 기반과 PoC 제안은 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 실증 신호(BB5_evidence)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가"
+      },
+      {
+        "type": "precondition",
+        "desc": "[JDG-03 차원불일치] 신뢰·진정성(BB8_trust)=caution — 타 차원 fit 과 불일치, 확인 필요. 근거: 공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+      }
+    ]
+  },
+  "seller_state": {
+    "SB1_pitch_alignment": {
+      "status": "confirmed",
+      "buyer_real_reason": "소량 PoC 제안은 리스크 측면에서 유리하지만, 우선 구조적 게이트를 확인하고 싶다",
+      "misread_type": "direction",
+      "note": "구매자의 핵심 요구는 '구조적 게이트 확인'이며, 이는 PoC 실행 전 신뢰 기반 확보를 의미함. 방향성 오독 없음."
+    },
+    "SB2_value_positioning": {
+      "status": "confirmed",
+      "position": "premise",
+      "note": "구매자가 인증, 생산 유연성, IP/NDA 등 구조적 신뢰 요소를 요구함에 따라, 가치 제안은 '신뢰 기반 전제'로 전환 필요. 역신호 없음."
+    },
+    "SB3_evidence_packaging": {
+      "status": "confirmed",
+      "note": "증거 요구 전에 예고 필요 — 인증 및 PoC 가능성에 대한 구체적 증거 패키징 필요. 현재 '검증 경로 마련 가능'은 예고 부족.",
+      "evidence_offered": [
+        "ISO/TS 16949 인증 보유",
+        "베트남 CE 기반 안전 인증 충족",
+        "연간 1,200만 개 생산 캐파 기반 유연한 납품 가능",
+        "NDA 체결 후 기술 데이터 접근 가능",
+        "층간소음 KS F 2221은 현재 적용 대상 아님, 필요 시 별도 검증 경로 마련 가능"
+      ]
+    },
+    "SB4_substitute_defense": {
+      "status": "confirmed",
+      "substitute_type": "existing_pool",
+      "note": "구매자가 기존 인증(ISO/TS 16949, CE)과 생산 유연성(1,200만 개/년)을 요구함으로써 기존 대체재 풀과의 비교를 암시함."
+    },
+    "SB5_threshold_design": {
+      "status": "confirmed",
+      "note": "구매자가 '15일 이내 납품', '즉시 대응 가능성', '자원 제약 없음'을 요구함. 이는 문턱 설계에서 다운사이드 제거 요구로 해석 가능.",
+      "downside_removers": [
+        "15일 이내 납품 가능",
+        "기존 계약이나 자원 제약 없음",
+        "소량 PoC 기반 리스크 완화",
+        "즉시 대응 가능한 생산 유연성"
+      ]
+    },
+    "SB6_execution_honesty": {
+      "status": "confirmed",
+      "note": "구매자가 '신뢰 측면에서 갭'을 지적하며 실증 데이터 부재를 문제 삼음. 정직한 한계 공개 필요.",
+      "limits_disclosed": [
+        "층간소음 KS F 2221 인증은 현재 적용 대상 아님",
+        "검증 경로는 필요 시 별도 마련 가능",
+        "IP 소유권은 PoC 기간 동안 고객 소유로 이전하지 않음"
+      ]
+    },
+    "SB7_authenticity_structure": {
+      "status": "confirmed",
+      "note": "가치 주장에 '주체+보상+투명성' 구조 필요. 현재 주체(우주일렉트로), 보상(PoC 검증 후 계약 전환), 투명성(검증 경로 제시) 중 투명성 부족."
+    },
+    "SB8_champion_arming": {
+      "status": "assumed",
+      "champion_mode": false,
+      "note": "구매자가 내부 결정자인지 불명. 내부 설득 자료 제공 필요 여부는 보류."
+    },
+    "SB9_protection_screening": {
+      "status": "confirmed",
+      "screening": "caution",
+      "note": "구매자가 IP 소유권, NDA 순서, 법적 보호 장치를 구체적으로 요구함. 이는 '착취적 신호'는 아니나, 정보 보호 필요. caution 수준 유지."
+    },
+    "SB10_strategic_relationship": {
+      "status": "confirmed",
+      "stance": "pursue",
+      "note": "매출 외 가치(신뢰, 검증 경로, 법적 안정성) 계산 필요. hold 인내 전략 유지."
+    }
+  },
+  "seller_outcome": {
+    "outcome": "poc_agreed",
+    "rationale": "구매자는 구조적 게이트(인증, 생산 유연성, 법적 보호)를 우선 확인하고자 하며, PoC 실행 전 신뢰 기반 확보를 요구함. 판매자는 인증, 생산 캐파, NDA 체결, 검증 경로 마련 가능성을 제시하여 핵심 우려를 부분적으로 해소함. 그러나 층간소음 성능에 대한 실증 데이터 부재는 한계로 남아 있으나, '필요 시 별도 검증 경로 마련'으로 대응하여 PoC 실행 가능성을 유지함."
+  },
+  "hypotheses": [
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "층간소음 성능 검증 경로를 제3자 시험 또는 과거 프로젝트 데이터로 입증할 경우, 신뢰 구축 가능",
+      "dimension": "BB5_evidence",
+      "evidence_needed": "KS F 2221 기반 시험 성적서 또는 유사 프로젝트 성능 보고서 제출"
+    },
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "IP 소유권을 PoC 기간 동안 고객 소유로 이전하지 않고, 검증 후 단계적 라이선스 전환 시 협상 유리",
+      "dimension": "BB10_contract_protection",
+      "evidence_needed": "IP 보호 조항이 포함된 계약 초안 또는 라이선스 전환 로드맵 제출"
+    },
+    {
+      "frame": "explore",
+      "lens": "buy",
+      "statement": "15일 이내 납품 가능 근거로서 생산 캐파 유연성 입증 시 실행 게이트 충족 확인 가능",
+      "dimension": "BB6_execution_gate",
+      "evidence_needed": "생산 일정표, 자원 할당 내역, 기존 계약 영향 분석 보고서 제출"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "층간소음 KS F 2221에 대한 별도 검증 경로를 사전에 예고하고, PoC 제안 전에 증거 패키징을 완료하면 신뢰 갭 해소 가능",
+      "dimension": "SB3_evidence_packaging",
+      "evidence_needed": "층간소음 검증 경로에 대한 구체적 로드맵 또는 유사 사례 제시"
+    },
+    {
+      "frame": "explore",
+      "lens": "sell",
+      "statement": "IP 소유권과 NDA 체결 순서를 PoC 제안 전에 명시하면 법적 보호 장치에 대한 신뢰 제고 가능",
+      "dimension": "SB9_protection_screening",
+      "evidence_needed": "IP 및 NDA 운영 방식에 대한 문서화된 프레임워크 제시"
+    },
+    {
+      "frame": "exploit",
+      "lens": "sell",
+      "statement": "생산 유연성과 즉시 대응 가능성을 강조하여 대체재 대비 'make-vs-buy'에서의 시간가치와 검증 실적을 부각",
+      "dimension": "SB4_substitute_defense",
+      "evidence_needed": "과거 유사 프로젝트에서의 납기 준수율 또는 검증 실적 데이터"
+    }
+  ],
+  "audit": [
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "소량 PoC를 통한 성능 입증 제안은 '층간소음 저감 기술 확보' 및 '기술 리스크 회피'라는 1순위 구매이유에 간접적으로 기여할 수 있음"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "seller_asset_position": "premise",
+        "evidence": "기술 기반과 PoC 제안은 '기술 리스크 회피'와 '자체개발 대비 리스크 감소' 측면에서 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "substitute_types": [
+          "existing_pool",
+          "in_house_capability",
+          "make_vs_buy",
+          "competitor",
+          "status_quo_installed",
+          "none"
+        ],
+        "evidence": "경쟁사(우주일렉트로 자체 커넥터 기술 활용) 존재하나, PoC 제안은 전환비용 대비 우위 입증 전 단계"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "소량 PoC 제안은 실패 시 손실이 낮아 '밑져야 본전' 수준의 기회비용 구조"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "__status": "assumed",
+        "verdict": "na",
+        "evidence": "성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "dealbreaker": "false",
+        "evidence": "인증·캐파·AS·기존계약 등 구조적 미달은 확인되지 않음"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "아파트 분양 사이클(2025년 Q4~2026년 Q1 착공) 및 베트남 프로젝트 2025년 하반기 데드라인 고려 시 '지금'이 촉매 타이밍일 수 있으나, 구체적 일정 제시 없음"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false",
+        "evidence": "공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "기술본부장이 제안 주도, 사업부문장이 예산 승인 및 최종 결정 — 내부 승인 통과 자료 필요 여부는 미확인"
+      }
+    },
+    {
+      "round": 1,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "IP·NDA 순서·독점 범위·표준 절차 등 계약 보호 요소 미제시"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "buyer_real_reason": "소량 PoC 제안은 리스크 측면에서 유리하지만, 우선 구조적 게이트를 확인하고 싶다",
+        "misread_type": "direction",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB2_value_positioning",
+      "update": {
+        "position": "premise",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "note": "증거 요구 전에 예고 필요 — 인증 및 PoC 가능성에 대한 구체적 증거 패키징 필요",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB4_substitute_defense",
+      "update": {
+        "substitute_type": "existing_pool",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB7_authenticity_structure",
+      "update": {
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "champion_mode": "false",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "screening": "caution",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "seller",
+      "basis": "SB10_strategic_relationship",
+      "update": {
+        "stance": "pursue",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "ISO/TS 16949 인증 보유 및 베트남 거점에서 CE 기반 안전 인증 충족으로 PoC 납품 가능함을 명시하여 구조적 선결 조건 충족 확인"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false",
+        "evidence": "공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "소량 PoC를 통한 성능 입증 제안은 '층간소음 저감 기술 확보' 및 '기술 리스크 회피'라는 1순위 구매이유에 간접적으로 기여할 수 있음"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "seller_asset_position": "premise",
+        "evidence": "기술 기반과 PoC 제안은 '기술 리스크 회피'와 '자체개발 대비 리스크 감소' 측면에서 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "substitute_types": [
+          "existing_pool",
+          "in_house_capability",
+          "make_vs_buy",
+          "competitor",
+          "status_quo_installed",
+          "none"
+        ],
+        "evidence": "경쟁사(우주일렉트로 자체 커넥터 기술 활용) 존재하나, PoC 제안은 전환비용 대비 우위 입증 전 단계"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "evidence": "소량 PoC 제안은 실패 시 손실이 낮아 '밑져야 본전' 수준의 기회비용 구조"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "아파트 분양 사이클(2025년 Q4~2026년 Q1 착공) 및 베트남 프로젝트 2025년 하반기 데드라인 고려 시 '지금'이 촉매 타이밍일 수 있으나, 구체적 일정 제시 없음"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "기술본부장이 제안 주도, 사업부문장이 예산 승인 및 최종 결정 — 내부 승인 통과 자료 필요 여부는 미확인"
+      }
+    },
+    {
+      "round": 2,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "IP·NDA 순서·독점 범위·표준 절차 등 계약 보호 요소 미제시"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB1",
+      "update": {
+        "buyer_real_reason": "PoC 제안은 리스크 완화 측면에서 긍정적이지만, 기술 기반에 대한 실재성과 검증 경로가 명확하지 않아 신뢰 측면에서 갭이 있다",
+        "misread_type": "evidence",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB3",
+      "update": {
+        "status": "updated",
+        "note": "증거 요구 전에 예고 필요 — 인증 및 PoC 가능성에 대한 구체적 증거 패키징 필요"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB4",
+      "update": {
+        "substitute_type": "none",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB8",
+      "update": {
+        "champion_mode": "false",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 3,
+      "side": "seller",
+      "basis": "SB9",
+      "update": {
+        "screening": "caution",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "소량 PoC를 통한 성능 입증 제안은 '층간소음 저감 기술 확보' 및 '기술 리스크 회피'라는 1순위 구매이유에 직접 기여 가능함"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "seller_asset_position": "premise",
+        "evidence": "기술 기반과 PoC 제안은 '기술 리스크 회피'와 '자체개발 대비 리스크 감소' 측면에서 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "substitute_types": [
+          "existing_pool",
+          "in_house_capability",
+          "make_vs_buy",
+          "competitor",
+          "status_quo_installed",
+          "none"
+        ],
+        "evidence": "경쟁사(우주일렉트로 자체 커넥터 기술 활용) 존재하나, PoC 제안은 전환비용 대비 우위 입증 전 단계"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "소량 PoC 제안은 실패 시 손실이 낮아 '밑져야 본전' 수준의 기회비용 구조"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "evidence": "성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "dealbreaker": "false",
+        "evidence": "ISO/TS 16949 인증 보유 및 베트남 CE 기반 안전 인증 충족으로 PoC 납품 가능함을 명시하여 구조적 선결 조건 충족 확인"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "아파트 분양 사이클(2025년 Q4~2026년 Q1 착공) 및 베트남 프로젝트 2025년 하반기 데드라인 고려 시 '지금'이 촉매 타이밍일 수 있으나, 구체적 일정 제시 없음"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false",
+        "evidence": "공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "기술본부장이 제안 주도, 사업부문장이 예산 승인 및 최종 결정 — 내부 승인 통과 자료 필요 여부는 미확인"
+      }
+    },
+    {
+      "round": 3,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "conf2irmed",
+        "verdict": "na",
+        "evidence": "IP·NDA 순서·독점 범위·표준 절차 등 계약 보호 요소 미제시"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB1",
+      "update": {
+        "status": "updated",
+        "buyer_real_reason": "PoC 제안은 리스크 완화 측면에서 긍정적이지만, 우선 구조적 게이트를 확인하고 싶다",
+        "misread_type": "direction"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB2",
+      "update": {
+        "position": "premise",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB3",
+      "update": {
+        "status": "updated",
+        "note": "증거 요구 전에 예고 필요 — 인증 및 PoC 가능성에 대한 구체적 증거 패키징 필요"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB4",
+      "update": {
+        "substitute_type": "existing_pool",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB5",
+      "update": {
+        "status": "updated"
+      }
+    },
+    {
+      "round": 4,
+      "side": "seller",
+      "basis": "SB6",
+      "update": {
+        "status": "updated"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "PoC 제안이 '층간소음 저감 기술 확보'와 '기술 리스크 회피'라는 1순위 구매이유에 직접 기여함"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "seller_asset_position": "premise",
+        "evidence": "기술 기반과 PoC 제안은 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "substitute_types": [
+          "existing_pool",
+          "in_house_capability",
+          "make_vs_buy",
+          "competitor",
+          "status_quo_installed",
+          "none"
+        ],
+        "evidence": "경쟁사(우주일렉트로 자체 커넥터 기술 활용) 존재하나, PoC 제안은 전환비용 대비 우위 입증 전 단계"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "소량 PoC 제안은 실패 시 손실이 낮아 '밑져야 본্জ 본전' 수준의 기회비용 구조"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        " status": "assumed",
+        "verdict": "caution",
+        "__status": "assumed",
+        "evidence": "성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "dealbreaker": "false",
+        "evidence": "ISO/TS 16949 인증 보유 및 베트남 CE 기반 안전 인증 충족으로 PoC 납품 가능함을 명시하여 구조적 선결 조건 충족 확인"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "아파트 분양 사이클(2025년 Q4~2026년 Q1 착공) 및 베트남 프로젝트 2025년 하반기 데드라인 고려 시 '지금'이 촉매 타이밍일 수 있으나, 구체적 일정 제시 없음"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "confirmed",
+        "verdict": "caution",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false",
+        "evidence": "공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "기술본부장이 제안 주도, 사업부문장이 예산 승인 및 최종 결정 — 내부 승인 통과 자료 필요 여부는 미확인"
+      }
+    },
+    {
+      "round": 4,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "confirmed",
+        "ver.": "na",
+        "evidence": "IP·NDA 순서·독점 범위·표준 절차 등 계약 보호 요소 미제시"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB1",
+      "update": {
+        "buyer_real_reason": "소량 PoC 제안은 리스크 측면에서 유리하지만, 우선 구조적 게이트를 확인하고 싶다",
+        "misread_type": "direction",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB2",
+      "update": {
+        "position": "premise",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB3",
+      "update": {
+        "note": "증거 요구 전에 예고 필요 — 인증 및 PoC 가능성에 대한 구체적 증거 패키징 필요",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB4",
+      "update": {
+        "substitute_type": "existing_pool",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB5",
+      "update": {
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB6",
+      "update": {
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB7",
+      "update": {
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB8",
+      "update": {
+        "champion_mode": "false",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB9",
+      "update": {
+        "screening": "caution",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "seller",
+      "basis": "SB10",
+      "update": {
+        "stance": "pursue",
+        "status": "updated"
+      }
+    },
+    {
+      "round": 5,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "seller_asset_position": "premise",
+        "evidence": "기술 기반과 PoC 제안은 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+      }
+    },
+    {
+      "round": 5,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "substitute_types": [
+          "existing_pool",
+          "in_house_capability",
+          "make_vs_buy",
+          "competitor",
+          "status_quo_installed",
+          "none"
+        ],
+        "evidence": "경쟁사(우주일렉트로 자체 커넥터 기술 활용) 존재하나, PoC 제안은 전환비용 대비 우위 입증 전 단계"
+      }
+    },
+    {
+      "round": 5,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "__status": "assumed",
+        "evidence": "성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가"
+      }
+    },
+    {
+      "round": 5,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "assumed",
+        "verdict": "fit",
+        "dealbreaker": "false",
+        "evidence": "ISO/TS 16949 인증 보유 및 베트남 CE 기반 안전 인증 충족으로 PoC 납품 가능함을 명시하여 구조적 선결 조건 충족 확인"
+      }
+    },
+    {
+      "round": 5,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false",
+        "evidence": "공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+      }
+    },
+    {
+      "round": 5,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "IP·NDA 순서·독점 범위·표준 절차 등 계약 보호 요소 미제시",
+        "ver.": "na"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB1",
+      "update": {
+        "status": "updated",
+        "buyer_real_reason": "PoC 실행을 위한 구조적 게이트 충족 여부 확인 요청 — 생산 캐파, 납기 유연성, 자원 제약 없는 즉시 대응 가능성 확인 요구",
+        "misread_type": "direction",
+        "note": "구매자는 PoC 제안 자체보다 실행 가능성의 '구조적 게이트'를 우선 확인하고자 함. 이는 SB5(문턱설계)와 SB4(대체재방어)의 교차점에서 발생한 요구로, 리스크 완화를 위한 사전 조건 설정임"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB2",
+      "update": {
+        "status": "updated",
+        "position": "premise",
+        "note": "구매자가 '구조적 게이트'를 언급하며 PoC 실행 가능성을 전제로 논의를 전개하려는 신호. 이는 내 가치 제안이 '실행 가능성'이라는 전제 위에서만 유효하다는 의미로, SB2에서 'premise' 상태로 전환"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB3",
+      "update": {
+        "status": "updated",
+        "note": "증거 요구 전에 예고 필요 — 인증 및 PoC 가능성에 대한 구체적 증거 패키징 필요. 현재 제시된 인증 정보는 '증거 예고' 수준에 머무르며, 구체적 실증 데이터나 검증 경로 제시가 미흡함"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB4",
+      "update": {
+        "status": "updated",
+        "substitute_type": "existing_pool",
+        "note": "구매자가 '기존 계약이나 자원 제약 없이 즉시 대응 가능한가'를 묻는 것은 내부 대체재(기존 공급망, 내부 생산 등) 존재 여부를 암시. 이는 'existing_pool' 유형의 대체재 방어 전략에 해당"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB5",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '15일 이내 납품 가능 근거'를 요구하며 문턱을 낮추려는 시도. 이는 SB5의 '문턱설계' 전략에 부합하나, 판매자가 아직 '자원 할당 현황'을 제시하지 않아 문턱 제거가 미흡함"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB6",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '즉시 대응 가능한가'를 묻는 것은 실행 정직성에 대한 검증 요구. 판매자가 자원 할당 현황을 명확히 공개하지 않아 SB6의 '한계 공개 + 해소 경로' 전략이 미흡"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB8",
+      "update": {
+        "status": "updated",
+        "champion_mode": "false",
+        "note": "구매자가 내부 결정자인지 여부가 불분명하며, 내부 설득 자료 요청 없음. 따라서 챔피언 무장 전략은 현재 비활성화 상태"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB9",
+      "update": {
+        "status": "updated",
+        "screening": "caution",
+        "note": "구매자가 계약 보호, IP 소유권, NDA 순서 등을 요구하며 법적 보호 장치에 대한 경계 신호 발신. 이는 '착취 가능성'에 대한 경계로, SB9에서 'caution' 상태로 분류"
+      }
+    },
+    {
+      "round": 6,
+      "side": "seller",
+      "basis": "SB10",
+      "update": {
+        "status": "updated",
+        "stance": "pursue",
+        "note": "구매자가 구조적 게이트를 충족하면 PoC 진행 가능성을 열어두고 있음. 이는 관계 유지 및 재접촉 여지를 남기는 'pursue' 전략에 부합"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "PoC 제안이 '층간소음 저감 기술 확보'와 '기술 리스크 회피'라는 1순위 구매이유에 직접 기여함"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "seller_asset_position": "premise",
+        "evidence": "기술 기반과 PoC 제안은 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "substitute_types": [
+          "existing_pool",
+          "in_house_capability",
+          "make_vs_buy",
+          "competitor",
+          "status_quo_installed",
+          "none"
+        ],
+        "evidence": "경쟁사(우주일렉트로 자체 커넥터 기술 활용) 존재하나, PoC 제안은 전환비용 대비 우위 입증 전 단계"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "소량 PoC 제안은 실패 시 손실이 낮아 '밑져야 본전' 수준의 기회비용 구조"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "__status": "assumed",
+        "evidence": "성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "dealbreaker": "false",
+        "evidence": "ISO/TS 16949 인증 보유 및 베트남 CE 기반 안전 인증 충족으로 PoC 납품 가능함을 명시하여 구조적 선결 조건 충족 확인"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "아파트 분양 사이클(2025년 Q4~2026년 Q1 착공) 및 베트남 프로젝트 2025년 하반기 데드라인 고려 시 '지금'이 촉매 타이밍일 수 있으나, 구체적 일정 제시 없음"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false",
+        "evidence": "공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "기술본부장이 제안 주도, 사업부문장이 예산 승인 및 최종 결정 — 내부 승인 통과 자료 필요 여부는 미확인"
+      }
+    },
+    {
+      "round": 6,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "IP·NDA 순서·독점 범위·표준 절차 등 계약 보호 요소 미제시",
+        "ver.": "na"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "updated",
+        "buyer_real_reason": "소량 PoC 제안은 리스크 측면에서 유리하지만, 우선 구조적 게이트를 확인하고 싶다",
+        "misread_type": "direction",
+        "note": "구매자의 핵심 요구는 '구조적 게이트 확인'이며, 이는 PoC 실행 전 신뢰 기반 확보를 의미함. 방향성 오독 없음."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB2_value_positioning",
+      "update": {
+        "status": "updated",
+        "position": "premise",
+        "note": "구매자가 인증, 생산 유연성, IP/NDA 등 구조적 신뢰 요소를 요구함에 따라, 가치 제안은 '신뢰 기반 전제'로 전환 필요. 역신호 없음."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "updated",
+        "note": "증거 요구 전에 예고 필요 — 인증 및 PoC 가능성에 대한 구체적 증거 패키징 필요. 현재 '검증 경로 마련 가능'은 예고 부족."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB4_substitute_defense",
+      "update": {
+        "status": "updated",
+        "substitute_type": "existing_pool",
+        "note": "구매자가 기존 인증(ISO/TS 16949, CE)과 생산 유연성(1,200만 개/년)을 요구함으로써 기존 대체재 풀과의 비교를 암시함."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '15일 이내 납품', '즉시 대응 가능성', '자원 제약 없음'을 요구함. 이는 문턱 설계에서 다운사이드 제거 요구로 해석 가능."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "updated",
+        "note": "구매자가 '신뢰 측면에서 갭'을 지적하며 실증 데이터 부재를 문제 삼음. 정직한 한계 공개 필요."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB7_authenticity_structure",
+      "update": {
+        "status": "updated",
+        "note": "가치 주장에 '주체+보상+투명성' 구조 필요. 현재 주체(우주일렉트로), 보상(PoC 검증 후 계약 전환), 투명성(검증 경로 제시) 중 투명성 부족."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "updated",
+        "champion_mode": "false",
+        "note": "구매자가 내부 결정자인지 불명. 내부 설득 자료 제공 필요 여부는 보류."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "status": "updated",
+        "screening": "caution",
+        "note": "구매자가 IP 소유권, NDA 순서, 법적 보호 장치를 구체적으로 요구함. 이는 '착취적 신호'는 아니나, 정보 보호 필요. caution 수준 유지."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller",
+      "basis": "SB10_strategic_relationship",
+      "update": {
+        "status": "updated",
+        "stance": "pursue",
+        "note": "매출 외 가치(신뢰, 검증 경로, 법적 안정성) 계산 필요. hold 인내 전략 유지."
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "seller_asset_position": "premise",
+        "evidence": "기술 기반과 PoC 제안은 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "substitute_types": [
+          "existing_pool",
+          "in_house_capability",
+          "make_vs_buy",
+          "competitor",
+          "status_quo_installed",
+          "none"
+        ],
+        "evidence": "경쟁사(우주일렉트로 자체 커넥터 기술 활용) 존재하나, PoC 제안은 전환비용 대비 우위 입증 전 단계"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "소량 PoC 제안은 실패 시 손실이 낮아 '밑져야 본전' 수준의 기회비용 구조"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "__status": "assumed",
+        "evidence": "성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "dealbreaker": "false",
+        "evidence": "ISO/TS 16949 인증 보유 및 베트남 CE 기반 안전 인증 충족으로 PoC 납품 가능함을 명시하여 구조적 선결 조건 충족 확인"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "아파트 분양 사이클(2025년 Q4~2026년 Q1 착공) 및 베트남 프로젝트 2025년 하반기 데드라인 고려 시 '지금'이 촉매 타이밍일 수 있으나, 구체적 일정 제시 없음"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "authenticity_gate": "na",
+        "exploitation_detected": "false",
+        "evidence": "공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "기술본부장이 제안 주도, 사업부문장이 예산 승인 및 최종 결정 — 내부 승인 통과 자료 필요 여부는 미확인"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "IP·NDA 순서·독점 범위·표준 절차 등 계약 보호 요소 미제시",
+        "ver.": "na"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB1_purpose_fit",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "PoC 제안이 '층간소음 저감 기술 확보'와 '기술 리스크 회피'라는 1순위 구매이유에 직접 기여함"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB2_value_hierarchy",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "기술 기반과 PoC 제안은 1순위 구매이유와 일치하나, 구체적 성능 데이터나 검증 경로 미제시로 확신 부족"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB3_substitute",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "경쟁사(우주일렉트로 자체 커넥터 기술 활용) 존재하나, PoC 제안은 전환비용 대비 우위 입증 전 단계"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB4_opportunity_cost",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "소량 PoC 제안은 실패 시 손실이 낮아 '밑져야 본전' 수준의 기회비용 구조"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB5_evidence",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "성능 입증을 '제안'했으나, 검증 경로(자료·데모·분석 약속) 미제시로 'confirmed' 불가"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB6_execution_gate",
+      "update": {
+        "status": "confirmed",
+        "verdict": "fit",
+        "evidence": "ISO/TS 16949 인증 보유 및 베트남 CE 기반 안전 인증 충족으로 PoC 납품 가능함을 명시하여 구조적 선결 조건 충족 확인"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB7_timing",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "아파트 분양 사이클(2025년 Q4~2026년 Q1 착공) 및 베트남 프로젝트 2025년 하반기 데드라인 고려 시 '지금'이 촉매 타이밍일 수 있으나, 구체적 일정 제시 없음"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB8_trust",
+      "update": {
+        "status": "assumed",
+        "verdict": "caution",
+        "evidence": "공개 수상 실물 확인, 실계약 증빙 등 실재·검증 가능 신호 미제시"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB9_decision_structure",
+      "update": {
+        "status": "confirmed",
+        "verdict": "na",
+        "evidence": "기술본부장이 제안 주도, 사업부문장이 예산 승인 및 최종 결정 — 내부 승인 통과 자료 필요 여부는 미확인"
+      }
+    },
+    {
+      "round": 7,
+      "side": "buyer_final",
+      "basis": "BB10_contract_protection",
+      "update": {
+        "status": "assumed",
+        "verdict": "na",
+        "evidence": "IP·NDA 순서·독점 범위·표준 절차 등 계약 보호 요소 미제시"
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB1_pitch_alignment",
+      "update": {
+        "status": "confirmed",
+        "buyer_real_reason": "소량 PoC 제안은 리스크 측면에서 유리하지만, 우선 구조적 게이트를 확인하고 싶다",
+        "misread_type": "direction",
+        "note": "구매자의 핵심 요구는 '구조적 게이트 확인'이며, 이는 PoC 실행 전 신뢰 기반 확보를 의미함. 방향성 오독 없음."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB2_value_positioning",
+      "update": {
+        "status": "confirmed",
+        "position": "premise",
+        "note": "구매자가 인증, 생산 유연성, IP/NDA 등 구조적 신뢰 요소를 요구함에 따라, 가치 제안은 '신뢰 기반 전제'로 전환 필요. 역신호 없음."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB3_evidence_packaging",
+      "update": {
+        "status": "confirmed",
+        "evidence_offered": [
+          "ISO/TS 16949 인증 보유",
+          "베트남 CE 기반 안전 인증 충족",
+          "연간 1,200만 개 생산 캐파 기반 유연한 납품 가능",
+          "NDA 체결 후 기술 데이터 접근 가능",
+          "층간소음 KS F 2221은 현재 적용 대상 아님, 필요 시 별도 검증 경로 마련 가능"
+        ],
+        "note": "증거 요구 전에 예고 필요 — 인증 및 PoC 가능성에 대한 구체적 증거 패키징 필요. 현재 '검증 경로 마련 가능'은 예고 부족."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB4_substitute_defense",
+      "update": {
+        "status": "confirmed",
+        "substitute_type": "existing_pool",
+        "note": "구매자가 기존 인증(ISO/TS 16949, CE)과 생산 유연성(1,200만 개/년)을 요구함으로써 기존 대체재 풀과의 비교를 암시함."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB5_threshold_design",
+      "update": {
+        "status": "confirmed",
+        "downside_removers": [
+          "15일 이내 납품 가능",
+          "기존 계약이나 자원 제약 없음",
+          "소량 PoC 기반 리스크 완화",
+          "즉시 대응 가능한 생산 유연성"
+        ],
+        "note": "구매자가 '15일 이내 납품', '즉시 대응 가능성', '자원 제약 없음'을 요구함. 이는 문턱 설계에서 다운사이드 제거 요구로 해석 가능."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB6_execution_honesty",
+      "update": {
+        "status": "confirmed",
+        "limits_disclosed": [
+          "층간소음 KS F 2221 인증은 현재 적용 대상 아님",
+          "검증 경로는 필요 시 별도 마련 가능",
+          "IP 소유권은 PoC 기간 동안 고객 소유로 이전하지 않음"
+        ],
+        "note": "구매자가 '신뢰 측면에서 갭'을 지적하며 실증 데이터 부재를 문제 삼음. 정직한 한계 공개 필요."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB7_authenticity_structure",
+      "update": {
+        "status": "confirmed",
+        "note": "가치 주장에 '주체+보상+투명성' 구조 필요. 현재 주체(우주일렉트로), 보상(PoC 검증 후 계약 전환), 투명성(검증 경로 제시) 중 투명성 부족."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB8_champion_arming",
+      "update": {
+        "status": "assumed",
+        "champion_mode": "false",
+        "note": "구매자가 내부 결정자인지 불명. 내부 설득 자료 제공 필요 여부는 보류."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB9_protection_screening",
+      "update": {
+        "status": "confirmed",
+        "screening": "caution",
+        "note": "구매자가 IP 소유권, NDA 순서, 법적 보호 장치를 구체적으로 요구함. 이는 '착취적 신호'는 아니나, 정보 보호 필요. caution 수준 유지."
+      }
+    },
+    {
+      "round": 7,
+      "side": "seller_final",
+      "basis": "SB10_strategic_relationship",
+      "update": {
+        "status": "confirmed",
+        "stance": "pursue",
+        "note": "매출 외 가치(신뢰, 검증 경로, 법적 안정성) 계산 필요. hold 인내 전략 유지."
+      }
+    }
+  ],
+  "provenance": {
+    "buyer_side": "simulated",
+    "seller_side": "simulated",
+    "outcome_anchor": false
+  }
+}
