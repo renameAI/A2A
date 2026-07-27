@@ -553,6 +553,7 @@ class JudgeScoutRequest(BaseModel):
     country: str | None = None
     source_url: str = ""
     hypothesis: str = ""
+    evidence: str = ""       # 발굴 근거가 된 검색 히트 원문 조각 (ScoutCompany.evidence)
 
 
 def _scout_counterpart_profile(req: "JudgeScoutRequest") -> Profile:
@@ -562,10 +563,14 @@ def _scout_counterpart_profile(req: "JudgeScoutRequest") -> Profile:
     # '미기재=부재 확인'으로 오독하면 demonstrability가 unfit으로 굳는다(실측) —
     # 접촉 전 미확인임을 프로필 서술에 명시해 루브릭(모름=caution)이 작동하게 한다.
     note = " [웹 발굴 후보 — 접촉 전. 미기재 항목은 '부재 확인'이 아니라 '미확인'이다]"
+    # 발굴 근거 원문을 함께 싣는다 — 이미 검색해서 가진 자료라 추가 비용 0인데,
+    # 예전엔 버려서 judge가 한 줄 요약만으로 10축을 판정해야 했다.
+    ev = (req.evidence or "").strip()
+    ev_block = f"\n[웹 검색 원문 근거] {ev}" if ev else ""
     return Profile(
         basic=BasicInfo(name=req.name, country=req.country or "미상",
                         city=None, founded_year=None, industry="unknown"),
-        description=(req.summary or "").strip() + note,
+        description=(req.summary or "").strip() + note + ev_block,
         problem_solved=ask.model_copy(), solution=ask.model_copy(),
         target_customer=ask.model_copy(),
         references=[], traction=None,
@@ -585,6 +590,54 @@ def judge_scout_company(req: JudgeScoutRequest, background: BackgroundTasks):
             counterpart_profile=counterpart, intent=req.intent))
         return {"scout_company": req.name,
                 "judge_result": result.model_dump(mode="json")}
+    return _submit(background, _run)
+
+
+class JudgeScoutBatchRequest(BaseModel):
+    """스카우트 후보 여러 건을 한 번에 판단 (캐스케이드 + 병렬)."""
+    company_id: str
+    intent: Intent
+    companies: list[JudgeScoutRequest] = Field(min_length=1)
+    top_k: int = Field(default=3, ge=1, le=10)   # 캐스케이드 — 상위 K만
+    max_workers: int = Field(default=4, ge=1, le=8)
+
+
+@router.post("/judge-scout-batch", status_code=202)
+def judge_scout_batch(req: JudgeScoutBatchRequest, background: BackgroundTasks):
+    """웹 발굴 후보 배치 판단 — 탐색 국면 전용.
+
+    단건 /judge-scout를 후보 수만큼 순차 호출하면 스카우트 6건에 20분이 든다(실측:
+    deep 판단 1건이 150~200초). 여기서는 두 가지로 줄인다:
+      · 캐스케이드 — 상위 top_k만 판단하고 나머지는 생략(정직하게 표시)
+      · deep=False — 증거가 (이름·요약·검색 근거) 뿐인데 5층 심층추론을 돌릴 이유가
+        없다. 탐색 국면의 산출물은 '판단'이 아니라 '검증 계획'이다.
+
+    objective=exploration_budget이라 결정 게이트가 탐색 분기를 탄다 — 미검증 축을
+    감점으로 쓰지 않고 BB1(가설 부합)로 가른다(_apply_decision_gate 참고).
+    """
+    from ..engine.judge import judge_many
+
+    rec = _require_company(req.company_id)
+    targets = req.companies[:req.top_k]                  # 캐스케이드
+
+    def _run() -> dict:
+        reqs = [JudgeRequest(
+            vantage=Vantage.seller, objective=Objective.exploration_budget,
+            self_profile=rec.profile, self_private_state=rec.private_state,
+            counterpart_profile=_scout_counterpart_profile(c),
+            intent=req.intent) for c in targets]
+        results = judge_many(reqs, deep=False, max_workers=req.max_workers)
+        judgments = []
+        for c, r in zip(targets, results):
+            if isinstance(r, Exception):
+                judgments.append({"scout_company": c.name, "error": str(r)})
+            else:
+                judgments.append({"scout_company": c.name,
+                                  "hypothesis": c.hypothesis,
+                                  "source_url": c.source_url,
+                                  "judge_result": r.model_dump(mode="json")})
+        return {"judgments": judgments, "judged": len(targets),
+                "cascade_skipped": len(req.companies) - len(targets)}
     return _submit(background, _run)
 
 

@@ -11,7 +11,7 @@ from .. import progress
 from ..config import get_settings
 from ..schemas import (JUDGE_DIMENSIONS, AxisStatus, ConfidenceBand,
                        DecisionType, Dimension, JudgeRequest, JudgeResult,
-                       Vantage, VerdictType, Willingness)
+                       Objective, Vantage, VerdictType, Willingness)
 from .dealbreakers import check_deal_breakers
 from .llm import get_extractor
 from .prompts import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_user
@@ -44,19 +44,27 @@ def _apply_evidence_gate(result: JudgeResult) -> None:
                           f"recommend→conditional (근거 없는 추천 차단)")
 
 
-def _apply_decision_gate(result: JudgeResult) -> None:
+def _apply_decision_gate(result: JudgeResult,
+                         objective: "Objective | None" = None) -> None:
     """축 상태 → 결정을 **코드가** 유도 (judge_cases/decision_gate.py 이식, in-place).
 
     배경(EXAONE_이식성_검증.md): K-EXAONE은 축은 충실히 채우지만 최종 결정 라벨이
     conditional로 쏠린다(9세션 중 5/6). 결정을 프롬프트가 아니라 코드가 내리면
     모델 교체에 강건해진다 — 축 판정=모델, 결정=코드.
 
-    이 규칙은 예전 우리 스키마에선 절반이 발화조차 못 했다: exploitation/dealbreaker
-    플래그도, status=unknown도 표현할 자리가 없었기 때문이다. 축을 BB로 바꾸면서
-    비로소 6개 규칙이 전부 성립한다.
-
     우선순위는 원본 그대로(Gemini 9세션 캘리브레이션). 다만 그 9건은 캘리브레이션
     셋 자체라 8/9 일치는 in-sample 수치임에 유의 — 일반화 근거가 아니다.
+
+    **목적함수 분기 (exploration_budget)**: 웹 스카우트로 갓 발굴한 후보는
+    프로필이 (이름·국가·한 줄 요약·URL)뿐이라 10축 중 8~10개가 필연적으로
+    unknown이다. 그러면 '미검증≥3 → hold' 규칙에 걸려 **모든 후보가 100% hold**로
+    수렴해 변별이 0이 된다(실측: 스카우트 6후보 전부 hold). 증거가 없는 게 정상인
+    국면이라 '증거 부족'을 감점으로 쓰면 안 된다.
+
+    그래서 탐색 국면에서는 unknown 규칙을 끄고, **증거가 얇아도 판정 가능한 것**으로만
+    가른다 — (a) 명백한 결격·착취, (b) 우리 가설에 이 상대가 부합하는가(BB1).
+    나머지 미검증 축은 감점이 아니라 **확인 목록**이며, 그건 status 필드가 이미
+    들고 있다. 판단이 아니라 '검증 계획'이 이 국면의 산출물이다.
     """
     dims = result.category_judgments or []
     if not dims:
@@ -64,6 +72,7 @@ def _apply_decision_gate(result: JudgeResult) -> None:
     unfit = [d for d in dims if d.verdict == VerdictType.unfit]
     caution = [d for d in dims if d.verdict == VerdictType.caution]
     unknown = [d for d in dims if d.status == AxisStatus.unknown]
+    exploring = objective == Objective.exploration_budget
 
     if any(d.exploitation_detected for d in dims):
         new, why = DecisionType.terminate_values, "착취 신호 감지 — 관계 차단 철수"
@@ -72,6 +81,25 @@ def _apply_decision_gate(result: JudgeResult) -> None:
     elif len(unfit) >= 2:
         new, why = (DecisionType.terminate_structural,
                     f"복수 축 부적합({len(unfit)}) — {[d.dimension.value for d in unfit[:3]]}")
+    elif exploring:
+        # 탐색 국면 — 미검증은 감점이 아니라 확인 목록. BB1(가설 부합)로만 가른다.
+        bb1 = next((d for d in dims
+                    if d.dimension == Dimension.BB1_purpose_fit), None)
+        n_unk = len(unknown)
+        if bb1 is not None and bb1.verdict == VerdictType.unfit:
+            new, why = (DecisionType.terminate_structural,
+                        "탐색: 가설 불일치(BB1 부적합) — 후보 자격 없음")
+        elif bb1 is not None and bb1.verdict == VerdictType.fit:
+            new, why = (DecisionType.conditional,
+                        f"탐색: 가설 부합(BB1 적합) — 접촉 가치 있음. "
+                        f"확인 필요 축 {n_unk}개")
+        else:
+            new, why = (DecisionType.hold,
+                        f"탐색: 가설 부합 미확인(BB1={bb1.verdict.value if bb1 else '없음'}) "
+                        f"— 확인 필요 축 {n_unk}개")
+        # 접촉 전 판단임을 출력이 스스로 말하게 한다
+        result.needs_human = True
+        result.confidence_band = ConfidenceBand.low
     elif len(unknown) >= 3:
         new, why = DecisionType.hold, f"미검증 축 {len(unknown)}개 — 판단 재료 부족, 유보"
     elif caution or unknown or unfit:
@@ -340,7 +368,7 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
         req, extractor, deep, settings.judge_samples)   # L2 자기일관성 투표
     result.sample_agreement = agreement
     pre_gate = result.decision.value                    # 감사용 원 결정 보존 (F3)
-    _apply_decision_gate(result)                        # 축 상태 → 결정 (코드)
+    _apply_decision_gate(result, req.objective)         # 축 상태 → 결정 (코드)
     _apply_evidence_gate(result)                        # L3 근거 게이트
     _apply_consistency_gate(result, agreement, settings)   # L3 하드 게이트
     with progress.node("audit", "감사 로그 (SYS-04)"):

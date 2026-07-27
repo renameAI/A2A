@@ -15,7 +15,7 @@ _YAML = Path(__file__).resolve().parent.parent.parent / "judge_cases" / "buyer_o
 
 @lru_cache(maxsize=1)
 def judge_axes() -> list[dict]:
-    """[{id, name, core_value, verdict_rule}] — 파일이 없으면 빈 목록(프롬프트만 축약)."""
+    """[{id, name, core_value, verdict_rule, purpose_by_buyer_type}] — 없으면 빈 목록."""
     try:
         import yaml
         data = yaml.safe_load(_YAML.read_text(encoding="utf-8"))["ontology"]["bases"]
@@ -23,12 +23,23 @@ def judge_axes() -> list[dict]:
         return []
     return [{"id": b["id"], "name": b.get("name", ""),
              "core_value": b.get("core_value", ""),
-             "verdict_rule": b.get("verdict_rule", "")} for b in data]
+             "verdict_rule": b.get("verdict_rule", ""),
+             # BB1에만 있는 '구매자 유형별 목적' 매핑 — 상대가 CSR 조직인지 지자체인지
+             # 유통사인지에 따라 '무엇을 목적으로 사는가'가 통째로 다르다.
+             "purpose_by_buyer_type": b.get("purpose_by_buyer_type") or {}}
+            for b in data]
 
 
 @lru_cache(maxsize=1)
 def axis_block() -> str:
-    """프롬프트에 넣을 축 정의 블록. 축마다 '무엇을 보는가 + 판정선'을 함께 준다."""
+    """프롬프트에 넣을 축 정의 블록. 축마다 '무엇을 보는가 + 판정선'을 함께 준다.
+
+    BB1의 purpose_by_buyer_type도 함께 싣는다 — 예전엔 이 필드를 로더가 버려서
+    judge가 **모든 상대를 같은 잣대로** 목적 정합을 쟀다. 대기업 CSR팀(ESG KPI)과
+    지자체(정책 실적)와 유통사(내 고객이 사는가)는 사는 이유가 완전히 다른데,
+    구분 없이 재면 셋 다 애매하게 나온다. 스카우트처럼 상대 유형이 다양한 경로에서
+    특히 치명적이었다.
+    """
     axes = judge_axes()
     if not axes:
         return ""
@@ -37,4 +48,9 @@ def axis_block() -> str:
         lines.append(f"- {a['id']} ({a['name']}): {a['core_value']}")
         if a["verdict_rule"]:
             lines.append(f"    판정선 — {a['verdict_rule']}")
+        if a["purpose_by_buyer_type"]:
+            lines.append("    ⚠ 상대 유형을 먼저 정하고 그 유형의 목적으로 판정한다 "
+                         "(유형이 안 잡히면 status=unknown):")
+            for t, purpose in a["purpose_by_buyer_type"].items():
+                lines.append(f"      · {t} → {purpose}")
     return "\n".join(lines)

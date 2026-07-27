@@ -610,6 +610,10 @@ class ScoutCompany(BaseModel):
     source_url: str          # 근거 히트 (실제 검색 결과 URL)
     source_domain: str
     source_title: str
+    # 이 기업을 발굴하게 한 검색 히트의 원문 조각. 예전엔 회사명만 남기고 버렸는데,
+    # 그 결과 judge가 (이름·국가·한 줄 요약)만 보고 10축을 판정해야 해서 축 대부분이
+    # unknown으로 떨어졌다. 이미 검색해서 가진 자료라 추가 비용 0이다.
+    evidence: str = ""
 
 
 class ScoutRequest(BaseModel):
