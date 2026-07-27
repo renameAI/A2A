@@ -463,7 +463,55 @@ def ground_profile(profile: Profile, full_text: str) -> dict:
     if canon_i != profile.basic.industry:
         profile.basic.industry = canon_i
         tally["canonicalized"] += 1
+
+    tally["self_ref"] = _flag_self_reference(profile)
     return tally
+
+
+# R5: 자기참조 금칙 — problem_solved의 주어가 우리가 되면 안 된다.
+#
+# 이건 프롬프트로 부탁할 게 아니라 코드가 검사할 계약이다. **회사명은 유저가 직접
+# 입력하는 값**이라 우리가 이미 알고 있다(온보딩 모달의 기업명 필수 항목 → dialogue
+# '이름' → basic.name). 아는 값을 두고 LLM에게 "쓰지 마세요"라고 부탁만 하는 건
+# 이 저장소가 반복해서 실패한 패턴이다 — 프롬프트만의 규칙은 규칙이 아니다.
+#
+# 실측: 이 결함이 오늘만 두 번 재발했다. 규율을 세게 걸면 구체성이 죽고, 느슨하게
+# 하면 자기참조가 돌아왔다(공감만세: 두 필드가 다시 "공감만세는 … 원스톱으로
+# 처리한다"로 수렴). 프롬프트 강도로는 못 잡는다.
+def _flag_self_reference(profile: Profile) -> int:
+    """problem_solved가 우리를 주어로 썼는지 표시. 반환: 적발 수(0 또는 1).
+
+    금칙 목록은 **app/ontology/represent_ontology.yaml에서 읽는다** — 코드에
+    하드코딩하면 프롬프트의 지시와 조용히 벌어진다(이 저장소가 반복해 겪은
+    계약 불일치). 프롬프트 블록도 같은 파일에서 렌더링되므로 둘이 어긋날 수 없다.
+
+    폐기·재작성은 하지 않는다 — 값을 지우면 하류가 볼 재료가 사라지고, 여기서
+    자동 재작성을 하면 또 다른 환각이 된다. 대신 **정직하게 라벨을 낮춘다**:
+    provenance를 inferred로 내리고 감사 로그에 남긴다(R1 강등과 같은 철학).
+    """
+    from ..ontology.represent_axes import field_rule
+    rule = field_rule("problem_solved")
+    f = profile.problem_solved
+    val = (f.value or "").strip()
+    if not val:
+        return 0
+    name = (profile.basic.name or "").strip()
+    hit_name = bool(rule.get("forbidden_self_name")) and bool(name) and name in val
+    hit_verb = any(v in val for v in (rule.get("forbidden_terms") or ()))
+    if not (hit_name or hit_verb):
+        return 0
+    why = []
+    if hit_name:
+        why.append(f"회사명 '{name}' 포함")
+    if hit_verb:
+        why.append("우리 행위 동사 사용")
+    if f.provenance == Provenance.stated:
+        f.provenance = Provenance.inferred
+        f.confidence = 0.5
+    progress.log("검증", f"⚠ R5 자기참조 — problem_solved가 우리를 주어로 씀"
+                         f"({' · '.join(why)}). 고객의 결핍이 아니라 우리 행위 서술이라 "
+                         f"검색 앵커가 자기참조가 된다 → inferred(0.5)로 강등")
+    return 1
 
 
 # ── open_questions 5공리 코드 집행 (FORMALIZATION.md L1) ───────────────

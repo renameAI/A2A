@@ -1,0 +1,86 @@
+---
+# =====================================================================
+# REPRESENT 추출 온톨로지 — 기계 정의 (정규 소스)
+# 구조는 judge_cases/buyer_ontology.yaml 을 그대로 따른다 (박사님 형식):
+#   ontology.bases[*] = { id, name, core_value, signals, questions, verdict_rule }
+# 다른 점은 bases가 '판단 축'이 아니라 '추출 필드'라는 것뿐이다.
+#
+# 왜 파일로 빼는가 — 이 규율들이 프롬프트 산문 속에 흩어져 있던 동안, 하나를
+# 조이면 다른 하나가 무너지는 일이 반복됐다(실측: 자기참조↔예시누수↔구체성이
+# 서로를 밀어냄, 하루에 5회 재작성). 그리고 코드(ground_profile)와 프롬프트가
+# 각자 다른 규칙을 들고 있어 계약 불일치가 났다. 이제 둘 다 이 파일을 읽는다.
+#
+# provenance 주의: verdict_rule 의 판정선은 실측 사고에서 유도한 것이고,
+# 임계값(예: 구체 사실 2개)은 추가 실측으로 보정할 대상이다.
+# =====================================================================
+
+ontology:
+  id: represent_extract
+  version: "1.0"
+  lens: represent
+  provenance_enum: [stated, inferred, ask]
+  goal: >
+    기업 자료를 읽고 하류(Retrieve 검색앵커·Judge 10축 판정)가 쓸 재료를 만든다.
+    여기서 판단하지 않는다 — 덜어내는 판단은 Judge가 시간을 들여 한다.
+    이 단계의 실패는 '틀린 판단'이 아니라 '재료 오염'으로 나타난다.
+
+  principles:
+    - "재료 정리이지 판단이 아니다 — 미리 걸러내면 Judge가 볼 것이 없어진다"
+    - "자기참조 금지 — problem_solved의 주어는 고객이다. 우리가 주어가 되면 검색 앵커가 자기 자신을 찾는다"
+    - "고객 유형이 결핍의 언어를 정한다 — 지자체와 브랜드와 유통사는 같은 제안에 다른 이유로 반응한다"
+    - "구체가 추상을 이긴다 — '복잡성·비효율'은 어느 회사에나 붙어 검색을 무력화한다"
+    - "예시는 새어나온다 — 타 업종 예문을 박아두면 그 낱말이 그대로 출력된다"
+
+  # 고객 유형별 '무엇을 위해 돈을 쓰는가' — buyer_ontology.BB1.purpose_by_buyer_type
+  # 과 같은 축을 공유한다. represent가 이 유형을 정해두면 Judge의 BB1 판정이
+  # 같은 언어로 이어진다(두 단계가 어긋나지 않게 하는 접합면).
+  customer_purpose:
+    brand: 최종소비자 판매력
+    agency_intermediary: 현재 피칭/클라이언트 적합
+    curator: 미적·담론적 정당성
+    csr_org: 조직 ESG KPI
+    nonprofit_public: 수혜자 성과·정책 실적
+    research: 논문·펀딩 성과
+    reseller_compounder: 내 고객이 사는가 + 내 마진
+
+  bases:
+    - id: problem_solved
+      name: 고객의 결핍
+      subject: customer            # 코드가 읽는다 — 주어 계약
+      core_value: "이 회사가 없어도 존재하는, 고객이 겪는 결핍"
+      signals:
+        - 고객 유형을 먼저 정하고(customer_purpose) 그 유형의 목적을 가로막는 것을 쓴다
+        - 자료에 나온 업무 단계·수치·고유명사를 살려 쓴다
+      forbidden_terms: [제공한다, 처리한다, 해소한다, 지원한다, 운영한다, 구축한다, 공급한다, 실현한다]
+      forbidden_self_name: true    # 코드가 읽는다 — 회사명 금칙
+      min_concrete_facts: 2
+      questions:
+        - "이 고객은 무엇을 달성하려 하는가(customer_purpose)?"
+        - "그걸 못 하게 막는 것이 자료에 뭐라고 적혀 있나?"
+      verdict_rule: >
+        good=고객이 주어이고 자료의 구체 사실 2개 이상 /
+        weak=고객이 주어이나 '복잡성·비효율' 같은 추상어뿐 /
+        fail=우리가 주어이거나 회사명 포함(자기참조 — 검색 앵커가 무너진다)
+
+    - id: solution
+      name: 우리의 방식
+      subject: self
+      core_value: "우리가 그 결핍을 메우는 방식"
+      signals:
+        - problem_solved와 문장이 겹치면 안 된다 — 주어가 반대다
+      questions:
+        - "그 결핍을 우리가 어떤 방식으로 메우나?"
+      verdict_rule: >
+        good=우리가 주어이고 방식이 구체적 /
+        fail=problem_solved와 사실상 같은 문장
+
+    - id: target_customer
+      name: 타겟 고객
+      subject: customer
+      core_value: "그 결핍을 가진 상대가 누구인가 — 유형과 세그먼트"
+      signals:
+        - customer_purpose의 유형 중 하나로 분류 가능해야 한다
+      questions:
+        - "이 고객은 customer_purpose의 어느 유형인가?"
+      verdict_rule: >
+        good=유형+세그먼트가 드러남 / weak=유형만 / fail=우리 서비스 서술
