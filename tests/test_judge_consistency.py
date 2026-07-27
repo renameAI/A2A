@@ -30,7 +30,7 @@ def _judge_req():
 def _mk_result(decision: DecisionType) -> JudgeResult:
     return JudgeResult(
         category_judgments=[CategoryJudgment(
-            dimension=Dimension.industry_fit, verdict=VerdictType.fit, rationale="r")],
+            dimension=Dimension.BB1_purpose_fit, verdict=VerdictType.fit, rationale="r")],
         risks=[], reasoning_moves=["risk_triage"], trajectory="t",
         decision=decision, decision_rationale="원 근거",
         fit_reasons=["근거1"],
@@ -90,10 +90,10 @@ class TestConsistencyGate:
 
     def test_low_agreement_terminate_flags_but_not_capped(self):
         """terminate는 소프트-예가 아니라 캡 대상이 아님(보류로 완화하면 안 됨)."""
-        r = _mk_result(DecisionType.terminate)
+        r = _mk_result(DecisionType.terminate_structural)
         J._apply_consistency_gate(r, 0.4, _settings())
         assert r.needs_human is True
-        assert r.decision == DecisionType.terminate   # 캡 안 됨
+        assert r.decision == DecisionType.terminate_structural   # 캡 안 됨
 
     def test_none_agreement_is_noop(self):
         """미계측(단일 표본)이면 게이트 발동 안 함 — 측정 없는 확신 만들지 않음."""
@@ -166,9 +166,13 @@ class TestUngroundedClaimStripping:
         assert len(r.fit_reasons) == 1
 
     def test_judge_vocab_whitelisted(self):
-        """판단 어휘(enum·차원명·업계 약어)는 입력에 없어도 환각이 아니다 —
-        실측 오탐(반증 조건 문장 속 'fit'·'conditional') 회귀."""
+        """판단 어휘(enum·축명·업계 약어)는 입력에 없어도 환각이 아니다 —
+        실측 오탐(반증 조건 문장 속 'fit'·'conditional') 회귀.
+
+        어휘는 enum에서 파생한다(_vocab_tokens) — 축 이름이 바뀌면 여기도 새
+        축명으로 갱신해야 한다. 예전엔 demonstrability(구 7차원)를 썼는데, BB축
+        교체 후 그 토큰이 whitelist에서 빠져 이 회귀 테스트가 스스로 깨졌었다."""
         from app.engine.judge import _strip_ungrounded_claims
-        r = self._result(["conditional 결정은 demonstrability가 fit로 바뀌면 상향된다"])
+        r = self._result(["conditional 결정은 BB5_evidence가 fit로 바뀌면 상향된다"])
         removed = _strip_ungrounded_claims(r, self._req(), None)
         assert removed == 0

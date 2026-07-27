@@ -82,10 +82,10 @@ class TestH2CrossLanguageGrounding:
 class TestF2TieBreak:
     def test_tie_resolves_to_hold_regardless_of_order(self, monkeypatch):
         """F2 — {hold×2, terminate×2} 동점이 표본 순서와 무관하게 hold+사람 라우팅."""
-        for seq in ([DecisionType.hold, DecisionType.terminate,
-                     DecisionType.terminate, DecisionType.hold],
-                    [DecisionType.terminate, DecisionType.hold,
-                     DecisionType.hold, DecisionType.terminate]):
+        for seq in ([DecisionType.hold, DecisionType.terminate_structural,
+                     DecisionType.terminate_structural, DecisionType.hold],
+                    [DecisionType.terminate_structural, DecisionType.hold,
+                     DecisionType.hold, DecisionType.terminate_structural]):
             it = iter(seq)
             monkeypatch.setattr(J, "_llm_judge",
                                 lambda req, ex, deep=True: _mk_result(next(it)))
@@ -97,7 +97,7 @@ class TestF2TieBreak:
 
     def test_recommend_terminate_tie_also_holds(self, monkeypatch):
         """hold 표본이 없어도 동점이면 hold로 유보 (코인플립 확정 금지)."""
-        seq = [DecisionType.recommend, DecisionType.terminate]
+        seq = [DecisionType.recommend, DecisionType.terminate_structural]
         it = iter(seq)
         monkeypatch.setattr(J, "_llm_judge",
                             lambda req, ex, deep=True: _mk_result(next(it)))
@@ -258,10 +258,10 @@ class TestEvidenceGate:
         from app.schemas import (CategoryJudgment, ConfidenceBand, DecisionType,
                                  Dimension, JudgeResult, MatchSummary, VerdictType)
         dims = [CategoryJudgment(dimension=d, verdict=v, rationale="r")
-                for d, v in zip([Dimension.industry_fit, Dimension.purpose_alignment,
-                                 Dimension.resource_complementarity,
-                                 Dimension.stage_compatibility,
-                                 Dimension.demonstrability], verdicts)]
+                for d, v in zip([Dimension.BB1_purpose_fit, Dimension.BB1_purpose_fit,
+                                 Dimension.BB3_substitute,
+                                 Dimension.BB7_timing,
+                                 Dimension.BB5_evidence], verdicts)]
         return JudgeResult(
             decision=decision, decision_rationale="전략적 잠재력",
             category_judgments=dims, risks=[], fit_reasons=["x"], gap_factors=[],

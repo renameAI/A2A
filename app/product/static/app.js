@@ -1566,21 +1566,28 @@ async function judgeCandidate(candidateId, btn) {
   }
 }
 
-const DIM_KO = { industry_fit: "산업 적합성", purpose_alignment: "협업목적 정합",
-  resource_complementarity: "자원 보완성", stage_compatibility: "사업단계 호환",
-  demonstrability: "실증 가능성", substitute_comparison: "대체재 비교",
-  opportunity_cost: "기회비용" };
-const VERDICT_KO = { fit: "적합", caution: "주의", unfit: "부적합" };
-const DECISION_KO = { recommend: "추천", conditional: "조건부 추천", hold: "보류", terminate: "결렬" };
+// judge_cases/buyer_ontology.yaml이 정규 소스 (app/ontology/axes.py) — BB1~BB10.
+// 이전 7차원(industry_fit 등)에는 실행 게이트·신뢰·결정구조·계약보호 축이 없어
+// "인증을 못 넘어 죽는 딜"이나 "상대가 IP를 빼가려 한다"를 표현할 자리가 없었다.
+const DIM_KO = { BB1_purpose_fit: "목적 정합", BB2_value_hierarchy: "가치 서열",
+  BB3_substitute: "대체재 우위", BB4_opportunity_cost: "기회비용·다운사이드",
+  BB5_evidence: "실증 신호", BB6_execution_gate: "실행·선결 게이트",
+  BB7_timing: "단계·타이밍", BB8_trust: "신뢰·진정성",
+  BB9_decision_structure: "결정 구조", BB10_contract_protection: "계약·정보 보호" };
+const VERDICT_KO = { fit: "적합", caution: "주의", unfit: "부적합", na: "해당없음" };
+const STATUS_KO = { unknown: "미검증", assumed: "추정", confirmed: "확인됨" };
+const DECISION_KO = { recommend: "추천", conditional: "조건부 추천", hold: "보류",
+  terminate_structural: "결렬(구조 미달)", terminate_values: "결렬(가치 충돌)" };
 
 function renderJudgment(jr, candidateId, opts = {}) {
   const actions = opts.actions !== false;
   return `
-    <p><span class="decision d-${jr.decision}">${DECISION_KO[jr.decision]}</span>
+    <p><span class="decision d-${jr.decision}">${DECISION_KO[jr.decision] || jr.decision}</span>
        <small>${esc(jr.decision_rationale)}</small></p>
     <table class="verdicts">${jr.category_judgments.map((d) => `
       <tr><td><b>${DIM_KO[d.dimension] || d.dimension}</b></td>
-          <td class="v-${d.verdict}">${VERDICT_KO[d.verdict]}</td>
+          <td class="v-${d.verdict}">${VERDICT_KO[d.verdict] || d.verdict}</td>
+          <td class="s-${d.status || "confirmed"}">${STATUS_KO[d.status] || ""}</td>
           <td>${esc(d.rationale)}</td></tr>`).join("")}
     </table>
     ${jr.risks.length ? `<div><b style="font-size:13px">확인 리스크</b>${jr.risks.map((r) => `

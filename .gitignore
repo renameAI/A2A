@@ -20,3 +20,6 @@ pages/
 data/
 # Phase 4 CoT 데이터셋 산출물 (train/heldout/seal)
 dataset/
+.gstack/
+# 구출된 학습 런 (adapter 가중치) — GB 단위, git 대상 아님
+runs/

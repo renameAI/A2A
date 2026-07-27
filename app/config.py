@@ -1,6 +1,7 @@
 """환경 설정 — API 키는 .env로만 주입 (ING-05, SEC-01).
 
-키가 없으면 엔진은 Mock 모드로 degrade한다. 코드에 키를 넣지 않는다.
+키가 없으면 엔진은 config_error로 즉시 멈춘다 — 조용한 규칙 기반 대체(구 Mock 모드)는
+'가짜 결과가 진짜처럼 보이는' 통로여서 제거했다. 코드에 키를 넣지 않는다.
 """
 import os
 from pathlib import Path

@@ -13,7 +13,8 @@
       "recommend": "engage",
       "conditional": "engage",
       "hold": "defer",
-      "terminate": "reject"
+      "terminate_structural": "reject",
+      "terminate_values": "reject"
     }
   },
   "retrieve_cases": [

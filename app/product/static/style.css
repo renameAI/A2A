@@ -369,7 +369,7 @@ button:disabled:hover { background: var(--blue); box-shadow: none; }
 .d-recommend { background: var(--green-bg); color: var(--green); }
 .d-conditional { background: var(--amber-bg); color: #b57200; }
 .d-hold { background: var(--fill-strong); color: var(--t500); }
-.d-terminate { background: var(--red-bg); color: var(--red); }
+.d-terminate_structural, .d-terminate_values { background: var(--red-bg); color: var(--red); }
 
 .risk-item { font-size: 14px; margin: 6px 0; color: var(--t600); }
 .risk-tag { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: var(--r-pill); margin-right: 8px; }

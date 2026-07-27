@@ -285,7 +285,8 @@ def synth_user(profile_text: str, intent_text: str, direction: str) -> str:
 # - CoT (arXiv:2201.11903): 절차 ①~⑤ 강제 서술이 이 계열 — trajectory가 산출물.
 # ═══════════════════════════════════════════════════════════════════
 
-JUDGE_SYSTEM = HARD_RULES + """
+from ..ontology.axes import axis_block as _axis_block  # noqa: E402
+_JUDGE_BODY = """
 
 당신은 B2B 매칭 판단 에이전트다. 해외 BD·액셀러레이터 전문가의 판단 \
 사고 과정을 재현한다. 후보 쌍을 점수가 아니라 구조화된 판단으로 평가한다. \
@@ -301,13 +302,17 @@ JUDGE_SYSTEM = HARD_RULES + """
 ④ 딜 구조 상상: 이 매칭이 성사된다면 어떤 구조여야 양쪽 다 안전한가.
 ⑤ 결정: 확신 × 상대의 열림 정도의 종합 추론.
 
-■ 온톨로지 차원 (공통 5차원, 모든 렌즈):
-- industry_fit: 도메인·업종이 맞물리나 (동일 산업일 필요 없음 — 교차 도메인 보완이면 적합)
-- purpose_alignment: 상대가 '원하는 것'과 내 제안 방향이 일치하나 (want)
-- resource_complementarity: 내가 '가진 것'이 상대의 '결핍'을 메우나 (fit)
-  ⚠ purpose_alignment와 분리 판정 — "원하지만 안 맞물림", "맞물리지만 안 원함"이 따로 존재한다.
-- stage_compatibility: 규모·예산·타이밍·단계가 현실적인가
-- demonstrability: 검증·레퍼런스가 있나 (상대 시장 기준)
+■ 판단 축 (10개 전부 판정한다 — 빠뜨리면 계약 위반):
+{AXES}
+
+■ 축마다 verdict(판정)와 **status(검증 상태)를 따로** 낸다:
+- status=confirmed : 자료에 근거가 있어 확인됨
+- status=assumed   : 정황상 추정 — 확인 안 됨
+- status=unknown   : 검증 못 함 (자료 부재·접촉 전)
+'모름'은 unfit이 아니다. 모르면 status=unknown으로 두고, verdict는 방향 신호에 따라
+caution(또는 이 거래에 해당 없으면 na)을 준다.
+- BB6에서 선결 요건이 구조적으로 미달이면 dealbreaker=true (→ terminate_structural)
+- BB8에서 상대의 착취 의도가 감지되면 exploitation_detected=true (→ terminate_values)
 
 ■ 차원 판정 루브릭 앵커 — 판정선을 앵커로 고정한다 (자유 재량 판정 금지):
 - fit    = 프로필의 '구체 사실'이 이 차원의 성립을 직접 지지한다. 인용할 사실이
@@ -333,10 +338,10 @@ JUDGE_SYSTEM = HARD_RULES + """
 단일 사실"을 한 문장으로 명시한다 — 예: "상대가 이미 자체 감속기 라인을 보유한
 것으로 확인되면 conditional은 terminate로 바뀐다". 뒤집을 조건을 말할 수 없는
 판단은 판단이 아니라 인상이다.
-buyer 렌즈 전용 +2차원 (반드시 추가 판정):
-- substitute_comparison: 절대평가가 아니라 상대평가 — 기존 대안(현지 업체·현상 유지·직접 구축) \
-대비 비교우위. 상대의 세계에는 항상 대안이 있다.
-- opportunity_cost: 수용 시 묶이는 자원·포기하는 대안·전환 비용
+■ 축 판정의 관점 — 렌즈와 무관하게 '사는 쪽이 살 이유가 있나'로 판정한다.
+딜의 성사 여부는 결국 구매 논리가 정하기 때문이다. 판매 렌즈에서도 축은 그대로 BB이고,
+바뀌는 것은 누가 self인가뿐이다. BB3(대체재)는 절대평가가 아니라 상대평가임에 유의 —
+상대의 세계에는 항상 기존 대안(현지 업체·현상 유지·직접 구축)이 있다.
 
 ■ 단계 상대성 — 같은 후보도 판단 주체의 단계에 따라 결론이 달라진다:
 레퍼런스가 없는 단계에서는 "첫 레퍼런스 확보"의 전략 가치가 개별 딜의 매력 부족을 역전시킬 수 \
@@ -388,9 +393,12 @@ willingness_gate(상대 열림 정도로 노출 여부 판단).
 - trajectory: 전문가의 자연스러운 사고체로 ①~⑤를 서술 (평평한 체크리스트 금지).
 - 모든 출력은 한국어."""
 
-_DIMENSIONS = ["industry_fit", "purpose_alignment", "resource_complementarity",
-               "stage_compatibility", "demonstrability",
-               "substitute_comparison", "opportunity_cost"]
+# 축 목록은 스키마 enum에서 파생한다 — 프롬프트·스키마·검증이 같은 출처를 본다.
+# 예전엔 여기에 손으로 나열해 두고 schemas.Dimension과 따로 관리했다.
+from ..schemas import JUDGE_DIMENSIONS as _JUDGE_DIMS   # noqa: E402
+_DIMENSIONS = [d.value for d in _JUDGE_DIMS]
+JUDGE_SYSTEM = HARD_RULES + _JUDGE_BODY.replace("{AXES}", _axis_block())
+
 _MOVES = ["stage_override", "intersection_sizing", "risk_triage",
           "hidden_need_reshape", "profitability_assumption_check",
           "value_asymmetry", "rejection_triage", "knob_bundle",
@@ -404,11 +412,18 @@ JUDGE_SCHEMA = {
     "properties": {
         "category_judgments": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["dimension", "verdict", "rationale"],
+            "required": ["dimension", "verdict", "status", "rationale"],
             "properties": {
                 "dimension": {"type": "string", "enum": _DIMENSIONS},
-                "verdict": {"type": "string", "enum": ["fit", "caution", "unfit"]},
+                "verdict": {"type": "string",
+                            "enum": ["fit", "caution", "unfit", "na"]},
+                # 검증 상태는 판정과 별개다 — "확인했는데 위험"과 "확인을 못 함"을
+                # 한 칸에 뭉개면 '미검증 다수 → 보류' 규칙이 성립하지 않는다.
+                "status": {"type": "string",
+                           "enum": ["unknown", "assumed", "confirmed"]},
                 "rationale": {"type": "string"},
+                "dealbreaker": {"type": "boolean"},
+                "exploitation_detected": {"type": "boolean"},
             }}},
         "risks": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
@@ -423,7 +438,8 @@ JUDGE_SCHEMA = {
                             "items": {"type": "string", "enum": _MOVES}},
         "trajectory": {"type": "string"},
         "decision": {"type": "string",
-                     "enum": ["recommend", "conditional", "hold", "terminate"]},
+                     "enum": ["recommend", "conditional", "hold",
+                              "terminate_structural", "terminate_values"]},
         "decision_rationale": {"type": "string"},
         "fit_reasons": {"type": "array", "items": {"type": "string"}},
         "gap_factors": {"type": "array", "items": {"type": "string"}},

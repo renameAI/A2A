@@ -38,30 +38,69 @@ class Willingness(str, Enum):
     very_low = "very_low"
 
 
-class Dimension(str, Enum):           # 온톨로지 판단 차원 (공통 5 + buy 2)
-    industry_fit = "industry_fit"
-    purpose_alignment = "purpose_alignment"
-    resource_complementarity = "resource_complementarity"
-    stage_compatibility = "stage_compatibility"
-    demonstrability = "demonstrability"
-    substitute_comparison = "substitute_comparison"   # buy 전용
-    opportunity_cost = "opportunity_cost"             # buy 전용
+class Dimension(str, Enum):
+    """판단 축 — judge_cases/{buyer,seller}_ontology.yaml이 정규 소스.
+
+    이전엔 자체 7차원(공통 5 + buy 2)이었다. 교체 근거: 그 축 집합엔 **실행·선결
+    게이트(BB6)와 신뢰·착취(BB8)가 없어서**, "인증을 못 넘어 죽는 딜"이나 "상대가
+    우리 IP를 빼가려 한다"를 표현할 언어 자체가 없었다. 실 B2B에서 결정적인 두
+    가지이고, decision_gate의 terminate 규칙이 딛는 축이기도 하다.
+
+    렌즈마다 축이 다르다(부분집합이 아니라 분리) — 사는 쪽과 파는 쪽은 같은 거래를
+    다른 질문으로 본다.
+    """
+    # buy 렌즈 — "나는 이것으로 무엇을 하려는가"
+    BB1_purpose_fit = "BB1_purpose_fit"                    # 목적 정합
+    BB2_value_hierarchy = "BB2_value_hierarchy"            # 가치 서열
+    BB3_substitute = "BB3_substitute"                      # 대체재 우위
+    BB4_opportunity_cost = "BB4_opportunity_cost"          # 기회비용·다운사이드
+    BB5_evidence = "BB5_evidence"                          # 실증 신호
+    BB6_execution_gate = "BB6_execution_gate"              # 실행·선결 게이트
+    BB7_timing = "BB7_timing"                              # 단계·타이밍
+    BB8_trust = "BB8_trust"                                # 신뢰·진정성
+    BB9_decision_structure = "BB9_decision_structure"      # 결정 구조
+    BB10_contract_protection = "BB10_contract_protection"  # 계약·정보 보호
+    # sell 렌즈 — "나는 무엇을 어떻게 납득시키는가"
+    SB1_pitch_alignment = "SB1_pitch_alignment"
+    SB2_value_positioning = "SB2_value_positioning"
+    SB3_evidence_packaging = "SB3_evidence_packaging"
+    SB4_substitute_defense = "SB4_substitute_defense"
+    SB5_threshold_design = "SB5_threshold_design"
+    SB6_execution_honesty = "SB6_execution_honesty"
+    SB7_authenticity_structure = "SB7_authenticity_structure"
+    SB8_champion_arming = "SB8_champion_arming"
+    SB9_protection_screening = "SB9_protection_screening"
+    SB10_strategic_relationship = "SB10_strategic_relationship"
 
 
-COMMON_DIMENSIONS = [
-    Dimension.industry_fit,
-    Dimension.purpose_alignment,
-    Dimension.resource_complementarity,
-    Dimension.stage_compatibility,
-    Dimension.demonstrability,
-]
-BUY_ONLY_DIMENSIONS = [Dimension.substitute_comparison, Dimension.opportunity_cost]
+# 판단 축은 렌즈와 무관하게 BB다. seller_ontology.yaml을 실제로 열어보면 SB축은
+# 판정 루브릭이 아니라 **실행 플레이북**이다 — 축마다 readout(신호 판독)→moves(대응
+# 행동)이고 verdict_rule이 아예 없다. "내가 잘 팔고 있나"의 자기점검이지 "이 딜이
+# 되나"의 판정이 아니다. 딜 성사 여부는 결국 사는 쪽 논리가 정하므로 judge는 양쪽
+# 렌즈 모두 BB로 판정하고, vantage는 '누가 self인가'만 바꾼다.
+# SB축은 협상(negotiate)·작문(compose) 단계에서 쓴다.
+JUDGE_DIMENSIONS = [d for d in Dimension if d.value.startswith("BB")]
+SELLER_PLAYBOOK_AXES = [d for d in Dimension if d.value.startswith("SB")]
+
+
+class AxisStatus(str, Enum):
+    """축의 **검증 상태** — verdict(판정)와 별개다.
+
+    이전 스키마엔 verdict만 있어 "확인했는데 위험하다"와 "확인을 못 했다"가 둘 다
+    caution으로 뭉갰다. judge.py의 _apply_evidence_gate는 주석에 "정보 부재 ≠ unfit"
+    이라 써놓고도 그걸 표현할 자리가 없었다 — 그 불일치를 이 필드가 해소한다.
+    decision_gate의 'unknown ≥ 3 → hold' 규칙도 이 축 위에서만 성립한다.
+    """
+    unknown = "unknown"        # 검증 못 함 — 판단 재료 부족
+    assumed = "assumed"        # 정황상 추정 — 확인 안 됨
+    confirmed = "confirmed"    # 근거로 확인됨
 
 
 class VerdictType(str, Enum):
     fit = "fit"
     caution = "caution"
     unfit = "unfit"
+    na = "na"                  # 이 거래엔 해당 없는 축 (미검증과 구분)
 
 
 class RiskType(str, Enum):            # 리스크 3분류 (가이드 §4)
@@ -74,7 +113,15 @@ class DecisionType(str, Enum):
     recommend = "recommend"
     conditional = "conditional"
     hold = "hold"
-    terminate = "terminate"
+    # terminate를 둘로 나눈다 — 사업적으로 완전히 다른 결말이라 한 라벨로 묶으면
+    # 후속 행동이 갈리지 않는다. structural은 조건이 바뀌면 다시 볼 상대,
+    # values는 다시 접촉하지 않을 상대다.
+    terminate_structural = "terminate_structural"   # 구조 미달 — 관계는 보존
+    terminate_values = "terminate_values"           # 착취·가치 충돌 — 관계 차단
+
+
+TERMINATE_DECISIONS = (DecisionType.terminate_structural,
+                       DecisionType.terminate_values)
 
 
 class ConfidenceBand(str, Enum):
@@ -315,6 +362,15 @@ class CategoryJudgment(BaseModel):
     dimension: Dimension
     verdict: VerdictType
     rationale: str                   # '왜' 필수 — 평평한 체크리스트 금지 (JDG-02)
+    # 검증 상태는 판정과 별개 (AxisStatus 참고). 기본 confirmed — 기존 산출물이
+    # status를 안 주던 시절과 호환되지 않게 unknown을 기본값으로 두면, 축을 채운
+    # 판단까지 전부 '미검증 3개 이상 → hold'로 쓸려 내려간다.
+    status: AxisStatus = AxisStatus.confirmed
+    # 게이트 플래그 — 특정 축에서만 의미가 있고, 결정을 단독으로 뒤집는다.
+    # BB6: 선결 조건 구조적 미달 → terminate_structural
+    # BB8: 상대의 착취 의도 감지 → terminate_values
+    dealbreaker: bool = False
+    exploitation_detected: bool = False
 
 
 class Risk(BaseModel):

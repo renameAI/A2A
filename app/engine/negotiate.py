@@ -9,7 +9,8 @@
 from dataclasses import dataclass
 
 from ..errors import DealBreaker
-from ..schemas import (DecisionType, Dimension, Intent, JudgeRequest,
+from ..schemas import (TERMINATE_DECISIONS, DecisionType, Dimension, Intent,
+                       JudgeRequest,
                        KnobAdjustment, NegotiateRequest, NegotiationResult,
                        NegotiationRound, Objective, RejectionInfo, RoundResponse,
                        TerminationType, Vantage, VerdictType)
@@ -19,28 +20,34 @@ from .judge import judge
 _UNRECOVERABLE_MARKERS = ["실행 의지 없음", "직접 하겠다", "자체 실행"]
 
 # 거절 차원 → 손잡이 묶음 매핑 (주 손잡이 + 부 손잡이, 7-A.3)
+# 축은 구매자 렌즈(BB1~BB10)다 — 거절은 구매자가 막힌 축에서 나오고, 판매자는
+# 그 축에 맞는 손잡이를 돌린다. BB8(신뢰)·BB10(계약)은 손잡이가 없다: 착취·권리
+# 불투명은 조건 조정으로 푸는 게 아니라 종료 사유이므로 여기 넣지 않는다.
 _KNOB_BUNDLES: dict[Dimension, list[tuple[str, str, str]]] = {
-    Dimension.purpose_alignment: [
-        ("concept", "일반 제안", "상대 고객층 트렌드 맞춤 컨셉 재설계"),
+    Dimension.BB1_purpose_fit: [
+        ("concept", "일반 제안", "상대 목적·고객층에 맞춘 컨셉 재설계"),
         ("rooms", "표준 규모", "소규모 조정")],
-    Dimension.demonstrability: [
-        ("proof", "레퍼런스 소개", "실측 데이터·포트폴리오 제시 + PoC 축소"),
-        ("share", "7:3", "8:2 (레퍼런스 가치 반영 양보)")],
-    Dimension.resource_complementarity: [
-        ("scope", "표준 범위", "상대 결핍에 맞춘 범위 재정의"),
-        ("rooms", "표준 규모", "소규모 조정")],
-    Dimension.stage_compatibility: [
-        ("rooms", "표준 규모", "PoC 최소 규모"),
-        ("proof", "레퍼런스 소개", "원상 복구 보장 추가")],
-    Dimension.substitute_comparison: [
+    Dimension.BB2_value_hierarchy: [
+        ("concept", "일반 제안", "상대 1순위 구매 이유부터 다시 제시(부가가치 후순위로)"),
+        ("proof", "레퍼런스 소개", "1순위 기준의 증거로 교체")],
+    Dimension.BB3_substitute: [
         ("proof", "레퍼런스 소개", "대안 대비 비교우위 자료 제시"),
-        ("share", "7:3", "조건 미세조정")],
-    Dimension.opportunity_cost: [
+        ("scope", "표준 범위", "대체 불가 지점에 범위 집중")],
+    Dimension.BB4_opportunity_cost: [
         ("rooms", "표준 규모", "PoC 최소 규모 + 원상 복구 보장"),
         ("share", "7:3", "조건 미세조정")],
-    Dimension.industry_fit: [
-        ("concept", "일반 제안", "교차 도메인 가치 재설명"),
-        ("proof", "레퍼런스 소개", "유사 도메인 사례 제시")],
+    Dimension.BB5_evidence: [
+        ("proof", "레퍼런스 소개", "실측 데이터·포트폴리오 제시 + PoC 축소"),
+        ("share", "7:3", "8:2 (레퍼런스 가치 반영 양보)")],
+    Dimension.BB6_execution_gate: [
+        ("scope", "표준 범위", "선결 요건을 충족하는 범위로 축소"),
+        ("proof", "레퍼런스 소개", "인증·규제 해소 경로와 일정 제시")],
+    Dimension.BB7_timing: [
+        ("rooms", "표준 규모", "PoC 최소 규모"),
+        ("proof", "레퍼런스 소개", "원상 복구 보장 추가")],
+    Dimension.BB9_decision_structure: [
+        ("proof", "레퍼런스 소개", "내부 승인 회람용 자료 제공(챔피언 무장)"),
+        ("scope", "표준 범위", "전결 한도 안으로 규모 축소")],
 }
 
 # 손잡이별 판매자 최저선 (NEG-06) — 사전정보 키 "최저선:<knob>" 값이 있으면 그 이하 금지
@@ -71,10 +78,17 @@ def _buyer_review(req: NegotiateRequest, adjusted_note: str | None) -> "JudgeRes
 
 def _find_concern(judge_result, resolved: set[str]) -> Dimension | None:
     """아직 해소되지 않은 가장 중요한 '주의' 차원 (7-A.3: 거절은 막힌 차원을 찍는다)."""
-    priority = [Dimension.purpose_alignment, Dimension.demonstrability,
-                Dimension.substitute_comparison, Dimension.opportunity_cost,
-                Dimension.resource_complementarity, Dimension.stage_compatibility,
-                Dimension.industry_fit]
+    # 손잡이가 있는 축만 — BB8(신뢰)·BB10(계약)은 조정 대상이 아니라 종료 사유다.
+    # 순서는 "먼저 풀어야 뒤가 의미 있는" 순 (buyer_ontology 원칙:
+    # "산업 fit 은 필요조건일 뿐 — 실행 게이트 하나로 결렬된다").
+    priority = [Dimension.BB6_execution_gate,     # 못 넘으면 나머지가 무의미
+                Dimension.BB1_purpose_fit,
+                Dimension.BB2_value_hierarchy,
+                Dimension.BB5_evidence,
+                Dimension.BB3_substitute,
+                Dimension.BB4_opportunity_cost,
+                Dimension.BB9_decision_structure,
+                Dimension.BB7_timing]
     cautions = {d.dimension: d for d in judge_result.category_judgments
                 if d.verdict != VerdictType.fit}
     for dim in priority:
@@ -137,7 +151,7 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
         if hard_reason:
             rounds.append(NegotiationRound(
                 round=round_no, proposal=proposal, response=RoundResponse.reject,
-                rejection=RejectionInfo(dimension=Dimension.purpose_alignment,
+                rejection=RejectionInfo(dimension=Dimension.BB1_purpose_fit,
                                         reason=f"못 푸는 거절 — {hard_reason}",
                                         recoverable=False),
                 knobs_adjusted=pending_adjustments))
@@ -158,10 +172,10 @@ def negotiate(req: NegotiateRequest) -> NegotiationResult:
             return _audited(req, NegotiationResult(
                 rounds=rounds, termination=TerminationType.agreement,
                 rounds_used=round_no))
-        if review.decision == DecisionType.terminate or concern is None:
+        if review.decision in TERMINATE_DECISIONS or concern is None:
             rounds.append(NegotiationRound(
                 round=round_no, proposal=proposal, response=RoundResponse.reject,
-                rejection=RejectionInfo(dimension=concern or Dimension.resource_complementarity,
+                rejection=RejectionInfo(dimension=concern or Dimension.BB1_purpose_fit,
                                         reason=review.decision_rationale,
                                         recoverable=False),
                 knobs_adjusted=pending_adjustments))

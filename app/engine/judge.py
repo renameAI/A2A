@@ -9,175 +9,12 @@ v0: 규칙 기반 차원 판정. Phase 2: EXAONE CoT 파인튜닝 모델 호출�
 """
 from .. import progress
 from ..config import get_settings
-from ..schemas import (BUY_ONLY_DIMENSIONS, CategoryJudgment, ConfidenceBand,
+from ..schemas import (JUDGE_DIMENSIONS, AxisStatus, ConfidenceBand,
                        DecisionType, Dimension, JudgeRequest, JudgeResult,
-                       MatchSummary, Objective, PrivateState, Risk, RiskType,
                        Vantage, VerdictType, Willingness)
-from .common import industry_adjacent, infer_stage, overlap, profile_pain_text
 from .dealbreakers import check_deal_breakers
 from .llm import get_extractor
 from .prompts import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_user
-
-_FIT, _CAUTION, _UNFIT = VerdictType.fit, VerdictType.caution, VerdictType.unfit
-
-
-def _judge_dimensions(req: JudgeRequest) -> list[CategoryJudgment]:
-    self_p, counter_p = req.self_profile, req.counterpart_profile
-    dims: list[CategoryJudgment] = []
-
-    # [산업 적합성]
-    if industry_adjacent(self_p.basic.industry, counter_p.basic.industry):
-        dims.append(CategoryJudgment(dimension=Dimension.industry_fit, verdict=_FIT,
-                    rationale=f"{self_p.basic.industry} ↔ {counter_p.basic.industry} 도메인이 맞물린다."))
-    else:
-        dims.append(CategoryJudgment(dimension=Dimension.industry_fit, verdict=_CAUTION,
-                    rationale="산업 인접성이 확인되지 않음 — 교차 도메인 매칭 여부 확인 필요."))
-
-    # [협업목적 정합] — '원하느냐(want)'. 자원 보완성과 분리 판정 (가이드 §2)
-    counter_wants = set(counter_p.purchase_value_props if req.vantage == Vantage.seller
-                        else counter_p.sell_value_props)
-    my_offer = set(req.intent.value_props)
-    if not counter_wants:
-        dims.append(CategoryJudgment(dimension=Dimension.purpose_alignment, verdict=_CAUTION,
-                    rationale="상대의 진짜 니즈는 외부 자료에 없다 — 접촉·질문으로 먼저 확인 필요 (외부 풀)."))
-    elif my_offer & counter_wants:
-        dims.append(CategoryJudgment(dimension=Dimension.purpose_alignment, verdict=_FIT,
-                    rationale=f"제안 방향({', '.join(v.value for v in my_offer & counter_wants)})이 상대가 원하는 것과 일치."))
-    else:
-        dims.append(CategoryJudgment(dimension=Dimension.purpose_alignment, verdict=_CAUTION,
-                    rationale="상대가 원하는 가치와 제안 방향이 어긋남 — 딜 구조 변형 검토."))
-
-    # [자원 보완성] — '맞물리느냐(fit)'. 내가 푸는 문제 ↔ 상대가 겪는 문제
-    comp = overlap(f"{self_p.problem_solved.value} {self_p.solution.value}",
-                   profile_pain_text(counter_p))
-    if comp >= 0.25:
-        dims.append(CategoryJudgment(dimension=Dimension.resource_complementarity, verdict=_FIT,
-                    rationale="내가 가진 것이 상대의 결핍과 강하게 맞물린다 "
-                              f"(보완성 신호 {comp:.2f})."))
-    elif comp >= 0.10:
-        dims.append(CategoryJudgment(dimension=Dimension.resource_complementarity, verdict=_CAUTION,
-                    rationale=f"보완성 신호가 약함({comp:.2f}) — 상대의 결핍을 접촉으로 확인 필요."))
-    else:
-        dims.append(CategoryJudgment(dimension=Dimension.resource_complementarity, verdict=_UNFIT,
-                    rationale=f"상대의 문제와 내 솔루션이 맞물리지 않음({comp:.2f})."))
-
-    # [사업단계 호환]
-    s1, s2 = infer_stage(self_p), infer_stage(counter_p)
-    if {"chain"} & {s1, s2} and {"seed", "startup"} & {s1, s2}:
-        dims.append(CategoryJudgment(dimension=Dimension.stage_compatibility, verdict=_CAUTION,
-                    rationale=f"규모 격차({s1}↔{s2}) — 조달·신뢰 프로세스 확인 필요."))
-    else:
-        dims.append(CategoryJudgment(dimension=Dimension.stage_compatibility, verdict=_FIT,
-                    rationale=f"규모·단계({s1}↔{s2})가 현실적으로 호환."))
-
-    # [실증 가능성] — 레퍼런스는 '구매자 시장' 기준으로 본다 (#01: 동남아 레퍼런스 0)
-    seller_p = self_p if req.vantage == Vantage.seller else counter_p
-    buyer_p = counter_p if req.vantage == Vantage.seller else self_p
-    refs = seller_p.references
-    local_ref = any(buyer_p.basic.country in r for r in refs)
-    if refs and local_ref:
-        dims.append(CategoryJudgment(dimension=Dimension.demonstrability, verdict=_FIT,
-                    rationale="해당 시장 레퍼런스 보유."))
-    elif refs:
-        dims.append(CategoryJudgment(dimension=Dimension.demonstrability, verdict=_CAUTION,
-                    rationale="레퍼런스는 있으나 현지 레퍼런스 부재 — 소규모 PoC 선검증 권장."))
-    else:
-        dims.append(CategoryJudgment(dimension=Dimension.demonstrability, verdict=_CAUTION,
-                    rationale="검증 사례 없음 — 첫 사례임을 명시하고 검증 장치 필요."))
-
-    # buy-side 전용 +2차원 (JDG-02, 기획서 7.12)
-    if req.vantage == Vantage.buyer:
-        if counter_p.references or counter_p.traction:
-            dims.append(CategoryJudgment(dimension=Dimension.substitute_comparison, verdict=_FIT,
-                        rationale="검증된 실적을 가진 상대 — 기존 대안 대비 비교우위 신호."))
-        else:
-            dims.append(CategoryJudgment(dimension=Dimension.substitute_comparison, verdict=_CAUTION,
-                        rationale="대안 대비 비교우위 미확인 — 기존 대안(현지 업체·현상 유지)과 상대평가 필요."))
-        low_downside = any(("원복" in i.value or "원상 복구" in i.value or "PoC" in i.value)
-                           for i in (req.counterpart_private_state or PrivateState()).items
-                           + req.self_private_state.items)
-        if low_downside:
-            dims.append(CategoryJudgment(dimension=Dimension.opportunity_cost, verdict=_FIT,
-                        rationale="소규모 시작·원복 보장 등으로 다운사이드가 낮음 — '밑져야 본전' 성립."))
-        else:
-            dims.append(CategoryJudgment(dimension=Dimension.opportunity_cost, verdict=_CAUTION,
-                        rationale="수용 시 묶이는 자원·포기 대안 미확인 — 소규모 PoC로 기회비용 축소 검토."))
-    return dims
-
-
-def _collect_risks(req: JudgeRequest, dims: list[CategoryJudgment]) -> list[Risk]:
-    risks: list[Risk] = []
-    # 사전정보에서 리스크 3분류 (가이드 §4)
-    for item in req.self_private_state.items:
-        if "권한" in item.key or "선결" in item.key:
-            risks.append(Risk(type=RiskType.precondition,
-                              description=f"{item.key}: {item.value} — 미충족 시 결렬.",
-                              check_method="접촉 시 최우선 확인"))
-        elif "통제" in item.value:
-            risks.append(Risk(type=RiskType.dismissed,
-                              description=f"{item.key} — 통제 가능하므로 리스크에서 기각."))
-    # 차원 간 불일치 → 자동 확인 리스크 (JDG-03)
-    verdicts = {d.verdict for d in dims}
-    if len(verdicts) > 1:
-        for d in dims:
-            if d.verdict != _FIT:
-                risks.append(Risk(type=RiskType.profitability,
-                                  description=f"[{d.dimension.value}] {d.rationale}",
-                                  check_method="진행 전 해당 차원 신호로 검증 (예: 리뷰·점유율·실데이터)"))
-    return risks
-
-
-def _effective_willingness(req: JudgeRequest) -> Willingness | None:
-    """목적함수별로 보는 Willingness가 다르다 (7.4): 게이트=자기측, 탐색예산=상대측."""
-    if req.objective == Objective.willingness_gate:
-        return req.self_profile.willingness_purchase
-    return req.counterpart_profile.willingness_purchase
-
-
-def _decide(dims: list[CategoryJudgment], willingness: Willingness | None
-            ) -> tuple[DecisionType, str]:
-    cautions = sum(1 for d in dims if d.verdict == _CAUTION)
-    unfits = sum(1 for d in dims if d.verdict == _UNFIT)
-    open_w = willingness in {Willingness.very_high, Willingness.high, Willingness.medium}
-
-    if unfits >= 2:
-        return DecisionType.terminate, "복수 차원 부적합 — 추격 자원을 회수한다(탐색 예산 회수)."
-    if unfits == 1:
-        return DecisionType.hold, "부적합 차원 존재 — 해소 신호 없이는 진행 보류."
-    if cautions == 0:
-        return DecisionType.recommend, "전 차원 적합 — 추천."
-    if cautions <= 2:
-        if open_w:
-            return (DecisionType.conditional,
-                    "일부 차원 '주의'이나 상대의 열림 정도(Willingness)가 이를 상회 — "
-                    "리스크 명시 조건부 추천 (확신 × 열림 정도의 종합 추론).")
-        if willingness is None:
-            return (DecisionType.conditional,
-                    "일부 차원 '주의' + 상대 Willingness 미상(외부 풀) — "
-                    "확인 리스크를 명시한 조건부 추천, 접촉으로 검증.")
-        return (DecisionType.hold,
-                "일부 차원 '주의'이고 상대가 소극적 — 노출 기준 미달로 보류.")
-    if open_w:
-        return DecisionType.conditional, "주의 차원 많으나 상대가 적극적 — 조건부."
-    return DecisionType.hold, "주의 차원 다수 — 보류."
-
-
-def _reasoning_moves(req: JudgeRequest, dims: list[CategoryJudgment],
-                     risks: list[Risk], deal_structure: str | None) -> list[str]:
-    moves = ["risk_triage"]   # 리스크 3분류는 항상 수행
-    if deal_structure:
-        moves.append("intersection_sizing")
-    if req.vantage == Vantage.buyer:
-        moves.append("value_asymmetry")   # 내가 파는 가치 ≠ 상대가 사는 가치 (#02)
-    stage_caution = any(d.dimension == Dimension.stage_compatibility and d.verdict != _FIT
-                        for d in dims)
-    strategic = any("레퍼런스" in i.value or "단계" in i.value
-                    for i in req.self_private_state.items)
-    if stage_caution and strategic:
-        moves.append("stage_override")    # 약한 차원의 전략적 역전 (#01)
-    if req.intent.notes and "인바운드" in req.intent.notes:
-        moves.append("inbound_authenticity_gate")
-    return moves
 
 
 _SOFT_YES = {DecisionType.recommend, DecisionType.conditional}
@@ -205,6 +42,50 @@ def _apply_evidence_gate(result: JudgeResult) -> None:
         f"원 판정 근거: {result.decision_rationale}")
     progress.log("Judge", f"⚠ L3 근거 게이트 — fit 차원 0개: "
                           f"recommend→conditional (근거 없는 추천 차단)")
+
+
+def _apply_decision_gate(result: JudgeResult) -> None:
+    """축 상태 → 결정을 **코드가** 유도 (judge_cases/decision_gate.py 이식, in-place).
+
+    배경(EXAONE_이식성_검증.md): K-EXAONE은 축은 충실히 채우지만 최종 결정 라벨이
+    conditional로 쏠린다(9세션 중 5/6). 결정을 프롬프트가 아니라 코드가 내리면
+    모델 교체에 강건해진다 — 축 판정=모델, 결정=코드.
+
+    이 규칙은 예전 우리 스키마에선 절반이 발화조차 못 했다: exploitation/dealbreaker
+    플래그도, status=unknown도 표현할 자리가 없었기 때문이다. 축을 BB로 바꾸면서
+    비로소 6개 규칙이 전부 성립한다.
+
+    우선순위는 원본 그대로(Gemini 9세션 캘리브레이션). 다만 그 9건은 캘리브레이션
+    셋 자체라 8/9 일치는 in-sample 수치임에 유의 — 일반화 근거가 아니다.
+    """
+    dims = result.category_judgments or []
+    if not dims:
+        return
+    unfit = [d for d in dims if d.verdict == VerdictType.unfit]
+    caution = [d for d in dims if d.verdict == VerdictType.caution]
+    unknown = [d for d in dims if d.status == AxisStatus.unknown]
+
+    if any(d.exploitation_detected for d in dims):
+        new, why = DecisionType.terminate_values, "착취 신호 감지 — 관계 차단 철수"
+    elif any(d.dealbreaker for d in dims):
+        new, why = DecisionType.terminate_structural, "선결 게이트 deal-breaker — 구조적 미달"
+    elif len(unfit) >= 2:
+        new, why = (DecisionType.terminate_structural,
+                    f"복수 축 부적합({len(unfit)}) — {[d.dimension.value for d in unfit[:3]]}")
+    elif len(unknown) >= 3:
+        new, why = DecisionType.hold, f"미검증 축 {len(unknown)}개 — 판단 재료 부족, 유보"
+    elif caution or unknown or unfit:
+        new, why = (DecisionType.conditional,
+                    f"주의 {len(caution)}·미검증 {len(unknown)}·부적합 {len(unfit)} — "
+                    f"조건·검증 계획 필요")
+    else:
+        new, why = DecisionType.recommend, "전 축 적합·미검증 0 — 추천"
+
+    if new != result.decision:
+        progress.log("Judge", f"⚠ 결정 게이트 — {result.decision.value}→{new.value}: {why}")
+        result.decision_rationale = (f"{why} (결정 게이트: 축 상태에서 코드가 유도). "
+                                     f"원 판정 근거: {result.decision_rationale}")
+        result.decision = new
 
 
 def _apply_consistency_gate(result: JudgeResult, agreement: "float | None",
@@ -314,12 +195,19 @@ import re as _re
 
 _NUM_TOKEN = _re.compile(r"\d[\d,.]*\s*(?:%|억|천만|만\s*원|만원|명|개사|건|배|호점)?")
 _LATIN_TOKEN = _re.compile(r"[A-Za-z][A-Za-z&.-]{2,}")
-# 판단 어휘(스키마 enum·차원명)는 입력이 아니라 판단 언어에서 온다 — 환각 아님
-_JUDGE_VOCAB = {"fit", "caution", "unfit", "recommend", "conditional", "hold",
-                "terminate", "industry_fit", "purpose_alignment",
-                "resource_complementarity", "stage_compatibility",
-                "demonstrability", "substitute_comparison", "opportunity_cost",
-                "poc", "mou", "esg", "oem", "odm", "b2b"}
+# 판단 어휘(스키마 enum·축명)는 입력이 아니라 판단 언어에서 온다 — 환각 아님.
+# 축·결정·판정 이름은 **enum에서 파생**한다: 예전엔 손으로 나열해 뒀는데, 축 이름이
+# 바뀌면 정상 축명이 '입력에 없는 영문 토큰'으로 몰려 근거가 삭제된다(조용한 손실).
+def _vocab_tokens(*enums) -> set[str]:
+    out: set[str] = set()
+    for e in enums:
+        for m in e:
+            out.update(t.lower() for t in _re.split(r"[^A-Za-z]+", m.value) if t)
+    return out
+
+
+_JUDGE_VOCAB = _vocab_tokens(Dimension, DecisionType, VerdictType, AxisStatus) | {
+    "poc", "mou", "esg", "oem", "odm", "b2b"}
 
 
 def _strip_ungrounded_claims(result: JudgeResult, req: JudgeRequest,
@@ -371,10 +259,10 @@ def _llm_judge(req: JudgeRequest, extractor, deep: bool = True) -> JudgeResult:
         data["reasoning_moves"] = ["risk_triage"]
     with progress.node("validate", "차원 계약 검증 (JDG-02)"):
         result = JudgeResult.model_validate(data)
-        # buy 렌즈 차원 계약 검증 — 누락 시 명시적 실패가 조용한 오판보다 낫다
+        # 축 계약 검증 — 누락 시 명시적 실패가 조용한 오판보다 낫다.
+        # 렌즈와 무관하게 BB 10축 전부를 요구한다(JUDGE_DIMENSIONS 주석 참고).
         dims = {d.dimension for d in result.category_judgments}
-        required = set(Dimension) if req.vantage == Vantage.buyer else \
-            set(Dimension) - set(BUY_ONLY_DIMENSIONS)
+        required = set(JUDGE_DIMENSIONS)
         missing = required - dims
         if missing:
             from ..errors import EngineError
@@ -428,71 +316,21 @@ def judge(req: JudgeRequest, deep: bool = True) -> JudgeResult:
     with progress.node("gate.dealbreaker", "결격 게이트 (JDG-04)"):
         check_deal_breakers(req.self_profile, req.counterpart_profile)
         progress.log("게이트", "deal-breaker 없음 — 판단 진행")
-
     settings = get_settings()
+    # mock 제거(2026-07) 이후 get_extractor는 None을 돌려주지 않는다 — 성공하거나
+    # config_error로 즉시 실패한다. 그런데 여기 `if extractor is not None:` 분기와
+    # 그 아래 규칙 기반 경로(57줄 + 헬퍼 4개)가 그대로 남아 **도달 불가 코드**가
+    # 되어 있었다. 있지도 않은 폴백이 있는 것처럼 보이는 게 더 위험해 걷어낸다.
     extractor = get_extractor(settings)
-    if extractor is not None:
-        result, agreement = _vote_llm_judge(
-            req, extractor, deep, settings.judge_samples)   # L2 자기일관성 투표
-        result.sample_agreement = agreement
-        pre_gate = result.decision.value                    # 감사용 원 결정 보존 (F3)
-        _apply_evidence_gate(result)                        # L3 근거 게이트
-        _apply_consistency_gate(result, agreement, settings)   # L3 하드 게이트
-        with progress.node("audit", "감사 로그 (SYS-04)"):
-            _audit_judge(req, result, pre_gate_decision=pre_gate, engine_mode="llm")
-        return result
-
-    with progress.node("rules.judge", "규칙 기반 판단 (Mock)"):
-        dims = _judge_dimensions(req)
-    risks = _collect_risks(req, dims)
-    willingness = _effective_willingness(req)
-    decision, rationale = _decide(dims, willingness)
-
-    fit_reasons = [d.rationale for d in dims if d.verdict == _FIT] or \
-                  ["판단 근거 부족 — 접촉으로 확인 필요"]
-    gap_factors = [d.rationale for d in dims if d.verdict != _FIT]
-
-    # 딜 구조: 실증 '주의'면 소규모 PoC — 판매자 ROI 하한 ∩ 구매자 손실 허용 상한 (#01)
-    deal_structure = None
-    if any(d.dimension == Dimension.demonstrability and d.verdict == _CAUTION for d in dims):
-        deal_structure = ("소규모 PoC로 시작 (판매자 ROI 하한 ∩ 구매자 손실 허용 상한의 "
-                          "교집합 지점, 예: 객실 4개 규모).")
-
-    seller_p = req.self_profile if req.vantage == Vantage.seller else req.counterpart_profile
-    reference = seller_p.references[0] if seller_p.references else "first_case"
-    match_summary = MatchSummary(
-        problem_solution=(f"{req.counterpart_profile.problem_solved.value} → "
-                          f"{seller_p.solution.value}"
-                          if req.vantage == Vantage.seller else
-                          f"{req.self_profile.problem_solved.value} → "
-                          f"{seller_p.solution.value}"),
-        value_proposition=", ".join(v.value for v in req.intent.value_props),
-        reference=reference,
-    )
-
-    cautions = sum(1 for d in dims if d.verdict != _FIT)
-    band = (ConfidenceBand.high if cautions == 0
-            else ConfidenceBand.medium if cautions <= 2 else ConfidenceBand.low)
-
-    trajectory = "\n".join(f"[{d.dimension.value}] {d.verdict.value}: {d.rationale}"
-                           for d in dims) + f"\n[결정] {decision.value}: {rationale}"
-
-    result = JudgeResult(
-        category_judgments=dims,
-        risks=risks,
-        reasoning_moves=_reasoning_moves(req, dims, risks, deal_structure),
-        trajectory=trajectory,
-        decision=decision,
-        decision_rationale=rationale,
-        fit_reasons=fit_reasons,
-        gap_factors=gap_factors,
-        match_summary=match_summary,
-        deal_structure=deal_structure,
-        confidence_band=band,
-    )
-    _apply_evidence_gate(result)      # LLM 경로와 같은 근거 게이트 (규칙 경로도 동일 계약)
+    result, agreement = _vote_llm_judge(
+        req, extractor, deep, settings.judge_samples)   # L2 자기일관성 투표
+    result.sample_agreement = agreement
+    pre_gate = result.decision.value                    # 감사용 원 결정 보존 (F3)
+    _apply_decision_gate(result)                        # 축 상태 → 결정 (코드)
+    _apply_evidence_gate(result)                        # L3 근거 게이트
+    _apply_consistency_gate(result, agreement, settings)   # L3 하드 게이트
     with progress.node("audit", "감사 로그 (SYS-04)"):
-        _audit_judge(req, result, engine_mode="mock")
+        _audit_judge(req, result, pre_gate_decision=pre_gate, engine_mode="llm")
     return result
 
 

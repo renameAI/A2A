@@ -26,8 +26,9 @@ from ..schemas import (Intent, JudgeRequest, Objective, RetrieveDirection,
 
 _GOLDEN = Path(__file__).resolve().parent / "golden_cases.json"
 
-POLARITY = {"recommend": "engage", "conditional": "engage",
-            "hold": "defer", "terminate": "reject"}
+POLARITY = {"recommend": "engage", "conditional": "engage", "hold": "defer",
+            # terminate 2종(구조 미달/가치 충돌)은 극성으로는 둘 다 '접촉 안 함'
+            "terminate_structural": "reject", "terminate_values": "reject"}
 
 
 def load_golden(path: Optional[str] = None) -> dict:

@@ -17,12 +17,12 @@ def check_deal_breakers(self_profile: Profile, counterpart: Profile) -> Optional
 
     # 1) 법적 결격 (제재 대상·무자격 라이선스 산업)
     if "제재 대상" in text or "제재대상" in text:
-        raise DealBreaker("industry_fit", "법적 결격 — 제재 대상 기업")
+        raise DealBreaker("BB6_execution_gate", "법적 결격 — 제재 대상 기업")
 
     # 2) 사업단계 근본 부적합 (예: 시드 스타트업 → 글로벌 대기업 부품 납품 제안)
     self_stage = infer_stage(self_profile)
     counter_stage = infer_stage(counterpart)
     if self_stage in {"seed", "startup"} and counter_stage == "enterprise":
-        raise DealBreaker("stage_compatibility",
+        raise DealBreaker("BB7_timing",
                           "사업단계 근본 부적합 — 초기 기업 ↔ 글로벌 엔터프라이즈 조달 미스매치")
     return None
