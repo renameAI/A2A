@@ -267,10 +267,14 @@ class _OpenAICompatExtractor:
     def extract_json(self, system: str, user: str, schema: dict,
                      deep: bool = False) -> dict:
         if deep:
-            # 추론 토큰 예산 — 클수록 상(像)이 깊지만 시간·타임아웃 위험이 커진다.
-            # 실측(represent 300초 타임아웃): 16384 예산이 사고사슬을 끝까지 늘려
-            # 시간 대부분을 먹는다. 환경변수로 낮출 수 있게 한다(기본 16384 보존 —
-            # 데모 8423에선 LLM_REASON_MAX_TOKENS=9000 등으로 loop를 줄인다).
+            # 추론 토큰 예산 — 표준 정책은 16384(절삭 없이 끝까지 사고). 낮추지 않는다.
+            # 실측(2026-07-27): .env에서 4500으로 눌러둔 채 judge를 10축으로 늘렸더니
+            # 추론이 중간에 끊겨 "예산 소진·본문 없음" → thinking OFF 강등 폴백으로
+            # 떨어졌다. 그 결과 축 8개가 캐스케이드로 전부 얕은 caution/unknown이 됐다
+            # (품질 붕괴). 16384로 복원하니 같은 케이스가 83.8초 만에 안 끊기고 끝까지
+            # 추론했고, 오히려 총 소요도 짧아졌다(thinking OFF 폴백이 더 비쌌다) —
+            # 3분 loop 예산은 캐스케이드·병렬화로 지키는 것이지, 추론 예산을 깎아서
+            # 지키는 게 아니다(#44). 환경변수로 낮출 수는 있으나 표준값은 16384다.
             import os as _os
             reason_max = int(_os.environ.get("LLM_REASON_MAX_TOKENS", "16384"))
             with progress.node("llm.reason", "깊은 추론 (reasoning ON)"):
