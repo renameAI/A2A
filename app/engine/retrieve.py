@@ -23,6 +23,27 @@ _MARGIN_BAND = 0.03        # 임계 근처 |s-τ| — 재실행 시 뒤집힐 �
 _ANCHOR_MIN = 0.05         # pool-max ov_anchor 하한 — 미만이면 과소정의 프로필(저신뢰)
 _API_RERANK_MAX = 5        # E9 부재 시 API(236B) 폴백 재랭킹 상한 — 개별 호출이라
                            # 후보당 ~1.5s. 상위 5개면 판단 대상(캐스케이드 top3)을 덮는다.
+_TIE_SPREAD = 0.15         # 상위 head의 상대 분산 (max-min)/max 이 미만이면 "휴리스틱
+                           # 동점" — 이때만 listwise가 개입한다. 실측 근거: 휴리스틱이
+                           # 건강한 골든 케이스 0.423 vs 앵커가 오염됐던 공감만세 0.079.
+
+
+def score_spread(scores: list[float]) -> float:
+    """상위 후보 점수의 상대 분산 (max-min)/max — listwise 개입 여부를 가르는 신호.
+
+    listwise는 **휴리스틱이 의견이 없을 때만** 개입해야 한다. 실측 사고: E9 부재면
+    무조건 재랭킹하게 뒀더니 골든 top1이 1.000→0.400으로 무너졌다. 휴리스틱 점수는
+    의도(지역 가산·산업 인접·경쟁사 강등)를 담는데 LLM은 그 구조를 못 보고
+    '교과서적 보완 사례'를 밀어 지역 steering을 지운다. 반대로 점수가 뭉갠 경우엔
+    휴리스틱에 의견이 없으니 LLM이 동점을 깨는 게 이득이다.
+
+    실측 근거 — 휴리스틱이 건강한 골든 R-02 [0.355, 0.300, 0.267, 0.205] = 0.423 vs
+    앵커가 오염됐던 공감만세 [0.1040, 0.1038, 0.1038, 0.0997, 0.0958] = 0.079.
+    절대차가 아니라 상대비인 이유: 두 상황의 점수 규모 자체가 3배 넘게 다르다.
+    """
+    if not scores or max(scores) <= 0:
+        return 0.0
+    return (max(scores) - min(scores)) / max(scores)
 
 
 def template_counterpart(req: RetrieveRequest) -> str:
@@ -80,7 +101,14 @@ def _score(req: RetrieveRequest, synth: str, anchor: str,
            rec: CandidateRecord) -> float:
     target = _search_text(rec, req.direction)
     # R4 결정적 앵커 혼합 — synth(확률적)와 anchor(결정적)를 절반씩.
-    # synth==anchor(mock 경로)면 base는 기존과 동일하다.
+    #
+    # 기각된 대안 — IDF 가중(2026-07-27). 풀 939건에서 '회사개요·솔루션·해외
+    # 레퍼런스·성과' 같은 증류 템플릿 섹션 제목이 933건(99%)에 박혀 모든 후보에게
+    # 같은 점수를 주고, 그래서 상위 점수가 뭉갠다는 관찰은 사실이었다. IDF를 넣으니
+    # 상위5 상대분산이 0.200→0.433으로 좋아졌다. **그러나 라벨이 있는 골든에서
+    # top1이 1.000→0.533으로 무너졌다** — IDF는 코퍼스가 커야 성립하는데 시드풀에선
+    # 변별 신호마저 흔하다는 이유로 0으로 깎였다. 분산은 대리 지표일 뿐이고,
+    # 코퍼스 크기에 따라 거동이 달라지는 점수 함수는 그 자체로 취약하다.
     ov_synth, ov_anchor = overlap(synth, target), overlap(anchor, target)
     base = 0.5 * ov_synth + 0.5 * ov_anchor
     score = 0.7 * base
@@ -111,6 +139,35 @@ def _score(req: RetrieveRequest, synth: str, anchor: str,
         if same_industry or same_solution:
             score *= 0.2
     return round(max(score, 0.0), 4)
+
+
+def _intent_tier(req: RetrieveRequest, rec: CandidateRecord) -> tuple[int, int]:
+    """재랭커가 **덮어써서는 안 되는** 의도 제약. 클수록 우선. 정렬 키의 맨 앞에 온다.
+
+    실측 사고(2026-07-27): E9(학습 1.2B, held-out ρ=0.789)와 listwise(236B API)가
+    **서로 독립인데 골든의 같은 케이스에서 똑같이 실패**했다 — R-02 태국·R-03 모로코
+    지역 steering, R-05 방향전환. top1이 둘 다 0.400, 재랭킹을 끄면 1.000.
+
+    두 모델이 같은 자리에서 무너지면 모델 품질이 아니라 구조 문제다. 원인: 둘 다
+    (쿼리텍스트, 후보텍스트)만 받고 intent.target_region도, '이 후보가 내 경쟁사인가'도
+    못 본다. 휴리스틱은 그걸 알고 지역 가산(+0.15)·경쟁사 강등(×0.2)으로 순서에
+    새겨 두는데, 재랭커가 의도를 모르는 유사도로 그 순서를 통째로 덮어쓴다.
+
+    그래서 재랭커를 끄는 대신 **권한을 나눈다**: 의도 충족 여부는 코드가 정하고,
+    재랭커는 같은 티어 안에서만 순서를 매긴다. E9의 보완성 신호는 그대로 쓰면서
+    지역·경쟁사 제약은 잃지 않는다.
+    """
+    not_competitor = 1
+    if req.direction == RetrieveDirection.sell_outreach:
+        same_industry = (req.requester_profile.basic.industry
+                         == rec.profile.basic.industry)
+        same_solution = overlap(req.requester_profile.solution.value,
+                                rec.profile.solution.value) > 0.35
+        not_competitor = 0 if (same_industry or same_solution) else 1
+    region = req.intent.target_region
+    # 지역 미지정이면 이 축은 판단하지 않는다 — 전원 동률이라 재랭커에 온전히 맡긴다
+    region_ok = 1 if (region and region in rec.profile.basic.country) else 0
+    return (not_competitor, region_ok)
 
 
 def _match_points(synth: str, anchor: str, rec: CandidateRecord) -> list[str]:
@@ -208,27 +265,41 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
             api_by_cid = {window[i][0].company_id: api_scores[i]
                           for i in range(len(window))}
         if learned is not None:
+            # 의도 티어가 정렬 키의 맨 앞 — 학습 점수는 같은 티어 안에서만 순서를 정한다
             ranked = sorted(
                 ((r, s, l) for (r, s), l in zip(window, learned)),
-                key=lambda x: (-x[2], -x[1], x[0].company_id))
+                key=lambda x: (tuple(-v for v in _intent_tier(req, x[0])),
+                               -x[2], -x[1], x[0].company_id))
             ranked += [(r, s, None) for r, s in strong[len(window):]]
             progress.log("검색", f"학습 스코어러 재랭킹 적용 — {len(window)}건 "
-                                 f"(순서=학습 점수, 게이트=휴리스틱 τ 유지)")
+                                 f"(순서=의도 티어 → 학습 점수, 게이트=휴리스틱 τ 유지)")
         else:
             # E9 부재 폴백 — 휴리스틱(bigram 겹침)만 남으면 "유사도≠보완성"이 무너져
             # 키워드 매칭으로 후퇴한다(실측: 공감만세→광고사·SI가 상위). API(236B)로
             # 같은 보완성 기준을 채점해 순서를 되살린다. E9(로컬 ms급)와 달리 개별
             # 호출이라 느려 상위 _API_RERANK_MAX개만. 게이트는 여전히 휴리스틱 τ.
             head = window[:_API_RERANK_MAX]          # window와 pairs는 같은 순서
+            spread = score_spread([s for _, s in head])
             order = None
-            if head:
-                progress.log("검색", f"⚠ 학습 스코어러 부재 — API(236B) listwise 재랭킹 "
-                                     f"상위 {len(head)}건 (키워드 매칭 후퇴 방지)")
+            if head and spread >= _TIE_SPREAD:
+                progress.log("검색", f"학습 스코어러 부재 — 다만 휴리스틱 변별 충분"
+                                     f"(상대분산 {spread:.3f}≥{_TIE_SPREAD}) → 순서 유지")
+            elif head:
+                progress.log("검색", f"⚠ 학습 스코어러 부재 + 휴리스틱 동점"
+                                     f"(상대분산 {spread:.3f}<{_TIE_SPREAD}) — "
+                                     f"API(236B) listwise로 동점 해소 {len(head)}건")
                 # RankGPT(arXiv:2304.09542): 후보별 절대점수(pointwise, N회 호출)보다
                 # 한 번에 놓고 상대 비교하는 listwise 순열이 호출 1회 + 변별력이 낫다.
                 # 쿼리는 synth(이상적 상대의 상) — 이미 보완성으로 변환된 문장이라
                 # '그 상과의 유사도 = 우리에 대한 보완성'이 된다(HyDE와 같은 구조).
                 order, ms = api_rank_listwise(synth, [b for _, b in pairs[:len(head)]])
+                if order is not None and sorted(order) != list(range(len(head))):
+                    # 길이·범위가 head와 안 맞는 순열 — 파서 계약상 나올 수 없지만,
+                    # 여기서 그대로 인덱싱하면 IndexError로 요청 전체가 죽는다.
+                    # 이 코드베이스의 모든 재랭킹 실패는 '휴리스틱 순서 유지'다.
+                    progress.log("검색", f"⚠ listwise 순열이 후보 수({len(head)})와 "
+                                         f"불일치 — 폐기하고 휴리스틱 순서 유지")
+                    order = None
                 if order is not None:
                     api_ms = ms
                     progress.log("검색", f"listwise 순열 적용 — 1회 호출 {ms}ms "
@@ -236,7 +307,10 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
             if order is not None:
                 # 순열은 순서만 준다 — 점수가 아니므로 learned/api 점수칸은 비운다
                 # (랭크를 0~10 점수로 위장하면 UI가 없는 신뢰도를 표시하게 된다).
+                # E9와 같은 제약: listwise도 의도를 못 보므로 티어를 덮어쓰지 못한다.
+                # 안정 정렬이라 같은 티어 안에서는 LLM 순열이 그대로 유지된다.
                 ranked = [(head[i][0], head[i][1], None) for i in order]
+                ranked.sort(key=lambda x: tuple(-v for v in _intent_tier(req, x[0])))
                 ranked += [(r, s, None) for r, s in strong[len(head):]]
             else:
                 ranked = [(r, s, None) for r, s in strong]

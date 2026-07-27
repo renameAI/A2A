@@ -50,7 +50,9 @@ class _Resp:
 
 class TestScoreBatch:
     def test_off_without_url(self, monkeypatch):
-        monkeypatch.delenv("A2A_SCORER_URL", raising=False)
+        # delenv로는 못 지운다 — get_settings()가 매번 .env를 setdefault로 다시 부어
+        # 삭제한 키가 되살아난다(.env에 A2A_SCORER_URL이 있다). 빈 값으로 덮어야 이긴다.
+        monkeypatch.setenv("A2A_SCORER_URL", "")
         assert SC.score_batch([("a", "b")]) is None
 
     def test_success(self, monkeypatch):
@@ -76,6 +78,15 @@ class TestScoreBatch:
 
 class TestRetrieveRerank:
     PAIN = "노후 호텔 객실 매출 정체로 저자본 해법이 필요"
+
+    @pytest.fixture(autouse=True)
+    def _deterministic_anchor(self, monkeypatch):
+        """상 합성을 결정적 템플릿으로 고정 — 여기서 검증하는 건 τ 게이트와 순서다.
+
+        실 LLM을 타면 앵커가 실행마다 흔들려 후보가 τ 아래로 떨어지고, 배선과
+        무관한 이유로 간헐 실패한다(실측: 같은 파일 두 번 돌려 매번 다른 2~3건 실패).
+        """
+        monkeypatch.setattr(R, "synthesize_counterpart", R.template_counterpart)
 
     def test_learned_order_overrides_heuristic_ties(self, monkeypatch):
         """동점(휴리스틱) 후보의 순서를 학습 점수가 결정 + 필드 채움."""
@@ -159,5 +170,123 @@ class TestListwisePermutation:
             assert self._all_present(SC._parse_permutation(text, 3), 3)
 
     def test_listwise_off_without_key(self, monkeypatch):
-        """키 없으면 HTTP 전에 (None, None) — 테스트가 유료 API를 때리지 않는다."""
+        """키 없으면 HTTP 전에 (None, None) — 키를 명시적으로 비우고 검증한다.
+
+        예전엔 conftest가 토큰을 비워줘서 그냥 통과했는데, mock 제거로 그 처리가
+        사라진 뒤 이 테스트는 .env의 실 키로 **유료 호출을 때리고 있었다**
+        (실측: (None, None) 대신 ([0, 1], 413ms) 반환). 전제를 테스트 안으로 옮긴다.
+        """
+        monkeypatch.setenv("FRIENDLI_TOKEN", "")   # .env는 setdefault라 env가 이긴다
         assert SC.api_rank_listwise("q", ["a", "b"]) == (None, None)
+
+
+class TestIntentTierBeatsReranker:
+    """재랭커는 **의도 제약을 덮어쓸 수 없다** (실측 사고에서 나온 계약).
+
+    E9(학습 1.2B, held-out ρ=0.789)와 listwise(236B API)는 서로 독립인데 골든의 같은
+    케이스에서 똑같이 실패했다 — 지역 steering 붕괴, top1 0.400(재랭킹 끄면 1.000).
+    둘 다 (쿼리, 후보) 텍스트만 받아 target_region도 경쟁사 여부도 못 보기 때문이다.
+    의도 충족은 코드가 정하고 재랭커는 같은 티어 안에서만 순서를 매긴다.
+    """
+    PAIN = "노후 호텔 객실 매출 정체로 저자본 해법이 필요"
+
+    def _pool(self):
+        dom = _cand("co-dom", self.PAIN)          # 한국 — intent.target_region 일치
+        off = _cand("co-off", self.PAIN)          # 해외 — 불일치
+        off.profile.basic.country = "베트남"
+        return [dom, off]
+
+    def test_learned_score_cannot_promote_region_mismatch(self, monkeypatch):
+        pool = self._pool()
+        monkeypatch.setattr(R, "get_pool", lambda: pool)
+        monkeypatch.setattr(R, "synthesize_counterpart", R.template_counterpart)
+        # 해외 후보에 압도적 학습 점수 — 티어가 없으면 이게 1위가 된다
+        monkeypatch.setattr(SC, "score_batch_timed",
+                            lambda pairs: ([1.0, 9.9], 5))
+        res = R.retrieve(_req())
+        assert res.candidates[0].company_id == "co-dom"
+
+    def test_listwise_permutation_cannot_promote_region_mismatch(self, monkeypatch):
+        pool = self._pool()
+        monkeypatch.setattr(R, "get_pool", lambda: pool)
+        monkeypatch.setattr(R, "synthesize_counterpart", R.template_counterpart)
+        monkeypatch.setattr(SC, "score_batch_timed", lambda pairs: (None, None))
+        monkeypatch.setattr(R, "_TIE_SPREAD", 1.1)          # 항상 동점 → listwise 발동
+        # 휴리스틱 순서를 통째로 뒤집는 순열 — 후보 수는 실제 docs에서 받아 맞춘다
+        monkeypatch.setattr(SC, "api_rank_listwise",
+                            lambda q, d: (list(reversed(range(len(d)))), 7))
+        res = R.retrieve(_req())
+        assert res.candidates[0].company_id == "co-dom"
+
+    def test_reranker_still_orders_within_the_same_tier(self, monkeypatch):
+        """티어가 같으면(둘 다 지역 일치) 학습 점수가 그대로 순서를 정한다 — 신호 보존."""
+        pool = [_cand("co-aaa", self.PAIN), _cand("co-bbb", self.PAIN)]   # 둘 다 한국
+        monkeypatch.setattr(R, "get_pool", lambda: pool)
+        monkeypatch.setattr(R, "synthesize_counterpart", R.template_counterpart)
+        monkeypatch.setattr(SC, "score_batch_timed", lambda pairs: ([1.0, 9.9], 5))
+        res = R.retrieve(_req())
+        assert res.candidates[0].company_id == "co-bbb"
+
+
+class TestListwiseTieGate:
+    """listwise는 **휴리스틱이 동점일 때만** 개입한다 (실측 회귀에서 나온 계약).
+
+    E9 부재면 무조건 재랭킹하게 뒀더니 골든 top1이 1.000→0.400으로 무너졌다.
+    휴리스틱 점수는 의도(지역 가산·산업 인접·경쟁사 강등)를 담는데 LLM은 그 구조를
+    못 보고 지역 steering을 지운다. 임계값 근거와 배선을 따로 검증한다.
+    """
+    PAIN = "노후 호텔 객실 매출 정체로 저자본 해법이 필요"
+
+    def test_spread_separates_the_two_observed_situations(self):
+        """임계 0.15의 근거 — 실측 두 상황이 이 값을 사이에 두고 갈린다."""
+        healthy = [0.355, 0.300, 0.2667, 0.205]      # 골든 R-02 (휴리스틱 건강)
+        mushed = [0.1040, 0.1038, 0.1038, 0.0997, 0.0958]   # 공감만세 (뭉개짐)
+        assert R.score_spread(healthy) >= R._TIE_SPREAD      # 0.423 → 개입 안 함
+        assert R.score_spread(mushed) < R._TIE_SPREAD        # 0.079 → 개입
+
+    def test_spread_degenerate_inputs(self):
+        assert R.score_spread([]) == 0.0                     # 후보 없음 → 동점 취급
+        assert R.score_spread([0.0, 0.0]) == 0.0             # 0 나눗셈 방어
+        assert R.score_spread([0.2, 0.2]) == 0.0             # 완전 동점
+
+    def _setup(self, monkeypatch, calls):
+        """E9 부재 + 오프라인 synth. listwise 호출 여부만 기록한다."""
+        pool = [_cand("co-aaa", self.PAIN), _cand("co-bbb", self.PAIN)]
+        monkeypatch.setattr(R, "get_pool", lambda: pool)
+        monkeypatch.setattr(R, "synthesize_counterpart", R.template_counterpart)
+        monkeypatch.setattr(SC, "score_batch_timed", lambda pairs: (None, None))
+
+        def spy(query, docs):
+            calls.append(query)
+            return None, None            # 순서 불변 — 게이트 발동만 관찰
+        monkeypatch.setattr(SC, "api_rank_listwise", spy)
+
+    def test_no_listwise_when_heuristic_discriminates(self, monkeypatch):
+        """변별이 충분하면 LLM을 부르지 않는다 — 골든 0.400 회귀의 재발 방지."""
+        calls = []
+        self._setup(monkeypatch, calls)
+        monkeypatch.setattr(R, "_TIE_SPREAD", 0.0)   # 무엇도 동점이 아님
+        R.retrieve(_req())
+        assert calls == []
+
+    def test_malformed_permutation_falls_back_not_crashes(self, monkeypatch):
+        """후보 수와 안 맞는 순열이 와도 죽지 않는다 — 재랭킹 실패는 항상 순서 유지.
+
+        파서 계약상 나올 수 없는 입력이지만, 그대로 인덱싱하면 IndexError로 요청
+        전체가 죽는다(실측: 이 테스트를 쓰다가 발견). 재랭킹은 부가 기능이지
+        요청을 실패시킬 권한이 없다.
+        """
+        calls = []
+        self._setup(monkeypatch, calls)
+        monkeypatch.setattr(R, "_TIE_SPREAD", 1.1)
+        monkeypatch.setattr(SC, "api_rank_listwise", lambda q, d: ([7, 3], 9))
+        res = R.retrieve(_req())                 # 크래시 없음이 계약
+        assert [c.company_id for c in res.candidates][:2] == ["co-aaa", "co-bbb"]
+
+    def test_listwise_fires_on_tie(self, monkeypatch):
+        """뭉개진 점수는 LLM이 깬다 — 동점 해소 경로가 살아 있는지 확인."""
+        calls = []
+        self._setup(monkeypatch, calls)
+        monkeypatch.setattr(R, "_TIE_SPREAD", 1.1)   # 무엇이든 동점
+        R.retrieve(_req())
+        assert len(calls) == 1                       # listwise는 1회 호출이 계약
