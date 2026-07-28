@@ -493,29 +493,95 @@ function renderTicker(job) {
   t.classList.toggle("tick-live", running);
 }
 
-/* ═══ 에이전트 채팅 — 자문자답 REQ↔RES 스트림 (우측 패널, 데모) ═══════
-   로그를 그대로 흘리지 않는다: node_start→REQ 버블(확인 요청), node_end→RES
-   버블(결과), 생성 중 텍스트(job.live)→스트리밍 버블 제자리 갱신. 완료되면
-   엔티티가 하나씩 채워지는 메시지 → 완성형 카드 → 다음 단계 안내 순서. */
+/* ═══ 매칭 에이전트 채팅 — 메신저형 대화 UI (데모 우측 패널) ═══════════
+   문법: 좌 = 에이전트(아바타·이름·흰 버블), 우 = 사용자(파란 버블).
+   에이전트의 자문자답은 버블 위 마이크로 태그(확인→REQ / 결과→RES)로만 표기.
+   입력도 여기서: 회사명·자료 텍스트는 컴포저로, IR PDF는 ＋버튼으로,
+   보강 질문(4지선다)은 선택지 칩으로 — 팝업 없이 대화만으로 온보딩이 돈다. */
 
-const chat = { byJob: {} };
+const chat = {
+  byJob: {},
+  flow: { stage: "boot", name: "", assets: [], answers: {}, questions: [], qi: 0, qTarget: null },
+  lastSide: null, typingEl: null,
+};
 const CHAT_SKIP = ["모델 응답 대기", "추론 계획"];
 const VP_KO = { revenue_growth: "매출", cost_reduction: "비용",
                 impact: "임팩트", problem_solving: "문제해결" };
-const CHAT_NEXT = { onboard: "↓ 다음 단계: 후보 발굴", profile: "↓ 다음 단계: 후보 발굴",
-                    match: "↓ 다음 단계: 적합도 판단",
-                    judge: "↓ 다음 단계: 제안 초안 (후보 카드에서)" };
 
-function chatPush(html, cls) {
-  const el = $("#chat-stream");
+/* 시그니처 아바타 — 좌측 DAG의 노드 3개를 이은 마크 (그래프가 곧 에이전트) */
+const AGENT_MARK = `<svg viewBox="0 0 32 32" aria-hidden="true">
+  <circle cx="16" cy="16" r="16" fill="#2B62D9"/>
+  <path d="M10 20.5 L16 11.5 L22 20.5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="10" cy="20.5" r="2.4" fill="#fff"/>
+  <circle cx="16" cy="11.5" r="2.4" fill="#fff"/>
+  <circle cx="22" cy="20.5" r="2.4" fill="#9DBAF0"/>
+</svg>`;
+
+function _stream() { return $("#chat-stream"); }
+function _tstamp() {
+  return new Date().toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" });
+}
+function _rmTyping() {
+  if (chat.typingEl) { chat.typingEl.remove(); chat.typingEl = null; }
+}
+
+function pushRow(side, innerHtml, rowCls = "") {
+  const el = _stream();
   if (!el) return null;
-  const near = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
-  const d = document.createElement("div");
-  d.className = `msg ${cls}`;
-  d.innerHTML = html;
-  el.appendChild(d);
+  _rmTyping();
+  const near = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+  const first = chat.lastSide !== side;
+  chat.lastSide = side;
+  const row = document.createElement("div");
+  row.className = `crow crow-${side}${first ? " cfirst" : ""} ${rowCls}`;
+  if (side === "bot") {
+    row.innerHTML = `<span class="cavatar">${first ? AGENT_MARK : ""}</span>
+      <div class="cbody">${first ? `<div class="cname">매칭 에이전트 <time>${_tstamp()}</time></div>` : ""}${innerHtml}</div>`;
+  } else if (side === "user") {
+    row.innerHTML = `<div class="cbody">${first ? `<div class="cname"><time>${_tstamp()}</time></div>` : ""}${innerHtml}</div>`;
+  } else {
+    row.innerHTML = innerHtml;
+  }
+  el.appendChild(row);
   if (near) el.scrollTop = el.scrollHeight;
-  return d;
+  return row;
+}
+
+function botMsg(html, tag) {
+  const t = tag ? `<span class="ctag ct-${tag.cls}">${tag.label}</span>` : "";
+  return pushRow("bot", `${t}<div class="cbubble">${html}</div>`);
+}
+function userMsg(text) {
+  return pushRow("user", `<div class="cbubble cb-user">${esc(text)}</div>`);
+}
+function sysNote(text) {
+  return pushRow("sys", `<div class="cnote">${esc(text)}</div>`);
+}
+
+/* 선택지 칩 — 하나 고르면 그 칩만 남기고 행 비활성 (keep=true면 행 유지) */
+function chipRow(items, opts = {}) {
+  const html = `<div class="cchips">${items.map((it, i) =>
+    `<button type="button" data-i="${i}" class="cchip">${it.label}</button>`).join("")}</div>`;
+  const row = pushRow("bot", html);
+  if (!row) return null;
+  row.querySelectorAll(".cchip").forEach((b) => {
+    b.onclick = () => {
+      const it = items[Number(b.dataset.i)];
+      if (!opts.keep && !it.keep) {
+        row.querySelectorAll(".cchip").forEach((x) => { x.disabled = true; });
+        b.classList.add("on");
+      }
+      it.on(b);
+    };
+  });
+  return row;
+}
+
+function showTyping() {
+  if (chat.typingEl || !_stream()) return;
+  chat.typingEl = pushRow("bot",
+    `<div class="cbubble ctyping"><span></span><span></span><span></span></div>`);
+  chat.typingEl?.classList.add("crow-typing");
 }
 
 function entityMsg(key, val, prov) {
@@ -523,82 +589,79 @@ function entityMsg(key, val, prov) {
                  ask: ["질문필요", "p-ask"] };
   const pv = PROV[prov];
   const v = String(val);
-  chatPush(`<div class="bubble"><span class="ekey">${esc(key)}</span>` +
+  pushRow("bot", `<div class="cbubble centity"><span class="ekey">${esc(key)}</span>` +
     `<span class="eval" title="${esc(v)}">${esc(v.length > 150 ? v.slice(0, 150) + "…" : v)}</span>` +
-    `${pv ? `<span class="eprov ${pv[1]}">${pv[0]}</span>` : ""}</div>`, "m-entity");
+    `${pv ? `<span class="eprov ${pv[1]}">${pv[0]}</span>` : ""}</div>`);
 }
 
 function chatCard(title, rows) {
-  chatPush(`<div class="bubble"><h4>${title}</h4><table>${rows
+  pushRow("bot", `<div class="cbubble ccard"><h4>${title}</h4><table>${rows
     .map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(String(r[1]).slice(0, 200))}</td></tr>`)
-    .join("")}</table></div>`, "m-card");
+    .join("")}</table></div>`);
 }
 
+/* ── job 폴링 → 채팅 미러 (runJob 훅) ─────────────────────────── */
+
 function renderChat(kind, job) {
-  if (!$("#chat-stream")) return;
+  if (!_stream()) return;
   const st = chat.byJob[job.job_id] ||
     (chat.byJob[job.job_id] = { idx: 0, live: null, done: false });
 
+  const running = job.status === "running" || job.status === "queued";
   const badge = $("#chat-badge");
-  if (badge) {
-    const run = job.status === "running" || job.status === "queued";
-    badge.textContent = run ? `${A2A_STAGE[kind] || kind} 진행 중` : "대기";
-    badge.className = `badge ${run ? "loop-working" : ""}`;
-  }
+  if (badge) badge.textContent = running ? `${A2A_STAGE[kind] || kind} 진행 중` : "대기 중";
+  $("#chat-dot")?.classList.toggle("on", running);
 
   for (const l of (job.logs || []).slice(st.idx)) {
     st.idx++;
     if (CHAT_SKIP.some((k) => l.stage === k || (l.message || "").includes(k))) continue;
     if (l.type === "node_start") {
-      chatPush(`<span class="tag">REQ</span><div class="bubble">${esc(l.stage)} — 확인하고 있어요…</div>`, "m-req");
+      botMsg(`${esc(l.stage)} — 확인하고 있어요…`, { label: "확인", cls: "req" });
     } else if (l.type === "node_end") {
       const ok = l.status === "ok";
-      chatPush(`<span class="tag">${ok ? "RES" : "ERR"}</span>` +
-        `<div class="bubble">${esc(l.stage)} ${ok ? "확인 완료" : "실패"} · ${l.t.toFixed(1)}s</div>`,
-        `m-res${ok ? "" : " m-err"}`);
+      botMsg(`${esc(l.stage)} ${ok ? "확인 완료" : "실패"} · ${l.t.toFixed(1)}s`,
+        { label: ok ? "결과" : "오류", cls: ok ? "res" : "err" });
     } else {
-      chatPush(esc(l.message), "m-note");
+      sysNote(l.message);
     }
   }
 
   /* 생성 중 텍스트 — 제자리 갱신 (매 폴링마다 새 버블을 만들지 않는다) */
   if (job.live && job.live.text) {
     if (!st.live) {
-      st.live = chatPush(`<span class="tag">GEN</span><span class="label"></span>` +
-        `<span class="chars"></span><div class="bubble"><span class="txt"></span>` +
-        `<span class="cursor"></span></div>`, "m-stream");
+      st.live = pushRow("bot", `<span class="ctag ct-gen"></span>` +
+        `<div class="cbubble cstream"><span class="txt"></span><span class="cursor"></span></div>`);
     }
     if (st.live) {
-      st.live.querySelector(".label").textContent =
-        ` ${job.live.stage}${job.live.thinking ? " · 사고 중" : ""}`;
-      st.live.querySelector(".chars").textContent =
-        `${(job.live.chars || 0).toLocaleString()}자 생성`;
+      st.live.querySelector(".ct-gen").textContent =
+        `${job.live.stage}${job.live.thinking ? " · 사고 중" : ""} — ${(job.live.chars || 0).toLocaleString()}자`;
       st.live.querySelector(".txt").textContent = job.live.text.slice(-1500);
-      const b = st.live.querySelector(".bubble");
+      const b = st.live.querySelector(".cstream");
       b.scrollTop = b.scrollHeight;
     }
   } else if (st.live) {
-    st.live.classList.add("m-final");
+    st.live.classList.add("cdone");
     st.live = null;
   }
 
   if ((job.status === "done" || job.status === "error") && !st.done) {
     st.done = true;
-    if (st.live) { st.live.classList.add("m-final"); st.live = null; }
+    if (st.live) { st.live.classList.add("cdone"); st.live = null; }
     if (job.status === "error") {
-      chatPush(`<span class="tag">ERR</span><div class="bubble">${esc(job.error?.message || "오류")}</div>`,
-        "m-res m-err");
+      if (job.error?.code !== "profile_below_minimum")
+        botMsg(esc(job.error?.message || "오류"), { label: "오류", cls: "err" });
     } else {
       chatEntities(kind, job.result);
     }
+  } else if (running && !job.live) {
+    showTyping();
   }
 }
 
 function chatEntities(kind, res) {
   if (!res) return;
   const vp = (a) => (a || []).map((v) => VP_KO[v] || v).join("·") || "미상";
-  let rows = [];
-  let title = "";
+  let rows = [], title = "", after = null;
 
   if (kind === "onboard" || kind === "profile") {
     const p = res.profile;
@@ -618,14 +681,26 @@ function chatEntities(kind, res) {
       ["결핍(사는 쪽)", p.portrait?.gaps],
       ["리스크 신호", p.portrait?.risk_signals],
     ].filter((r) => r[1]);
-    title = `📋 프로필 완성 — ${esc(p.basic?.name || "")}`;
+    title = `프로필 완성 — ${esc(p.basic?.name || "")}`;
+    after = () => {
+      botMsg("프로필이 완성됐어요! 이제 어울리는 파트너를 찾아볼까요?");
+      chipRow([{ label: "🔍 후보 발굴 시작", on: () => { userMsg("후보 발굴 시작"); runMatch(false); } }]);
+    };
   } else if (kind === "match") {
-    rows = (res.candidates || []).slice(0, 5).map((c, i) => [
-      `${i + 1}위${c.weak ? " ⚠️약한" : ""}`,
+    const cands = (res.candidates || []).slice(0, 5);
+    rows = cands.map((c, i) => [
+      `${i + 1}위${c.weak ? " ⚠️" : ""}`,
       `${c.name || c.company_id} · 점수 ${c.retrieval_score ?? "-"}` +
       (c.api_relatedness != null ? ` · API ${c.api_relatedness}` : ""),
     ]);
-    title = `🔍 후보 발굴 완료 — 상위 ${rows.length}건`;
+    title = `후보 발굴 완료 — 상위 ${rows.length}곳`;
+    after = () => {
+      botMsg("어느 곳부터 적합도를 판단할까요? (박사님 10축 온톨로지)");
+      chipRow(cands.slice(0, 3).map((c) => ({
+        label: `⚖️ ${c.name || c.company_id}`,
+        on: (btn) => { userMsg(`${c.name || c.company_id} 판단`); judgeCandidate(c.company_id, btn); },
+      })));
+    };
   } else if (kind === "judge") {
     const jr = res.judge_result;
     if (!jr) return;
@@ -635,18 +710,24 @@ function chatEntities(kind, res) {
         DIM_KO[d.dimension] || d.dimension,
         `${VERDICT_KO[d.verdict] || d.verdict} (${AXIS_STATUS_KO[d.status] || d.status})`,
       ]));
-    title = `⚖️ 적합도 판단 — ${esc(res.candidate_id || res.scout_company || "")}`;
+    title = `적합도 판단 — ${esc(res.candidate_id || res.scout_company || "")}`;
+    const cid = res.candidate_id;
+    if (cid && ["recommend", "conditional"].includes(jr.decision)) {
+      after = () => {
+        botMsg("제안 메일 초안을 작성해 드릴까요? 발송은 언제나 사람이 결정해요.");
+        chipRow([{ label: "✉️ 제안 메일 초안 작성",
+                   on: (btn) => { userMsg("제안 메일 작성"); composeDraft(cid, btn); } }]);
+      };
+    }
   } else if (kind === "compose") {
-    /* 메일 초안 — 이메일 카드로. 발송 게이트(CMP-06)는 항상 사람. */
     (res.messages || []).forEach((m, i) => {
       setTimeout(() => {
-        chatPush(`<div class="bubble"><h4>✉️ 제안 메일 초안 ${esc(m.variant_label)} — ${esc(m.title)}</h4>` +
-          `<div style="white-space:pre-wrap;font-size:12.5px;color:#3a4257;margin-top:6px">${esc(m.body)}</div>` +
-          `<small style="color:#8a93b2">레퍼런스: ${esc(m.reference_used)} · 주장→근거 추적 ${(m.claim_trace || []).length}건</small></div>`,
-          "m-card");
+        pushRow("bot", `<div class="cbubble ccard cmail"><h4>✉️ 제안 메일 초안 ${esc(m.variant_label)} — ${esc(m.title)}</h4>` +
+          `<div class="mail-body">${esc(m.body)}</div>` +
+          `<small>레퍼런스: ${esc(m.reference_used)} · 주장→근거 추적 ${(m.claim_trace || []).length}건</small></div>`);
       }, 400 * i);
     });
-    setTimeout(() => chatPush("✋ send_blocked — 발송은 검토 후 사람이 직접 결정합니다 (CMP-06)", "m-next"),
+    setTimeout(() => sysNote("send_blocked — 발송은 검토 후 사람이 직접 결정합니다 (CMP-06)"),
       400 * (res.messages || []).length + 200);
     return;
   } else {
@@ -654,11 +735,170 @@ function chatEntities(kind, res) {
   }
 
   rows.forEach((r, i) => setTimeout(() => entityMsg(r[0], r[1], r[2]), 320 * i));
-  setTimeout(() => {
-    chatCard(title, rows);
-    if (CHAT_NEXT[kind]) chatPush(esc(CHAT_NEXT[kind]), "m-next");
-  }, 320 * rows.length + 250);
+  setTimeout(() => { chatCard(title, rows); if (after) after(); }, 320 * rows.length + 250);
 }
+
+/* ── 대화형 온보딩 — 이름 → 자료(텍스트·PDF) → 분석 → 보강 질문 답변 ── */
+
+function chatAssetChips() {
+  chipRow([
+    { label: "📄 IR PDF 추가", keep: true, on: () => $("#chat-pdf").click() },
+    { label: "▶ 프로필 분석 시작", on: () => { userMsg("프로필 분석 시작"); chatStartOnboard(); } },
+  ], { keep: true });
+}
+
+async function chatStartOnboard() {
+  const f = chat.flow;
+  if (!f.assets.length && !f.name) {
+    botMsg("아직 자료가 없어요 — 회사 이름이나 소개 텍스트, IR PDF 중 하나는 필요해요.");
+    return;
+  }
+  f.stage = "running";
+  const dialogue = [];
+  if (f.name) dialogue.push({ q: "이름", a: f.name });
+  for (const [q, a] of Object.entries(f.answers)) dialogue.push({ q, a });
+  const body = { dialogue, assets: f.assets, private_state: [] };
+  if (state.companyId) body.company_id = state.companyId;
+  setNodeState("onboard", "done", "채팅 입력");
+  try {
+    const data = await runJob("/product/onboard", body, $("#onboard-log"), "onboard");
+    state.companyId = data.company_id;
+    renderProfile(data);
+    $("#engine-mode").textContent = `engine: ${data.engine_mode}`;
+    f.stage = "done";
+  } catch (err) {
+    if (err.code === "profile_below_minimum") {
+      chatQuestions(err.details?.open_questions || [], err.details?.clarify || []);
+    } else {
+      botMsg(esc(err.message || "분석 중 문제가 생겼어요."), { label: "오류", cls: "err" });
+      f.stage = "assets";
+    }
+  }
+}
+
+function chatQuestions(questions, clarify) {
+  const f = chat.flow;
+  const byQ = {};
+  (clarify || []).forEach((c) => { byQ[c.question] = c; });
+  f.questions = questions.map((q) => ({ q, c: byQ[q] }));
+  f.qi = 0;
+  if (!f.questions.length) {
+    botMsg("자료가 조금 부족해요 — 회사 소개를 한두 문단 더 붙여넣어 주시겠어요?");
+    f.stage = "assets";
+    return;
+  }
+  botMsg(`거의 다 왔어요! 자료로 알 수 없는 것만 <b>${f.questions.length}건</b> 여쭤볼게요.`);
+  f.stage = "questions";
+  chatQuestionNext();
+}
+
+function chatQuestionNext() {
+  const f = chat.flow;
+  if (f.qi >= f.questions.length) {
+    botMsg("답변 감사해요! 반영해서 다시 분석할게요.");
+    chatStartOnboard();
+    return;
+  }
+  const { q, c } = f.questions[f.qi++];
+  botMsg(`<b>Q${f.qi}.</b> ${esc(q)}` +
+    (c?.why ? `<div class="q-why">${esc(c.why)}</div>` : ""));
+  const opts = (c?.options || []).map((o) => ({
+    label: o,
+    on: () => { userMsg(o); f.answers[q] = o; chatQuestionNext(); },
+  }));
+  opts.push({ label: "✏️ 직접 입력", on: () => {
+    f.qTarget = q;
+    $("#chat-input")?.focus();
+  } });
+  chipRow(opts);
+}
+
+async function chatLoadList() {
+  try {
+    const cs = await api("/product/companies");
+    const seen = new Set();   // 같은 회사를 여러 번 온보딩한 이력 — 최신 것만
+    const picks = cs.filter((c) => c.engine_mode === "llm").reverse()
+      .filter((c) => !seen.has(c.name) && seen.add(c.name)).slice(0, 8);
+    if (!picks.length) { botMsg("불러올 기업이 아직 없어요."); return; }
+    botMsg("이전에 분석한 기업이에요 — 골라주세요.");
+    chipRow(picks.map((c) => ({
+      label: c.name,
+      on: async () => {
+        userMsg(c.name);
+        await loadExistingCompany(c.company_id);
+        chat.flow.stage = "done";
+        botMsg(`<b>${esc(c.name)}</b> 프로필을 불러왔어요. 후보 발굴을 시작할까요?`);
+        chipRow([{ label: "🔍 후보 발굴 시작", on: () => { userMsg("후보 발굴 시작"); runMatch(false); } }]);
+      },
+    })));
+  } catch {
+    botMsg("기업 목록을 불러오지 못했어요.");
+  }
+}
+
+function chatSend() {
+  const input = $("#chat-input");
+  const v = (input?.value || "").trim();
+  if (!v) return;
+  input.value = "";
+  userMsg(v);
+  const f = chat.flow;
+  if (f.qTarget) {                       // 보강 질문 직접 입력 답변
+    f.answers[f.qTarget] = v;
+    f.qTarget = null;
+    chatQuestionNext();
+    return;
+  }
+  if (f.stage === "boot" || f.stage === "name") {
+    f.name = v;
+    f.stage = "assets";
+    botMsg(`<b>${esc(v)}</b>, 반가워요! 이제 회사 소개를 붙여넣거나 IR PDF를 올려주세요.<br>자료가 모이면 분석을 시작할게요.`);
+    chatAssetChips();
+  } else if (f.stage === "assets") {
+    f.assets.push({ type: "text", content: v });
+    botMsg(`자료로 저장했어요 (${f.assets.length}건). 더 추가해도 되고, 바로 분석해도 돼요.`);
+    chatAssetChips();
+  } else {
+    botMsg("지금은 진행 중이에요 — 질문이 오면 여기서 바로 답할 수 있어요.");
+  }
+}
+
+function chatInit() {
+  if (!_stream()) return;
+  $("#chat-send").onclick = chatSend;
+  $("#chat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); chatSend(); }
+  });
+  $("#chat-pdf").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    userMsg(`📄 ${file.name}`);
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await fetch("/product/upload", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || "업로드 실패");
+      chat.flow.assets.push({ type: "ir_deck", content: "", url: data.path });
+      if (chat.flow.stage === "boot" || chat.flow.stage === "name") {
+        chat.flow.stage = "assets";
+        botMsg("IR 덱을 받았어요! 회사 이름도 알려주시면 더 정확해져요.");
+      } else {
+        botMsg(`IR 덱을 자료에 추가했어요 (${chat.flow.assets.length}건).`);
+      }
+      chatAssetChips();
+    } catch (err) {
+      botMsg(esc(err.message), { label: "오류", cls: "err" });
+    }
+    e.target.value = "";
+  };
+  botMsg("안녕하세요! 저는 파트너를 찾아드리는 <b>매칭 에이전트</b>예요.<br>먼저 <b>회사 이름</b>을 알려주시겠어요?");
+  chipRow([
+    { label: "📄 IR PDF 올리기", keep: true, on: () => $("#chat-pdf").click() },
+    { label: "기존 기업 불러오기", keep: true, on: chatLoadList },
+  ], { keep: true });
+}
+chatInit();
 
 function renderCanvasNode(kind, job) {
   renderTicker(job);

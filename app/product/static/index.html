@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A 매칭엔진 v0</title>
-<link rel="stylesheet" href="/style.css?v=demo4">
+<link rel="stylesheet" href="/style.css?v=demo6">
 </head>
 <body class="canvas-page">
 <header>
@@ -72,15 +72,23 @@
   </div>
 </div>
 
-<!-- 우측 — 에이전트 자문자답 스트림 (REQ↔RES, 생성 중 텍스트 실시간) -->
-<section id="agent-chat" aria-label="에이전트 진행 채팅">
+<!-- 우측 — 매칭 에이전트 메신저 (입력·질문 답변·실시간 생성까지 대화로) -->
+<section id="agent-chat" aria-label="매칭 에이전트 채팅">
   <div class="chat-head">
-    <b>🤖 에이전트 커뮤니케이션</b>
-    <span id="chat-badge" class="badge">대기</span>
+    <span class="chat-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#2B62D9"/><path d="M10 20.5 L16 11.5 L22 20.5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="20.5" r="2.4" fill="#fff"/><circle cx="16" cy="11.5" r="2.4" fill="#fff"/><circle cx="22" cy="20.5" r="2.4" fill="#9DBAF0"/></svg></span>
+    <div class="chat-id"><b>매칭 에이전트</b><small id="chat-badge">대기 중</small></div>
+    <span id="chat-dot" class="chat-dot" aria-hidden="true"></span>
   </div>
-  <div id="chat-stream" aria-live="polite">
-    <div class="msg m-note chat-hello">자료를 입력하면 에이전트의 사고 과정이 여기 실시간으로 흐릅니다 —
-      확인 요청(REQ)과 결과(RES), 생성 중인 텍스트까지.</div>
+  <div id="chat-stream" aria-live="polite"></div>
+  <div class="chat-composer">
+    <label class="chat-attach" title="IR PDF 올리기" aria-label="IR PDF 올리기">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input type="file" id="chat-pdf" accept=".pdf" hidden>
+    </label>
+    <input id="chat-input" placeholder="회사 이름이나 소개를 입력하세요" autocomplete="off">
+    <button id="chat-send" aria-label="보내기">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h11M10 5l5 5-5 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
   </div>
 </section>
 </div>
@@ -314,6 +322,6 @@
   </form>
 </dialog>
 
-<script src="/app.js?v=demo4"></script>
+<script src="/app.js?v=demo6"></script>
 </body>
 </html>
