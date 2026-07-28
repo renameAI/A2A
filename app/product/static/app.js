@@ -341,6 +341,7 @@ async function runJob(path, body, logBox, kind) {
     const job = await api(`/product/jobs/${job_id}`);
     renderA2ALoop(kind || path, job);
     renderCanvasNode(kind || path, job);
+    renderChat(kind || path, job);
     if (pipe) renderPipeline(pipe, kind, job);
     renderLogs(logBox, job.logs, job.status);
     if (job.status === "done") return job.result;
@@ -490,6 +491,173 @@ function renderTicker(job) {
   t._sig = sig;
   t.innerHTML = lines.join("");
   t.classList.toggle("tick-live", running);
+}
+
+/* ═══ 에이전트 채팅 — 자문자답 REQ↔RES 스트림 (우측 패널, 데모) ═══════
+   로그를 그대로 흘리지 않는다: node_start→REQ 버블(확인 요청), node_end→RES
+   버블(결과), 생성 중 텍스트(job.live)→스트리밍 버블 제자리 갱신. 완료되면
+   엔티티가 하나씩 채워지는 메시지 → 완성형 카드 → 다음 단계 안내 순서. */
+
+const chat = { byJob: {} };
+const CHAT_SKIP = ["모델 응답 대기", "추론 계획"];
+const VP_KO = { revenue_growth: "매출", cost_reduction: "비용",
+                impact: "임팩트", problem_solving: "문제해결" };
+const CHAT_NEXT = { onboard: "↓ 다음 단계: 후보 발굴", profile: "↓ 다음 단계: 후보 발굴",
+                    match: "↓ 다음 단계: 적합도 판단",
+                    judge: "↓ 다음 단계: 제안 초안 (후보 카드에서)" };
+
+function chatPush(html, cls) {
+  const el = $("#chat-stream");
+  if (!el) return null;
+  const near = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+  const d = document.createElement("div");
+  d.className = `msg ${cls}`;
+  d.innerHTML = html;
+  el.appendChild(d);
+  if (near) el.scrollTop = el.scrollHeight;
+  return d;
+}
+
+function entityMsg(key, val, prov) {
+  const PROV = { stated: ["확인됨", "p-stated"], inferred: ["추론됨", "p-inferred"],
+                 ask: ["질문필요", "p-ask"] };
+  const pv = PROV[prov];
+  const v = String(val);
+  chatPush(`<div class="bubble"><span class="ekey">${esc(key)}</span>` +
+    `<span class="eval" title="${esc(v)}">${esc(v.length > 150 ? v.slice(0, 150) + "…" : v)}</span>` +
+    `${pv ? `<span class="eprov ${pv[1]}">${pv[0]}</span>` : ""}</div>`, "m-entity");
+}
+
+function chatCard(title, rows) {
+  chatPush(`<div class="bubble"><h4>${title}</h4><table>${rows
+    .map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(String(r[1]).slice(0, 200))}</td></tr>`)
+    .join("")}</table></div>`, "m-card");
+}
+
+function renderChat(kind, job) {
+  if (!$("#chat-stream")) return;
+  const st = chat.byJob[job.job_id] ||
+    (chat.byJob[job.job_id] = { idx: 0, live: null, done: false });
+
+  const badge = $("#chat-badge");
+  if (badge) {
+    const run = job.status === "running" || job.status === "queued";
+    badge.textContent = run ? `${A2A_STAGE[kind] || kind} 진행 중` : "대기";
+    badge.className = `badge ${run ? "loop-working" : ""}`;
+  }
+
+  for (const l of (job.logs || []).slice(st.idx)) {
+    st.idx++;
+    if (CHAT_SKIP.some((k) => l.stage === k || (l.message || "").includes(k))) continue;
+    if (l.type === "node_start") {
+      chatPush(`<span class="tag">REQ</span><div class="bubble">${esc(l.stage)} — 확인하고 있어요…</div>`, "m-req");
+    } else if (l.type === "node_end") {
+      const ok = l.status === "ok";
+      chatPush(`<span class="tag">${ok ? "RES" : "ERR"}</span>` +
+        `<div class="bubble">${esc(l.stage)} ${ok ? "확인 완료" : "실패"} · ${l.t.toFixed(1)}s</div>`,
+        `m-res${ok ? "" : " m-err"}`);
+    } else {
+      chatPush(esc(l.message), "m-note");
+    }
+  }
+
+  /* 생성 중 텍스트 — 제자리 갱신 (매 폴링마다 새 버블을 만들지 않는다) */
+  if (job.live && job.live.text) {
+    if (!st.live) {
+      st.live = chatPush(`<span class="tag">GEN</span><span class="label"></span>` +
+        `<span class="chars"></span><div class="bubble"><span class="txt"></span>` +
+        `<span class="cursor"></span></div>`, "m-stream");
+    }
+    if (st.live) {
+      st.live.querySelector(".label").textContent =
+        ` ${job.live.stage}${job.live.thinking ? " · 사고 중" : ""}`;
+      st.live.querySelector(".chars").textContent =
+        `${(job.live.chars || 0).toLocaleString()}자 생성`;
+      st.live.querySelector(".txt").textContent = job.live.text.slice(-1500);
+      const b = st.live.querySelector(".bubble");
+      b.scrollTop = b.scrollHeight;
+    }
+  } else if (st.live) {
+    st.live.classList.add("m-final");
+    st.live = null;
+  }
+
+  if ((job.status === "done" || job.status === "error") && !st.done) {
+    st.done = true;
+    if (st.live) { st.live.classList.add("m-final"); st.live = null; }
+    if (job.status === "error") {
+      chatPush(`<span class="tag">ERR</span><div class="bubble">${esc(job.error?.message || "오류")}</div>`,
+        "m-res m-err");
+    } else {
+      chatEntities(kind, job.result);
+    }
+  }
+}
+
+function chatEntities(kind, res) {
+  if (!res) return;
+  const vp = (a) => (a || []).map((v) => VP_KO[v] || v).join("·") || "미상";
+  let rows = [];
+  let title = "";
+
+  if (kind === "onboard" || kind === "profile") {
+    const p = res.profile;
+    if (!p) return;
+    rows = [
+      ["회사", p.basic?.name],
+      ["산업", p.basic?.industry],
+      ["푸는 문제", p.problem_solved?.value, p.problem_solved?.provenance],
+      ["솔루션", p.solution?.value, p.solution?.provenance],
+      ["타겟 고객", p.target_customer?.value, p.target_customer?.provenance],
+      ["가치 제안", `판매 ${vp(p.sell_value_props)} / 구매 ${vp(p.purchase_value_props)}`],
+      ["정체성", p.portrait?.identity],
+      ["수익 구조", p.portrait?.business_model],
+      ["차별화", p.portrait?.edge],
+      ["단계와 절실함", p.portrait?.stage_narrative],
+      ["가진 것", p.portrait?.assets],
+      ["결핍(사는 쪽)", p.portrait?.gaps],
+      ["리스크 신호", p.portrait?.risk_signals],
+    ].filter((r) => r[1]);
+    title = `📋 프로필 완성 — ${esc(p.basic?.name || "")}`;
+  } else if (kind === "match") {
+    rows = (res.candidates || []).slice(0, 5).map((c, i) => [
+      `${i + 1}위${c.weak ? " ⚠️약한" : ""}`,
+      `${c.name || c.company_id} · 점수 ${c.retrieval_score ?? "-"}` +
+      (c.api_relatedness != null ? ` · API ${c.api_relatedness}` : ""),
+    ]);
+    title = `🔍 후보 발굴 완료 — 상위 ${rows.length}건`;
+  } else if (kind === "judge") {
+    const jr = res.judge_result;
+    if (!jr) return;
+    rows = [["결정", `${DECISION_KO[jr.decision] || jr.decision}`],
+            ["근거", jr.decision_rationale]]
+      .concat((jr.category_judgments || []).slice(0, 10).map((d) => [
+        DIM_KO[d.dimension] || d.dimension,
+        `${VERDICT_KO[d.verdict] || d.verdict} (${AXIS_STATUS_KO[d.status] || d.status})`,
+      ]));
+    title = `⚖️ 적합도 판단 — ${esc(res.candidate_id || res.scout_company || "")}`;
+  } else if (kind === "compose") {
+    /* 메일 초안 — 이메일 카드로. 발송 게이트(CMP-06)는 항상 사람. */
+    (res.messages || []).forEach((m, i) => {
+      setTimeout(() => {
+        chatPush(`<div class="bubble"><h4>✉️ 제안 메일 초안 ${esc(m.variant_label)} — ${esc(m.title)}</h4>` +
+          `<div style="white-space:pre-wrap;font-size:12.5px;color:#3a4257;margin-top:6px">${esc(m.body)}</div>` +
+          `<small style="color:#8a93b2">레퍼런스: ${esc(m.reference_used)} · 주장→근거 추적 ${(m.claim_trace || []).length}건</small></div>`,
+          "m-card");
+      }, 400 * i);
+    });
+    setTimeout(() => chatPush("✋ send_blocked — 발송은 검토 후 사람이 직접 결정합니다 (CMP-06)", "m-next"),
+      400 * (res.messages || []).length + 200);
+    return;
+  } else {
+    return;
+  }
+
+  rows.forEach((r, i) => setTimeout(() => entityMsg(r[0], r[1], r[2]), 320 * i));
+  setTimeout(() => {
+    chatCard(title, rows);
+    if (CHAT_NEXT[kind]) chatPush(esc(CHAT_NEXT[kind]), "m-next");
+  }, 320 * rows.length + 250);
 }
 
 function renderCanvasNode(kind, job) {
@@ -896,7 +1064,8 @@ function npRenderDone(summary, intent) {
 function npApplyIntent(intent) {
   if (!intent) return;
   state.intentExtra = intent;
-  if (intent.target_region) $("#intent-region").value = intent.target_region;
+  const regionEl = $("#intent-region");   // 데모: 지역 입력 제거됨 (25건 풀 과적합 방지)
+  if (intent.target_region && regionEl) regionEl.value = intent.target_region;
   document.querySelectorAll(".vp-checks input").forEach((cb) => {
     cb.checked = (intent.value_props || []).includes(cb.value);
   });
@@ -1379,7 +1548,7 @@ function collectIntent() {
   const extra = state.intentExtra || {};
   return {
     value_props: vps.length ? vps : (extra.value_props && extra.value_props.length ? extra.value_props : ["revenue_growth"]),
-    target_region: $("#intent-region").value.trim() || extra.target_region || null,
+    target_region: ($("#intent-region")?.value || "").trim() || extra.target_region || null,
     proposal_type: $("#intent-type").value || extra.proposal_type || null,
     notes: extra.notes || null,
     differentiator: extra.differentiator || null,
@@ -1704,7 +1873,8 @@ function renderConsultTurn(data) {
       (region ? `<button id="btn-apply-hypo" class="primary">이 가설로 의도 채우기 (지역: ${esc(region)})</button>` : "");
     const apply = $("#btn-apply-hypo");
     if (apply) apply.onclick = () => {
-      $("#intent-region").value = region;
+      const regionEl = $("#intent-region");   // 데모: 지역 입력 제거됨
+      if (regionEl) regionEl.value = region;
       updateChecklist();
       document.getElementById("modal-intent").showModal();
     };
@@ -1787,7 +1957,10 @@ addAssetRow("text");
 
 /* ── 모달 (기업 자료 입력 · 의도 설정) ─────────────────────────── */
 
-$("#open-onboard").onclick = () => document.getElementById("modal-onboard").showModal();
+$("#open-onboard").onclick = () => {
+  document.getElementById("modal-onboard").showModal();
+  loadOnboardList();   // 캔버스 노드 클릭과 동일 — 헤더 CTA만 목록을 빠뜨렸었다
+};
 $("#open-intent").onclick = () => document.getElementById("modal-intent").showModal();
 initCanvas();
 

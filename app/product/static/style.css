@@ -772,14 +772,18 @@ header .badge { margin-left: 10px; }
    ═══════════════════════════════════════════════════════════════ */
 body.canvas-page { overflow: hidden; }
 
+/* ── 데모 분할 — 좌 DAG(세로) · 우 채팅 ── */
+.demo-split { display: flex; height: calc(100vh - 60px); }
+.demo-split .canvas { flex: 0 0 50%; height: 100%; overflow-y: auto; }
+
 .canvas {
   position: relative;
   height: calc(100vh - 60px);
   display: grid;
-  grid-template-columns: repeat(5, minmax(150px, 218px));
-  grid-template-rows: repeat(3, minmax(96px, 128px));
-  gap: 40px 48px;
-  padding: 20px 40px 64px;
+  grid-template-columns: repeat(2, minmax(170px, 250px));
+  grid-template-rows: repeat(5, minmax(84px, 106px));
+  gap: 22px 40px;
+  padding: 20px 32px 64px;
   align-content: center; justify-content: center;
   background-color: #0a1020;
   background-image:
@@ -1110,3 +1114,83 @@ body.canvas-page { overflow: hidden; }
   font-size: 13px; padding: 8px 14px; border-radius: var(--r-md);
 }
 .scout-comp .js-btn:disabled { opacity: .55; }
+
+/* ═══ 에이전트 채팅 패널 — 자문자답 REQ↔RES 스트림 (데모) ═══ */
+#agent-chat {
+  flex: 1 1 50%; min-width: 0; height: 100%;
+  display: flex; flex-direction: column;
+  background: #f6f8fb; border-left: 1px solid #dde4ee;
+}
+.chat-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px; background: #fff; border-bottom: 1px solid #e3e9f2;
+}
+.chat-head b { font-size: 14.5px; letter-spacing: -0.3px; }
+#chat-stream {
+  flex: 1; overflow-y: auto; padding: 16px 18px 26px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.msg { max-width: 92%; font-size: 13.5px; line-height: 1.55; letter-spacing: -0.2px; }
+.msg .tag {
+  display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .06em;
+  padding: 1px 7px; border-radius: 4px; margin-bottom: 4px;
+  font-family: "SF Mono", Menlo, monospace;
+}
+.msg .bubble {
+  padding: 9px 13px; border-radius: 12px; background: #fff;
+  border: 1px solid #e3e9f2; box-shadow: 0 1px 2px rgba(20, 35, 60, .05);
+  white-space: pre-wrap; word-break: break-word;
+}
+/* REQ — 에이전트가 스스로에게 확인을 요청 (좌측, GET 느낌) */
+.m-req { align-self: flex-start; }
+.m-req .tag { background: #e3edff; color: #2b62d9; }
+.m-req .bubble { border-left: 3px solid #3b74e8; border-top-left-radius: 4px; }
+/* RES — 결과 응답 (우측, POST 느낌) */
+.m-res { align-self: flex-end; text-align: right; }
+.m-res .tag { background: #e0f3e8; color: #1d7a48; }
+.m-res .bubble { text-align: left; border-right: 3px solid #2ba05f; border-top-right-radius: 4px; background: #f4fbf7; }
+.m-res.m-err .tag { background: #fde8e8; color: #c0392b; }
+.m-res.m-err .bubble { border-right-color: #e05252; background: #fdf6f6; }
+/* 내부 진행 한 줄 (작게) */
+.m-note { align-self: flex-start; color: #6c7c96; font-size: 12px; padding: 0 4px; }
+.m-note.chat-hello { color: #8896ad; padding: 8px 4px; }
+/* 스트리밍 버블 — 생성 중 텍스트 */
+.m-stream { align-self: flex-start; width: 92%; }
+.m-stream .tag { background: #efe7ff; color: #6d3fd4; }
+.m-stream .bubble {
+  border-left: 3px solid #8a5cf5; background: #fbfaff;
+  font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-size: 12px; line-height: 1.6; max-height: 240px; overflow-y: auto;
+  color: #41496b;
+}
+.m-stream .chars { color: #8a93b2; font-size: 10.5px; margin-left: 6px; }
+.m-stream .cursor {
+  display: inline-block; width: 7px; height: 13px; margin-left: 2px;
+  background: #8a5cf5; vertical-align: -2px;
+  animation: blink 0.9s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.m-stream.m-final .cursor { display: none; }
+.m-stream.m-final .bubble { opacity: .75; max-height: 96px; }
+/* 엔티티 채움 — 필드가 하나씩 들어오는 메시지 */
+.m-entity { align-self: flex-end; }
+.m-entity .bubble {
+  background: #fffdf3; border: 1px solid #efe4bd; border-right: 3px solid #d9a514;
+  border-top-right-radius: 4px; display: flex; gap: 8px; align-items: baseline;
+}
+.m-entity .ekey { font-weight: 800; font-size: 11.5px; color: #9a7b0a; white-space: nowrap; }
+.m-entity .eval { color: #3a4257; }
+.m-entity .eprov { font-size: 10.5px; white-space: nowrap; border-radius: 4px; padding: 1px 6px; }
+.m-entity .eprov.p-stated { background: #e0f3e8; color: #1d7a48; }
+.m-entity .eprov.p-inferred { background: #fdf1dd; color: #ad6c07; }
+.m-entity .eprov.p-ask { background: #fde8e8; color: #c0392b; }
+/* 완성형 종합 카드 */
+.m-card { align-self: stretch; max-width: 100%; }
+.m-card .bubble { border: 1.5px solid #c9d7ef; background: #fff; padding: 13px 16px; }
+.m-card h4 { margin: 0 0 8px; font-size: 13.5px; color: #1c2c4a; }
+.m-card table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.m-card td { padding: 3px 6px; vertical-align: top; border-top: 1px solid #eef2f9; }
+.m-card td:first-child { width: 92px; font-weight: 700; color: #58698a; white-space: nowrap; }
+.m-next { align-self: center; color: #3b74e8; font-weight: 700; font-size: 12.5px; }
+@keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+#chat-stream .msg { animation: msgIn .25s ease; }
