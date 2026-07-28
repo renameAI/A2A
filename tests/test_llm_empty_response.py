@@ -95,87 +95,6 @@ class TestEmptyResponseRetry:
         assert len(calls) == 1, "thinking=False는 재시도 가드 대상이 아니다"
 
 
-class TestReasoningRunawayTimeout:
-    """추론 폭주(사고 사슬이 루프에 갇혀 예산을 다 태우는 것) 차단.
-
-    실측(할리케이 PDF, 2026-07-27): 같은 입력·같은 파라미터로 한 번은 61초에
-    finish=stop 정상 종료, 다른 한 번은 458초 동안 16,384토큰을 전부 태우고
-    finish=length·본문 0자. 기존 가드는 폭주를 막는 게 아니라 **끝난 뒤 수습**해서
-    458초는 이미 날아간 뒤였다(총 496초). 비결정적 실패라 재샘플이면 회복된다.
-    """
-
-    def test_runaway_is_cut_and_resampled_not_surfaced_as_error(self, monkeypatch):
-        """1차가 상한 초과 → 끊고 재샘플 → 성공하면 사용자에겐 에러가 안 보인다."""
-        ex = _extractor()
-        calls = []
-
-        def fake_post(payload, *, timeout=None):
-            calls.append(timeout)
-            if len(calls) == 1:
-                raise EngineError(504, "llm_timeout", "Fake 타임아웃")
-            return _FakeResponse("재샘플 분석 본문", finish_reason="stop",
-                                 completion_tokens=2192)
-
-        monkeypatch.setattr(ex, "_post", fake_post)
-        out = ex._chat("sys", "user", thinking=True, max_tokens=16384)
-        assert out == "재샘플 분석 본문"
-        assert len(calls) == 2, "폭주 1회면 재샘플 1회로 끝나야 한다"
-
-    def test_thinking_call_uses_short_cap_not_full_timeout(self, monkeypatch):
-        """추론 호출은 기본 상한(600초)이 아니라 짧은 상한을 써야 폭주가 잘린다."""
-        ex = _OpenAICompatExtractor(
-            "https://fake.example/v1/chat/completions", "tok", "fake-model",
-            timeout=600.0, provider_label="Fake", thinking_kwargs=True)
-        seen = []
-
-        def fake_post(payload, *, timeout=None):
-            seen.append(timeout)
-            return _FakeResponse("본문", finish_reason="stop", completion_tokens=10)
-
-        monkeypatch.setattr(ex, "_post", fake_post)
-        ex._chat("sys", "user", thinking=True, max_tokens=16384)
-        assert seen == [150.0], "추론 호출엔 짧은 벽시계 상한이 걸려야 한다"
-
-    def test_structuring_call_keeps_full_timeout(self, monkeypatch):
-        """구조화(thinking=False)는 폭주 대상이 아니므로 기본 상한을 유지한다."""
-        ex = _OpenAICompatExtractor(
-            "https://fake.example/v1/chat/completions", "tok", "fake-model",
-            timeout=600.0, provider_label="Fake", thinking_kwargs=True)
-        seen = []
-
-        def fake_post(payload, *, timeout=None):
-            seen.append(timeout)
-            return _FakeResponse('{"a":1}', finish_reason="stop", completion_tokens=10)
-
-        monkeypatch.setattr(ex, "_post", fake_post)
-        ex._chat("sys", "user", thinking=False, max_tokens=16384)
-        assert seen == [None], "구조화 호출은 상한을 덮어쓰지 않는다(기본값 사용)"
-
-    def test_fallback_is_bounded_so_worst_case_cannot_exceed_original(
-            self, monkeypatch):
-        """폭주 2회 후 thinking OFF 폴백에도 상한이 걸린다.
-
-        상한을 안 넘기면 _reason_timeout(False)=None이라 기본 600초로 돌아가
-        최악이 150+150+600=900초가 된다 — 고치려던 496초보다 나쁘다.
-        """
-        ex = _extractor()
-        seen = []
-
-        def fake_post(payload, *, timeout=None):
-            seen.append((payload.get("chat_template_kwargs"), timeout))
-            if len(seen) <= 2:
-                raise EngineError(504, "llm_timeout", "Fake 타임아웃")
-            return _FakeResponse("폴백 본문", finish_reason="stop",
-                                 completion_tokens=1330)
-
-        monkeypatch.setattr(ex, "_post", fake_post)
-        out = ex._chat("sys", "user", thinking=True, max_tokens=16384)
-        assert out == "폴백 본문", "폴백까지 가도 사용자에겐 에러가 아니라 결과가 간다"
-        assert len(seen) == 3
-        assert seen[2][0] == {"enable_thinking": False}, "3번째는 thinking OFF"
-        assert seen[2][1] is not None, "폴백에도 상한이 걸려야 총 시간이 묶인다"
-
-
 _CANNED_PORTRAIT = {k: "x" for k in
                     ("identity", "business_model", "edge", "stage_narrative",
                      "assets", "gaps", "risk_signals")}
@@ -281,37 +200,48 @@ class TestDegenerateRepetition:
         return ex._post_stream({"messages": [],
                                 "response_format": {"type": "json_schema"}}, 60).json()
 
-    def test_repeated_typo_close_tag_is_cut(self, monkeypatch):
-        d = self._run(["</thihk>\n\n"] * 200, monkeypatch)
-        assert d["choices"][0]["finish_reason"] == "repetition"
-        assert len(d["choices"][0]["message"]["content"]) < 600   # 2,000자까지 안 간다
-
-    def test_normal_generation_not_cut(self, monkeypatch):
-        words = ["회사는 ", "친환경 ", "소재를 ", "개발하고 ", "있으며 ", "진출한다. "]
-        deltas = [words[i % len(words)] for i in range(200)]
-        d = self._run(deltas, monkeypatch)
-        assert d["choices"][0]["finish_reason"] == "stop"
-        assert len(d["choices"][0]["message"]["content"]) > 800   # 전량 통과
-
     def test_typo_close_tag_stripped_before_json(self):
         from app.engine.llm import _OpenAICompatExtractor as E
         assert E._parse_json('<think>고민</thihk>{"a":1}') == {"a": 1}
         assert E._parse_json('<think>안 닫힘\n\n{"a":1}') == {"a": 1}
 
-    def test_paragraph_cycle_is_cut(self, monkeypatch):
-        """문단 단위 순환 — 토큰 창으로는 안 잡힌다(각 델타가 서로 다름).
-        실측(다이브인 IR): 문단 3개가 되풀이되며 19,286자까지 갔다."""
-        paras = [
-            "이 회사는 자체 플랫폼을 통해 거래를 추적하며 작품을 호텔에 설치한다.\n\n",
-            "이 회사는 반복 매출보다 프로젝트 기반 거래가 중심이며 확장 전략을 취한다.\n\n",
-            "이 회사는 국내 주요 도시에 파트너 호텔을 확보하고 있으며 전국에 걸쳐 있다.\n\n",
-        ]
-        d = self._run([paras[i % 3] for i in range(200)], monkeypatch)
-        assert d["choices"][0]["finish_reason"] == "repetition"
-        assert len(d["choices"][0]["message"]["content"]) < 8000   # 19,286자까지 안 간다
 
-    def test_distinct_paragraphs_not_cut(self, monkeypatch):
-        deltas = [f"{i}번째 문단으로 서로 다른 내용을 충분히 길게 서술하는 정상 생성이다.\n\n"
-                  for i in range(200)]
-        d = self._run(deltas, monkeypatch)
-        assert d["choices"][0]["finish_reason"] == "stop"
+class TestNoRunawayGuard:
+    """폭주 가드 철회(2026-07-28) 고정 — 실수로 되살아나지 않게.
+
+    150초 상한 + 재샘플을 넣었더니 오히려 느려졌다: judge 1건이 추론 23,989자에서
+    잘리고 재샘플로 다시 시작해 총 386초(안 끊었으면 한 번에 끝났을 가능성).
+    재샘플본은 영어로 사고하고 회사명이 잘리는 등 품질도 나빴다.
+    판단이 오래 걸리는 건 정상이다 — 기다리면 끝난다. 체감은 스트리밍으로 푼다.
+    """
+
+    def test_thinking_call_has_no_short_cap_by_default(self, monkeypatch):
+        ex = _OpenAICompatExtractor(
+            "https://fake.example/v1/chat/completions", "tok", "fake-model",
+            timeout=600.0, provider_label="Fake", thinking_kwargs=True)
+        seen = []
+
+        def fake_post(payload, *, timeout=None):
+            seen.append(timeout)
+            return _FakeResponse("본문", finish_reason="stop", completion_tokens=10)
+
+        monkeypatch.delenv("LLM_REASON_TIMEOUT", raising=False)
+        monkeypatch.setattr(ex, "_post", fake_post)
+        ex._chat("sys", "user", thinking=True, max_tokens=16384)
+        assert seen == [None], "기본값에서는 추론 호출에 별도 상한을 걸지 않는다"
+
+    def test_timeout_is_raised_not_silently_resampled(self, monkeypatch):
+        """상한을 명시했더라도 초과 시 조용히 다시 굴리지 않고 그대로 올린다."""
+        ex = _extractor()
+        calls = []
+
+        def fake_post(payload, *, timeout=None):
+            calls.append(timeout)
+            raise EngineError(504, "llm_timeout", "Fake 타임아웃")
+
+        monkeypatch.setenv("LLM_REASON_TIMEOUT", "150")
+        monkeypatch.setattr(ex, "_post", fake_post)
+        with pytest.raises(EngineError) as exc:
+            ex._chat("sys", "user", thinking=True, max_tokens=16384)
+        assert exc.value.code == "llm_timeout"
+        assert len(calls) == 1, "재샘플 없이 1회 호출로 끝나야 한다"

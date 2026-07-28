@@ -100,9 +100,6 @@ def sanitize(obj):
     return obj
 
 
-_REPEAT_WINDOW = 40       # 퇴화 감지 창 — 최근 델타 N개가 사실상 같은 조각이면 중단
-_PARA_CHECK_EVERY = 60    # 문단 순환 검사 주기(델타 수) — 매 델타마다 재계산하지 않게
-_PARA_MIN_CHARS = 3000    # 이 길이를 넘겨야 문단 검사 — 짧은 정상 출력은 건드리지 않는다
 
 
 class _SynthResp:
@@ -219,39 +216,10 @@ class _OpenAICompatExtractor:
                             content_parts.append(delta["content"])
                         if ch.get("finish_reason"):
                             fin = ch["finish_reason"]
-                    # 퇴화 반복 조기 차단 — 같은 짧은 조각이 계속 나오면 끊는다.
-                    # 실측: 구조화 호출에서 </thihk>(</think> 오타)가 8,594자 반복되며
-                    # 예산을 다 태우고 타임아웃으로 끝났다. 모델이 자기 종료 토큰을
-                    # 못 만들어 갇힌 상태라 더 기다려도 회복되지 않는다 — 여기서
-                    # 끊고 위층(_retry_json 재시도 / 폭주 재샘플)에 넘긴다.
-                    if len(content_parts) >= _REPEAT_WINDOW:
-                        tail = content_parts[-_REPEAT_WINDOW:]
-                        uniq = set(t.strip() for t in tail if t.strip())
-                        avg = sum(len(t) for t in tail) / len(tail)
-                        # "같은 짧은 조각의 반복" — 종류 ≤2 + 평균 길이 ≤30자.
-                        # 총합 임계로 재면 창 크기에 물려 경계에서 조용히 안 걸린다
-                        # (실측: 40×10자=400이 <400을 못 넘어 가드가 죽어 있었다).
-                        if len(uniq) <= 2 and avg <= 30:
-                            progress.log(self._label,
-                                         f"⚠ 퇴화 반복 감지({', '.join(list(uniq)[:2])!r}) — "
-                                         f"{len(''.join(content_parts)):,}자에서 중단")
-                            fin = "repetition"
-                            break
-                    # 문단 단위 순환 — 토큰 창으로는 안 잡힌다. 실측(다이브인 IR):
-                    # "이 회사는 …자체 플랫폼… / …프로젝트 기반 거래… / …파트너 호텔…"
-                    # 세 문단이 통째로 되풀이되며 19,286자까지 갔다. 각 델타는 서로
-                    # 달라서 uniq 검사를 그대로 통과한다 → 긴 꼬리를 문단으로 쪼개
-                    # 중복률을 본다(전체를 매번 재계산하지 않게 길이 게이트를 둔다).
-                    if (len(content_parts) % _PARA_CHECK_EVERY == 0
-                            and sum(len(t) for t in content_parts) > _PARA_MIN_CHARS):
-                        paras = [p.strip() for p in
-                                 "".join(content_parts).split("\n\n") if len(p.strip()) > 40]
-                        if len(paras) >= 6 and len(set(paras)) / len(paras) < 0.6:
-                            progress.log(self._label,
-                                         f"⚠ 문단 순환 감지(고유 {len(set(paras))}/{len(paras)}) — "
-                                         f"{len(''.join(content_parts)):,}자에서 중단")
-                            fin = "repetition"
-                            break
+                    # 중단 가드 없음 (2026-07-28 철회) — 반복이 보여도 끊지 않는다.
+                    # 끊고 재시작하면 '느림'이 '느림 + 재시작'이 될 뿐이고(judge 1건
+                    # 386초 실측), 재샘플본 품질이 더 나빴다. 모델이 스스로 끝내게
+                    # 두고, 사용자에겐 스트리밍으로 진행 상황을 보여준다.
                     now = time.time()
                     if now - last_push >= 0.4 and (reason_parts or content_parts):
                         last_push = now
@@ -333,31 +301,31 @@ class _OpenAICompatExtractor:
         return ["텍스트 생성 대기"]
 
     def _reason_timeout(self, thinking: bool) -> float | None:
-        """추론 호출에만 거는 짧은 벽시계 상한 (없으면 None = 기본 timeout).
+        """추론 호출 상한 — 기본은 걸지 않는다(None = 기본 timeout 600s).
 
-        실측(할리케이 PDF, 2026-07-27) — 같은 입력·같은 파라미터인데 한 번은 61초에
-        finish=stop으로 정상 종료(2,192토큰), 다른 한 번은 **458초 동안 16,384토큰을
-        전부 태우고 finish=length·본문 0자**로 끝났다(→ thinking OFF 재호출 37.7초가
-        더 붙어 총 496초). 비결정적 실패라 재샘플이면 회복된다.
+        철회(2026-07-28): 150초 상한 + 재샘플을 넣었더니 **더 느려졌다**. 실측 —
+        judge 1건이 추론 23,989자에서 150초에 잘리고 재샘플로 다시 시작해 총 386초.
+        안 끊었으면 한 번에 끝났을 가능성이 높다. 게다가 재샘플본은 영어로 사고하고
+        회사명이 잘리는 등(‘Le Petit Marais Bouty’) 품질도 나빴다.
 
-        기존 가드는 폭주를 **막는 게 아니라 끝난 뒤 수습**했다 — 458초는 이미 날아간
-        뒤다. self._timeout(600s)이 상한이라 폭주가 끝까지 갈 수 있었던 게 원인.
+        판단이 오래 걸리는 건 정상이다 — 기다리면 끝난다. 끊고 다시 굴리는 건
+        '느림'을 '느림 + 재시작'으로 바꿀 뿐이었다. 체감 개선은 스트리밍(생성 중
+        텍스트 노출)으로 해결할 문제지 호출을 자르는 것으로 풀 문제가 아니다.
 
-        정상이 61초이므로 150초는 2.5배 여유다. 이걸 넘으면 '느린 것'이 아니라 사고
-        사슬이 루프에 갇힌 것이라, 더 기다려도 length로 끝날 확률이 높다.
-        max_tokens는 건드리지 않는다 — 4500으로 깎았다가 judge 축 8개가 캐스케이드로
-        붕괴한 실측이 있다(#44). 여기서 줄이는 건 예산이 아니라 '기다리는 시간'이다.
+        LLM_REASON_TIMEOUT을 명시하면 그 값으로 상한을 건다(디버깅용). 기본은 무제한
+        (엔진 공통 timeout만 적용).
         """
         if not (thinking and self._thinking_kwargs):
             return None
         import os as _os
-        limit = float(_os.environ.get("LLM_REASON_TIMEOUT", "150"))
-        return min(limit, self._timeout)
+        raw = _os.environ.get("LLM_REASON_TIMEOUT", "")
+        if not raw:
+            return None
+        return min(float(raw), self._timeout)
 
     def _chat(self, system: str, user: str, *, schema: Optional[dict] = None,
               thinking: bool = False, max_tokens: int = 8192,
               temperature: Optional[float] = None, _retry_empty: bool = True,
-              _resample: bool = True,
               _timeout_override: float | None = None) -> str:
         host = urlparse(self._url).netloc or self._url
         progress.tick_llm()
@@ -390,26 +358,11 @@ class _OpenAICompatExtractor:
                 payload, t0=t0, phases=self._phases(thinking, schema),
                 timeout=reason_limit)
         except EngineError as e:
-            # 추론 폭주만 여기서 끊는다. 일반 타임아웃(기본 상한)은 그대로 올린다.
-            if e.code != "llm_timeout" or reason_limit is None:
-                raise
-            if _resample:
-                progress.log(self._label,
-                             f"⚠ 추론 {reason_limit:.0f}초 초과 — 사고 사슬 폭주로 보고 "
-                             f"끊고 재샘플 1회 (예산·파라미터 동일)")
-                return self._chat(system, user, schema=schema, thinking=thinking,
-                                  max_tokens=max_tokens, temperature=temperature,
-                                  _retry_empty=_retry_empty, _resample=False)
-            # 마지막 폴백 — thinking OFF. **상한을 반드시 함께 넘긴다.**
-            # 안 넘기면 _reason_timeout(False)=None이라 기본 600초로 돌아가서,
-            # 최악이 150+150+600=900초가 된다(고치려던 496초보다 나쁨). 실측상
-            # 이 경로는 37.7초에 끝났으므로 상한을 줘도 정상 케이스를 안 자른다.
-            progress.log(self._label,
-                         "⚠ 재샘플도 초과 — thinking OFF로 폴백 (총 시간 상한 유지)")
-            return self._chat(system, user, schema=schema, thinking=False,
-                              max_tokens=max_tokens, temperature=temperature,
-                              _retry_empty=_retry_empty, _resample=False,
-                              _timeout_override=reason_limit)
+            # 폭주 재샘플 철회(2026-07-28) — 끊고 다시 굴리면 총 시간이 늘고
+            # 재샘플본 품질이 더 나빴다(judge 386초·영어 사고·회사명 잘림).
+            # LLM_REASON_TIMEOUT을 명시했을 때만 상한이 걸리고, 초과하면
+            # 그냥 타임아웃으로 올린다 — 조용히 다시 굴리지 않는다.
+            raise
 
         # 구조화 출력 미지원 폴백 — 프롬프트로 JSON 강제
         if resp.status_code in (400, 422) and schema is not None:
