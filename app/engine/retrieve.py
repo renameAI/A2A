@@ -224,7 +224,7 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
         border = sum(1 for _, s in scored
                      if abs(s - _STRONG_THRESHOLD) < _MARGIN_BAND)
         progress.log("검색", f"2단 — 하이브리드 검색 완료: {len(records)}건 중 "
-                             f"강한 후보 {len(strong)}건 (경쟁사·무관 후보 강등)"
+                             f"임계 통과 {len(strong)}건 (경쟁사·무관 후보 강등)"
                              + (f" · 임계 경계 ±{_MARGIN_BAND} 이내 {border}건 — "
                                 f"재실행 시 뒤집힘 위험" if border else ""))
         strong_ids = {r.company_id for r, _ in strong}   # τ 통과분 — weak 표기의 기준
@@ -236,8 +236,7 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
             # 강한 후보와 섞어 조용히 승격하지 않는다(RET-06 정신은 유지).
             weak_fallback = True
             strong = scored[: max(req.k, 1)]
-            progress.log("검색", f"⚠ 강한 후보 0건 — allow_weak=True로 상위 {len(strong)}건을 "
-                                 f"'약한 후보'로 표시해 반환")
+            progress.log("검색", f"임계 통과 0건 — 상위 {len(strong)}건을 순위만으로 반환")
         elif req.allow_weak and len(strong) < req.k:
             # 부분 패딩 — 강한 후보가 k 미만이면 차순위를 후보별 weak=True로 채운다.
             # 실측(데모 호텔 풀 25건): τ 통과 1건이면 화면에 1장만 떠서 top-5 비교가
@@ -247,8 +246,7 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
                    if r.company_id not in strong_ids][: req.k - len(strong)]
             if pad:
                 strong = strong + pad
-                progress.log("검색", f"강한 후보 {len(strong_ids)}건 < k={req.k} — "
-                                     f"차순위 {len(pad)}건을 '약한 후보' 표기로 채움")
+                progress.log("검색", f"임계 통과 {len(strong_ids)}건 < k={req.k} — 차순위 {len(pad)}건 보충")
 
         # 학습 스코어러 재랭킹 (선택적) — 게이트는 위 휴리스틱 τ가 이미 결정했고,
         # 여기서는 통과 후보의 '순서'만 학습 점수로 다시 매긴다. 서버 부재 시
