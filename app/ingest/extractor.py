@@ -51,8 +51,17 @@ def extract_profile(chunks: list[Chunk], extractor: Extractor
         target_customer=_prov_field(data["target_customer"]),
         references=data["references"],
         traction=data.get("traction"),
-        sell_value_props=[ValueProp(v) for v in data["sell_value_props"]],
-        purchase_value_props=[ValueProp(v) for v in data["purchase_value_props"]],
+        # 중복 제거 — 실측(할리케이 PDF, 2026-07-27): sell_value_props에 동일값
+        # ("revenue_growth")이 7회 반복되고 나머지 3종(impact 등, 원문에 지역상생·
+        # 시니어고용 신호가 뚜렷한데도)은 전혀 안 나온 사례. 스키마(_VALUE_PROPS)에
+        # uniqueItems를 걸어도 API가 강제 보장하지 않을 수 있다(구조화 출력은 JSON
+        # Schema 부분집합만 지원하는 프로바이더가 흔함) — 순서 보존 dedup으로 코드가
+        # 최종 방어선. UI가 이 필드를 그대로 렌더링해 중복이 데모 화면에 스팸처럼
+        # 노출된다(app.js:1318).
+        sell_value_props=list(dict.fromkeys(
+            ValueProp(v) for v in data["sell_value_props"])),
+        purchase_value_props=list(dict.fromkeys(
+            ValueProp(v) for v in data["purchase_value_props"])),
         willingness_sell=_willingness(data.get("willingness_sell")),
         willingness_purchase=_willingness(data.get("willingness_purchase")),
         portrait=CompanyPortrait(**data["portrait"]) if data.get("portrait") else None,

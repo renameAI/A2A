@@ -357,6 +357,13 @@ def _clarify_questions(extractor, profile: Profile,
                        open_questions: list[str], full_text: str) -> list[dict]:
     """보강 질문마다 자료 단서 기반 4지선다 생성 — 실패 시 규칙 선지로 폴백."""
     from .. import progress
+    if not open_questions:
+        # 질문이 없으면 결과는 항상 []다(아래 for문이 못 돈다) — 호출 전에 이미 확정된
+        # 결과를 위해 API를 태우지 않는다. 실측(할리케이 PDF, 2026-07-27): open_questions=0
+        # 상태에서도 이 함수가 174초짜리 LLM 호출을 했고, 결과는 예정대로 통째로 버려져
+        # ProfileBelowMinimum(clarify=[])로 이어졌다 — 사용자가 답할 질문이 0건인 막다른
+        # 에러(REP-06 실패는 그대로 발생하는 게 맞다 — 여기서 없애는 건 낭비뿐이다).
+        return []
     if extractor is None:
         return _mock_clarify(open_questions)
     from .llm import sanitize

@@ -119,27 +119,29 @@ class _OpenAICompatExtractor:
         self._label = provider_label          # 로그 표시용
         self._thinking_kwargs = thinking_kwargs  # Friendli EXAONE만 True
 
-    def _post(self, payload: dict) -> httpx.Response:
+    def _post(self, payload: dict, *, timeout: float | None = None) -> httpx.Response:
+        limit = self._timeout if timeout is None else timeout
         headers = {"Content-Type": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         try:
             return httpx.post(self._url, headers=headers, json=payload,
-                              timeout=self._timeout)
+                              timeout=limit)
         except httpx.ConnectError as e:
             raise EngineError(502, "llm_unreachable",
                               f"{self._label} 서버에 연결할 수 없습니다 ({self._url}). "
                               f"오프라인 로컬 모델이면 서버(예: Ollama)가 실행 중인지 확인하세요.")
         except httpx.TimeoutException as e:
             kind = type(e).__name__
-            progress.log(self._label, f"타임아웃 — {kind} · 제한 {self._timeout:.0f}초")
+            progress.log(self._label, f"타임아웃 — {kind} · 제한 {limit:.0f}초")
             raise EngineError(504, "llm_timeout",
-                              f"{self._label} 타임아웃({kind}) — 제한 {self._timeout:.0f}초")
+                              f"{self._label} 타임아웃({kind}) — 제한 {limit:.0f}초")
         except httpx.HTTPError as e:
             raise EngineError(502, "llm_error", f"{self._label} 연결 실패: {e}")
 
     def _post_with_heartbeat(self, payload: dict, *, t0: float,
-                             phases: list[str]) -> httpx.Response:
+                             phases: list[str],
+                             timeout: float | None = None) -> httpx.Response:
         run = progress.current()
         node = run.current_node() if run else None
         stop = threading.Event()
@@ -156,7 +158,7 @@ class _OpenAICompatExtractor:
         thread = threading.Thread(target=beat, daemon=True)
         thread.start()
         try:
-            return self._post(payload)
+            return self._post(payload, timeout=timeout)
         finally:
             stop.set()
 
@@ -179,9 +181,33 @@ class _OpenAICompatExtractor:
             ]
         return ["텍스트 생성 대기"]
 
+    def _reason_timeout(self, thinking: bool) -> float | None:
+        """추론 호출에만 거는 짧은 벽시계 상한 (없으면 None = 기본 timeout).
+
+        실측(할리케이 PDF, 2026-07-27) — 같은 입력·같은 파라미터인데 한 번은 61초에
+        finish=stop으로 정상 종료(2,192토큰), 다른 한 번은 **458초 동안 16,384토큰을
+        전부 태우고 finish=length·본문 0자**로 끝났다(→ thinking OFF 재호출 37.7초가
+        더 붙어 총 496초). 비결정적 실패라 재샘플이면 회복된다.
+
+        기존 가드는 폭주를 **막는 게 아니라 끝난 뒤 수습**했다 — 458초는 이미 날아간
+        뒤다. self._timeout(600s)이 상한이라 폭주가 끝까지 갈 수 있었던 게 원인.
+
+        정상이 61초이므로 150초는 2.5배 여유다. 이걸 넘으면 '느린 것'이 아니라 사고
+        사슬이 루프에 갇힌 것이라, 더 기다려도 length로 끝날 확률이 높다.
+        max_tokens는 건드리지 않는다 — 4500으로 깎았다가 judge 축 8개가 캐스케이드로
+        붕괴한 실측이 있다(#44). 여기서 줄이는 건 예산이 아니라 '기다리는 시간'이다.
+        """
+        if not (thinking and self._thinking_kwargs):
+            return None
+        import os as _os
+        limit = float(_os.environ.get("LLM_REASON_TIMEOUT", "150"))
+        return min(limit, self._timeout)
+
     def _chat(self, system: str, user: str, *, schema: Optional[dict] = None,
               thinking: bool = False, max_tokens: int = 8192,
-              temperature: Optional[float] = None) -> str:
+              temperature: Optional[float] = None, _retry_empty: bool = True,
+              _resample: bool = True,
+              _timeout_override: float | None = None) -> str:
         host = urlparse(self._url).netloc or self._url
         progress.tick_llm()
         progress.log(self._label,
@@ -206,8 +232,33 @@ class _OpenAICompatExtractor:
             payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {"name": "output", "schema": schema}}
-        resp = self._post_with_heartbeat(
-            payload, t0=t0, phases=self._phases(thinking, schema))
+        reason_limit = (_timeout_override if _timeout_override is not None
+                        else self._reason_timeout(thinking))
+        try:
+            resp = self._post_with_heartbeat(
+                payload, t0=t0, phases=self._phases(thinking, schema),
+                timeout=reason_limit)
+        except EngineError as e:
+            # 추론 폭주만 여기서 끊는다. 일반 타임아웃(기본 상한)은 그대로 올린다.
+            if e.code != "llm_timeout" or reason_limit is None:
+                raise
+            if _resample:
+                progress.log(self._label,
+                             f"⚠ 추론 {reason_limit:.0f}초 초과 — 사고 사슬 폭주로 보고 "
+                             f"끊고 재샘플 1회 (예산·파라미터 동일)")
+                return self._chat(system, user, schema=schema, thinking=thinking,
+                                  max_tokens=max_tokens, temperature=temperature,
+                                  _retry_empty=_retry_empty, _resample=False)
+            # 마지막 폴백 — thinking OFF. **상한을 반드시 함께 넘긴다.**
+            # 안 넘기면 _reason_timeout(False)=None이라 기본 600초로 돌아가서,
+            # 최악이 150+150+600=900초가 된다(고치려던 496초보다 나쁨). 실측상
+            # 이 경로는 37.7초에 끝났으므로 상한을 줘도 정상 케이스를 안 자른다.
+            progress.log(self._label,
+                         "⚠ 재샘플도 초과 — thinking OFF로 폴백 (총 시간 상한 유지)")
+            return self._chat(system, user, schema=schema, thinking=False,
+                              max_tokens=max_tokens, temperature=temperature,
+                              _retry_empty=_retry_empty, _resample=False,
+                              _timeout_override=reason_limit)
 
         # 구조화 출력 미지원 폴백 — 프롬프트로 JSON 강제
         if resp.status_code in (400, 422) and schema is not None:
@@ -218,7 +269,8 @@ class _OpenAICompatExtractor:
                 + json.dumps(schema, ensure_ascii=False))
             progress.log(self._label, "response_format 미지원 가능성 — JSON 강제 프롬프트로 재호출")
             resp = self._post_with_heartbeat(
-                payload, t0=time.time(), phases=self._phases(False, schema))
+                payload, t0=time.time(), phases=self._phases(False, schema),
+                timeout=reason_limit)
 
         if resp.status_code == 401:
             raise EngineError(502, "llm_error", f"{self._label} 인증 실패 — 토큰 확인")
@@ -249,6 +301,23 @@ class _OpenAICompatExtractor:
         if choice.get("finish_reason") == "length":
             raise EngineError(502, "llm_error",
                               f"{self._label} 출력이 잘렸습니다 — 입력 자료를 줄여 재시도하세요.")
+        # 실측(할리케이 PDF 온보딩, 2026-07-27): 깊은 추론 호출이 finish_reason=stop인데
+        # 완료 토큰 5·본문 0자를 반환한 사례 — 동일 입력 즉시 재시도로는 1,913자 정상
+        # 생성됨(API 비결정적 실패, 예산 소진이 아님). 위 length 가드는 finish=length만
+        # 잡아 이 경우를 그대로 통과시켰고, 빈 분석이 구조화 단계로 흘러가 "미상" 프로필
+        # → REP-06 게이트 실패 → open_questions까지 비어 clarify 174초 호출이 통째로
+        # 버려지는 막다른 에러로 끝났다. thinking 호출에 한해 1회 재시도 — 재현상 거의
+        # 항상 회복된다. 구조화(schema) 호출은 _retry_json이 이미 파싱 실패로 재시도한다.
+        if thinking and not content.strip() and _retry_empty:
+            progress.log(self._label,
+                         f"⚠ 빈 응답(finish={choice.get('finish_reason')}·"
+                         f"완료 토큰 {usage.get('completion_tokens', '?')}) — 1회 재시도")
+            return self._chat(system, user, schema=schema, thinking=thinking,
+                              max_tokens=max_tokens, temperature=temperature,
+                              _retry_empty=False)
+        if thinking and not content.strip():
+            raise EngineError(502, "llm_error",
+                              f"{self._label} 응답이 비어 있습니다(재시도 후에도).")
         return content
 
     @staticmethod
