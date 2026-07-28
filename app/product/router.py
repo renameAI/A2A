@@ -254,6 +254,17 @@ def onboard(req: OnboardRequest, background: BackgroundTasks):
     return _submit(background, _run)
 
 
+@router.get("/axes")
+def judge_axes_meta():
+    """판단 축 메타(이름·핵심가치·상대의 질문) — UI가 A2A 왕복을 그릴 때 쓴다.
+
+    질문은 박사님 buyer_ontology.yaml에서 온 실문장이다. 프론트가 문구를 새로
+    지어내면 '엔진이 실제로 보는 것'과 화면이 갈라지므로, 축 정의를 단일 출처로
+    두고 여기서 내려보낸다."""
+    from ..ontology.axes import judge_axes
+    return {"axes": judge_axes()}
+
+
 @router.get("/companies")
 def companies():
     return [{"company_id": r.company_id, "name": r.profile.basic.name,

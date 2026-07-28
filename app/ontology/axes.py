@@ -24,6 +24,10 @@ def judge_axes() -> list[dict]:
     return [{"id": b["id"], "name": b.get("name", ""),
              "core_value": b.get("core_value", ""),
              "verdict_rule": b.get("verdict_rule", ""),
+             # 상대(구매자)가 이 축에서 실제로 던지는 질문 — 박사님 케이스에서
+             # 추출된 실문장이다. UI가 A2A 왕복을 보여줄 때 상대 에이전트의
+             # 대사로 그대로 쓴다(새로 지어내지 않는다).
+             "questions": b.get("questions") or [],
              # BB1에만 있는 '구매자 유형별 목적' 매핑 — 상대가 CSR 조직인지 지자체인지
              # 유통사인지에 따라 '무엇을 목적으로 사는가'가 통째로 다르다.
              "purpose_by_buyer_type": b.get("purpose_by_buyer_type") or {}}

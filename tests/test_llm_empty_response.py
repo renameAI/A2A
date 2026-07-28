@@ -297,3 +297,21 @@ class TestDegenerateRepetition:
         from app.engine.llm import _OpenAICompatExtractor as E
         assert E._parse_json('<think>고민</thihk>{"a":1}') == {"a": 1}
         assert E._parse_json('<think>안 닫힘\n\n{"a":1}') == {"a": 1}
+
+    def test_paragraph_cycle_is_cut(self, monkeypatch):
+        """문단 단위 순환 — 토큰 창으로는 안 잡힌다(각 델타가 서로 다름).
+        실측(다이브인 IR): 문단 3개가 되풀이되며 19,286자까지 갔다."""
+        paras = [
+            "이 회사는 자체 플랫폼을 통해 거래를 추적하며 작품을 호텔에 설치한다.\n\n",
+            "이 회사는 반복 매출보다 프로젝트 기반 거래가 중심이며 확장 전략을 취한다.\n\n",
+            "이 회사는 국내 주요 도시에 파트너 호텔을 확보하고 있으며 전국에 걸쳐 있다.\n\n",
+        ]
+        d = self._run([paras[i % 3] for i in range(200)], monkeypatch)
+        assert d["choices"][0]["finish_reason"] == "repetition"
+        assert len(d["choices"][0]["message"]["content"]) < 8000   # 19,286자까지 안 간다
+
+    def test_distinct_paragraphs_not_cut(self, monkeypatch):
+        deltas = [f"{i}번째 문단으로 서로 다른 내용을 충분히 길게 서술하는 정상 생성이다.\n\n"
+                  for i in range(200)]
+        d = self._run(deltas, monkeypatch)
+        assert d["choices"][0]["finish_reason"] == "stop"
