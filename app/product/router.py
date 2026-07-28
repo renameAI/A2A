@@ -73,7 +73,9 @@ def product_job(job_id: str):
             "result": job.result, "error": job.error,
             "logs": job.log.entries, "elapsed": job.log.elapsed,
             "stage_timings": job.log.stage_timings(),
-            "llm_calls": getattr(job.log, "llm_calls", 0)}
+            "llm_calls": getattr(job.log, "llm_calls", 0),
+            # 생성 중 텍스트의 실시간 꼬리 (스트리밍) — 데모 채팅 UI가 소비
+            "live": getattr(job.log, "live", None)}
 
 
 # ── 업로드 (IR덱 PDF) ────────────────────────────────────────────────

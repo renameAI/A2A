@@ -24,6 +24,10 @@ class RunLog:
         self._node_stack: list[str] = []
         self._lock = threading.Lock()
         self.llm_calls = 0            # LLM(K-EXAONE 등) 호출 횟수 — loop 예산 계측
+        # 생성 중인 LLM 출력의 실시간 꼬리 — 폴링(jobs/{id})이 그대로 노출한다.
+        # entries에 줄로 쌓지 않고 제자리 교체하는 이유: 토큰 단위로 append하면
+        # 로그가 수천 줄로 폭주하고, 폴링 페이로드도 매번 전체 로그를 재전송한다.
+        self.live: dict | None = None
 
     @property
     def elapsed(self) -> float:
@@ -100,6 +104,27 @@ def tick_llm() -> None:
     run = _current.get()
     if run is not None:
         run.tick_llm()
+
+
+def live_update(stage: str, text: str, *, thinking: bool = False) -> None:
+    """생성 중 텍스트의 실시간 꼬리 교체 — 데모 채팅 UI가 폴링으로 읽는다.
+
+    전체 텍스트가 아니라 꼬리 4,000자만 싣는다: 폴링(1.2s)마다 페이로드로
+    나가므로 추론이 길어져도 응답 크기가 상수로 유지된다. chars로 전체 길이는
+    정직하게 노출한다(꼬리만 보이는 게 아니라 얼마나 생성됐는지)."""
+    run = _current.get()
+    if run is not None:
+        with run._lock:
+            run.live = {"stage": stage, "text": text[-4000:],
+                        "chars": len(text), "thinking": thinking,
+                        "t": round(time.time() - run._t0, 1)}
+
+
+def live_clear() -> None:
+    run = _current.get()
+    if run is not None:
+        with run._lock:
+            run.live = None
 
 
 def current() -> RunLog | None:

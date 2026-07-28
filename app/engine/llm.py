@@ -100,6 +100,21 @@ def sanitize(obj):
     return obj
 
 
+class _SynthResp:
+    """스트리밍 SSE를 다 모은 뒤 httpx.Response의 소비 인터페이스(status_code·
+    json()·text)만 합성 — _chat의 재시도·폴백 로직이 스트리밍 여부를 모르게 한다."""
+
+    def __init__(self, status_code: int, *, data: dict | None = None, text: str = ""):
+        self.status_code = status_code
+        self._data = data
+        self.text = text if data is None else json.dumps(data, ensure_ascii=False)
+
+    def json(self) -> dict:
+        if self._data is None:
+            raise ValueError("스트리밍 오류 응답에는 JSON 본문이 없습니다")
+        return self._data
+
+
 class _OpenAICompatExtractor:
     """OpenAI 호환 /chat/completions 어댑터 베이스.
 
@@ -119,11 +134,22 @@ class _OpenAICompatExtractor:
         self._label = provider_label          # 로그 표시용
         self._thinking_kwargs = thinking_kwargs  # Friendli EXAONE만 True
 
-    def _post(self, payload: dict, *, timeout: float | None = None) -> httpx.Response:
-        limit = self._timeout if timeout is None else timeout
+    def _headers(self) -> dict:
         headers = {"Content-Type": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
+        return headers
+
+    def _post(self, payload: dict, *, timeout: float | None = None) -> "httpx.Response | _SynthResp":
+        limit = self._timeout if timeout is None else timeout
+        # 실시간 스트리밍 (데모 채팅 UI) — SSE로 델타를 받아 progress.live로 흘리고,
+        # 완료 후 기존 코드가 기대하는 Response 모양(_SynthResp)으로 합성해 돌려준다.
+        # _post 안에서만 처리하는 이유: 위층(_chat)의 재시도·length·빈응답·폭주 가드가
+        # 전부 resp 인터페이스를 보므로, 여기서 모양만 맞추면 로직 변경이 0이다.
+        import os as _os
+        if _os.environ.get("LLM_STREAM", "1") != "0":
+            return self._post_stream(payload, limit)
+        headers = self._headers()
         try:
             return httpx.post(self._url, headers=headers, json=payload,
                               timeout=limit)
@@ -138,6 +164,85 @@ class _OpenAICompatExtractor:
                               f"{self._label} 타임아웃({kind}) — 제한 {limit:.0f}초")
         except httpx.HTTPError as e:
             raise EngineError(502, "llm_error", f"{self._label} 연결 실패: {e}")
+
+    def _post_stream(self, payload: dict, limit: float) -> "_SynthResp":
+        """SSE 스트리밍 호출 — 델타를 progress.live로 흘리고 Response 모양으로 합성.
+
+        타임아웃 의미 보존: httpx의 timeout은 '읽기 한 번'의 제한이라, 토큰을 계속
+        뱉는 폭주는 영원히 안 걸린다. 벽시계를 직접 재서 limit 초과 시 기존과 같은
+        llm_timeout으로 올린다 — _chat의 폭주 재샘플 가드가 그대로 작동한다."""
+        body = dict(payload)
+        body["stream"] = True
+        thinking = bool(body.get("chat_template_kwargs", {}).get("enable_thinking"))
+        label = ("깊은 추론" if thinking
+                 else "구조화" if "response_format" in body else "작성")
+        t0 = time.time()
+        reason_parts: list[str] = []
+        content_parts: list[str] = []
+        fin: str | None = None
+        usage: dict = {}
+        last_push = 0.0
+        try:
+            with httpx.stream("POST", self._url, headers=self._headers(),
+                              json=body, timeout=limit) as resp:
+                if resp.status_code != 200:
+                    resp.read()   # 에러 본문은 위층(400/422 폴백·오류 메시지)이 쓴다
+                    return _SynthResp(resp.status_code, text=resp.text)
+                for line in resp.iter_lines():
+                    if limit and time.time() - t0 > limit:
+                        progress.log(self._label,
+                                     f"타임아웃 — 스트리밍 벽시계 · 제한 {limit:.0f}초")
+                        raise EngineError(504, "llm_timeout",
+                                          f"{self._label} 타임아웃(stream) — "
+                                          f"제한 {limit:.0f}초")
+                    if not line or not line.startswith("data:"):
+                        continue
+                    chunk = line[5:].strip()
+                    if chunk == "[DONE]":
+                        break
+                    try:
+                        d = json.loads(chunk)
+                    except ValueError:
+                        continue
+                    if d.get("usage"):
+                        usage = d["usage"]
+                    for ch in d.get("choices", []):
+                        delta = ch.get("delta") or {}
+                        if delta.get("reasoning_content"):
+                            reason_parts.append(delta["reasoning_content"])
+                        if delta.get("content"):
+                            content_parts.append(delta["content"])
+                        if ch.get("finish_reason"):
+                            fin = ch["finish_reason"]
+                    now = time.time()
+                    if now - last_push >= 0.4 and (reason_parts or content_parts):
+                        last_push = now
+                        body_txt = "".join(content_parts)
+                        progress.live_update(
+                            label, body_txt or "".join(reason_parts),
+                            thinking=not body_txt)
+        except httpx.ConnectError:
+            raise EngineError(502, "llm_unreachable",
+                              f"{self._label} 서버에 연결할 수 없습니다 ({self._url}). "
+                              f"오프라인 로컬 모델이면 서버(예: Ollama)가 실행 중인지 확인하세요.")
+        except httpx.TimeoutException as e:
+            kind = type(e).__name__
+            progress.log(self._label, f"타임아웃 — {kind} · 제한 {limit:.0f}초")
+            raise EngineError(504, "llm_timeout",
+                              f"{self._label} 타임아웃({kind}) — 제한 {limit:.0f}초")
+        except httpx.HTTPError as e:
+            raise EngineError(502, "llm_error", f"{self._label} 연결 실패: {e}")
+        finally:
+            progress.live_clear()
+
+        content = "".join(content_parts)
+        # 추론(reasoning_content 델타)은 live 표시용으로만 쓰고 최종 content엔 섞지
+        # 않는다 — 비스트리밍 응답도 추론을 content에 싣지 않았다(실측: 꼬리 조각만).
+        # 섞으면 deep 2단계 구조화 입력이 추론 전문(수천 토큰)까지 먹어 계약이 변한다.
+        return _SynthResp(200, data={
+            "choices": [{"message": {"content": content},
+                         "finish_reason": fin or "stop"}],
+            "usage": usage})
 
     def _post_with_heartbeat(self, payload: dict, *, t0: float,
                              phases: list[str],

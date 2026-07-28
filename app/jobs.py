@@ -49,6 +49,7 @@ class _RestoredLog:
         self.entries = entries
         self.elapsed = elapsed
         self.llm_calls = 0
+        self.live = None                 # 종료된 job엔 생성 중 텍스트가 없다
 
     def add(self, *a, **k) -> None:      # 종료된 job에는 no-op
         pass
