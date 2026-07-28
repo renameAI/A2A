@@ -1,6 +1,12 @@
 {
   "company": "Le Petit Marais Boutique",
   "sector": "hospitality_renovation",
+  "country": "France",
   "product": "4성급 · 22객실 · Paris (Le Marais)",
-  "public_profile": "최근 리노베이션 완료·디자인 지향, 노후 문제 없음 (Paris (Le Marais), France)"
+  "public_profile": "최근 리노베이션 완료·디자인 지향, 노후 문제 없음 (Paris (Le Marais), France)",
+  "pain_signal": "최근 리노베이션 완료·디자인 지향, 노후 문제 없음",
+  "demand_type": "curator",
+  "purchase_value_props": [
+    "impact"
+  ]
 }

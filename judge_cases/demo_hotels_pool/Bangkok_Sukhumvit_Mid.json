@@ -1,6 +1,13 @@
 {
   "company": "Bangkok Sukhumvit Mid",
   "sector": "hospitality_renovation",
+  "country": "Thailand",
   "product": "3성급 · 38객실 · Bangkok (Sukhumvit)",
-  "public_profile": "시내 한복판, 중가, 2030 외국인 관광객, 일반 아트 전환엔 미온 — 차별화 컨셉 부재 (Bangkok (Sukhumvit), Thailand)"
+  "public_profile": "시내 한복판, 중가, 2030 외국인 관광객, 일반 아트 전환엔 미온 — 차별화 컨셉 부재 (Bangkok (Sukhumvit), Thailand)",
+  "pain_signal": "시내 한복판, 중가, 2030 외국인 관광객, 일반 아트 전환엔 미온 — 차별화 컨셉 부재",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ],
+  "willingness_purchase": "medium"
 }

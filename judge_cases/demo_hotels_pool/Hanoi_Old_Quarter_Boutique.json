@@ -1,6 +1,13 @@
 {
   "company": "Hanoi Old Quarter Boutique",
   "sector": "hospitality_renovation",
+  "country": "Vietnam",
   "product": "3성급 · 26객실 · Hanoi (Hoan Kiem)",
-  "public_profile": "호안끼엠 중심 아파트형 호텔, 노후 객실 매출 정체, 오너 리뉴얼 자본 부담·외국업체 경험 없음 (Hanoi (Hoan Kiem), Vietnam)"
+  "public_profile": "호안끼엠 중심 아파트형 호텔, 노후 객실 매출 정체, 오너 리뉴얼 자본 부담·외국업체 경험 없음 (Hanoi (Hoan Kiem), Vietnam)",
+  "pain_signal": "호안끼엠 중심 아파트형 호텔, 노후 객실 매출 정체, 오너 리뉴얼 자본 부담·외국업체 경험 없음",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ],
+  "willingness_purchase": "medium"
 }

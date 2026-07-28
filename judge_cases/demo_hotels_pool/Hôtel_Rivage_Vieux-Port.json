@@ -1,6 +1,12 @@
 {
   "company": "Hôtel Rivage Vieux-Port",
   "sector": "hospitality_renovation",
+  "country": "France",
   "product": "3성급 · 34객실 · Marseille",
-  "public_profile": "구항구 인근 우수 입지지만 객실 노후·인테리어 낡음, 재방문·객단가 정체 (Marseille, France)"
+  "public_profile": "구항구 인근 우수 입지지만 객실 노후·인테리어 낡음, 재방문·객단가 정체 (Marseille, France)",
+  "pain_signal": "구항구 인근 우수 입지지만 객실 노후·인테리어 낡음, 재방문·객단가 정체",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }

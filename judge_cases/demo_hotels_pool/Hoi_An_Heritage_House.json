@@ -1,6 +1,12 @@
 {
   "company": "Hoi An Heritage House",
   "sector": "hospitality_renovation",
+  "country": "Vietnam",
   "product": "3성급 · 20객실 · Hoi An",
-  "public_profile": "구시가 매력, 그러나 문화재 파사드 보호 제약 (Hoi An, Vietnam)"
+  "public_profile": "구시가 매력, 그러나 문화재 파사드 보호 제약 (Hoi An, Vietnam)",
+  "pain_signal": "구시가 매력, 그러나 문화재 파사드 보호 제약",
+  "demand_type": "curator",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }

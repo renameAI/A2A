@@ -1,6 +1,12 @@
 {
   "company": "Résidence Lyon Presqu'île",
   "sector": "hospitality_renovation",
+  "country": "France",
   "product": "3성급 · 45객실 · Lyon",
-  "public_profile": "비즈니스·관광 혼합, 표준화된 객실, 점유율 압박 (Lyon, France)"
+  "public_profile": "비즈니스·관광 혼합, 표준화된 객실, 점유율 압박 (Lyon, France)",
+  "pain_signal": "비즈니스·관광 혼합, 표준화된 객실, 점유율 압박",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }

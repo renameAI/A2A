@@ -1,6 +1,12 @@
 {
   "company": "Krabi Riverside Resort",
   "sector": "hospitality_renovation",
+  "country": "Thailand",
   "product": "3성급 · 34객실 · Krabi",
-  "public_profile": "자연 관광, 객실 노후 (Krabi, Thailand)"
+  "public_profile": "자연 관광, 객실 노후 (Krabi, Thailand)",
+  "pain_signal": "자연 관광, 객실 노후",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }
