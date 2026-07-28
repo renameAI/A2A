@@ -716,7 +716,13 @@ function renderChat(kind, job) {
     st.done = true;
     if (st.live) { st.live.classList.add("cdone"); st.live = null; }
     if (job.status === "error") {
-      if (job.error?.code !== "profile_below_minimum")
+      // 흐름으로 이어받는 오류는 버블로 안 띄운다 — 각 호출부가 사람 말로 안내한다.
+      //   profile_below_minimum → 보강 질문으로 이어짐
+      //   no_strong_candidate   → "조건에 맞는 상대를 못 찾았어요" + 다음 행동 칩
+      // 원문 메시지("강한 후보 없음 — 약한 후보를 억지로 채우지 않습니다")는
+      // 내부 정책 용어라 사용자에게 노출하지 않는다.
+      const HANDLED = ["profile_below_minimum", "no_strong_candidate"];
+      if (!HANDLED.includes(job.error?.code))
         botMsg(esc(job.error?.message || "오류"), { label: "오류", cls: "err" });
     } else {
       chatEntities(kind, job.result);

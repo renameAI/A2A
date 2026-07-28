@@ -30,11 +30,16 @@ class ProfileBelowMinimum(EngineError):
 
 
 class NoStrongCandidate(EngineError):
-    """강한 후보 없음 (RET-06) → 422. 억지 후보를 채우지 않는다."""
+    """임계 통과 후보 없음 (RET-06) → 422. 억지 후보를 채우지 않는다.
+
+    메시지는 사용자에게 그대로 노출될 수 있으므로 등급 라벨('강한/약한 후보')을
+    쓰지 않는다 — 실명 기업에 붙는 등급은 엔진이 사람 대신 결론을 내리는 것이고,
+    화면에 남으면 명예훼손 소지가 있다. 사실만 말한다: 조건에 맞는 상대를 못 찾음.
+    """
 
     def __init__(self):
         super().__init__(422, "no_strong_candidate",
-                         "강한 후보 없음 — 약한 후보를 억지로 채우지 않습니다.")
+                         "지금 조건에 맞는 상대를 찾지 못했습니다.")
 
 
 class DealBreaker(EngineError):
