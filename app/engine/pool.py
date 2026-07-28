@@ -268,11 +268,15 @@ def _load_e11_pool() -> list[CandidateRecord]:
 
 
 def get_pool() -> list[CandidateRecord]:
+    import os
     e11 = _load_e11_pool()
     e11_names = {r.company_id.removeprefix("e11-") for r in e11}
     extra = [r for r in _load_extra_pool()
              if r.company_id.removeprefix("kq-") not in e11_names]
-    return SEED_POOL + extra + e11
+    # 데모 격리 — A2A_SEED_POOL=0이면 시드 7건도 뺀다(호텔 25건만 남는 완전 통제).
+    # 기본은 포함: 골든셋·테스트가 시드 역할(디스트랙터·경쟁사)에 의존한다.
+    seed = [] if os.environ.get("A2A_SEED_POOL", "1") == "0" else SEED_POOL
+    return seed + extra + e11
 
 
 def find(company_id: str) -> CandidateRecord | None:
