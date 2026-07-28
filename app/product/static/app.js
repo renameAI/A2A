@@ -525,13 +525,10 @@ const VP_KO = { revenue_growth: "매출", cost_reduction: "비용",
                 impact: "임팩트", problem_solving: "문제해결" };
 
 /* 시그니처 아바타 — 좌측 DAG의 노드 3개를 이은 마크 (그래프가 곧 에이전트) */
-const AGENT_MARK = `<svg viewBox="0 0 32 32" aria-hidden="true">
-  <circle cx="16" cy="16" r="16" fill="#2B62D9"/>
-  <path d="M10 20.5 L16 11.5 L22 20.5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="10" cy="20.5" r="2.4" fill="#fff"/>
-  <circle cx="16" cy="11.5" r="2.4" fill="#fff"/>
-  <circle cx="22" cy="20.5" r="2.4" fill="#9DBAF0"/>
-</svg>`;
+/* 브랜드 마크 — 살아 움직이는 블롭(mp4). 정지 이미지가 아니라 영상이라
+   에이전트가 '깨어 있다'는 느낌을 준다. 버블마다 video를 새로 만들면 디코더가
+   수십 개 붙으므로 poster 이미지를 기본으로 쓰고, 헤더에서만 재생한다. */
+const AGENT_MARK = `<img src="/brand/agent-logo.png" alt="" aria-hidden="true">`;
 
 function _stream() { return $("#chat-stream"); }
 function _tstamp() {
@@ -759,12 +756,11 @@ function chatEntities(kind, res) {
     };
   } else if (kind === "match") {
     const cands = (res.candidates || []).slice(0, 5);
-    rows = cands.map((c, i) => [
-      `${i + 1}위${c.weak ? " ⚠️" : ""}`,
-      `${c.name || c.company_id} · 점수 ${c.retrieval_score ?? "-"}` +
-      (c.api_relatedness != null ? ` · API ${c.api_relatedness}` : ""),
-    ]);
-    title = `후보 발굴 완료 — 상위 ${rows.length}곳`;
+    // 점수·'약한 후보' 표기를 화면에 내지 않는다: 등급 라벨은 엔진이 사람 대신
+    // 결론을 내리는 것이고(고르는 건 사람이다), 소수점 점수는 근거가 아니라
+    // 권위처럼 읽힌다. 순위와 '왜 골랐는지'(match_points)만 보여준다.
+    rows = cands.map((c, i) => [`${i + 1}위`, c.name || c.company_id]);
+    title = `후보 ${rows.length}곳`;
     after = () => {
       botMsg("어느 곳부터 적합도를 판단할까요? (박사님 10축 온톨로지)");
       chipRow(cands.slice(0, 3).map((c) => ({
@@ -1361,7 +1357,6 @@ function renderCandLane(candidates) {
             title="${esc(c.summary || c.name)}">
       <span class="wf-cand-dot"></span>
       <span class="wf-cand-name">${esc(c.name)}</span>
-      <i class="wf-cand-score"><b style="width:${Math.min(c.retrieval_score * 100, 100)}%"></b></i>
       <small class="wf-cand-dec">판단 대기</small>
     </button>`).join("");
   lane.querySelectorAll(".wf-cand").forEach((chip) => {
@@ -2057,9 +2052,6 @@ async function runMatch(allowWeak) {
     $("#synth").innerHTML = `<b>합성된 이상적 상대상</b> (검색어가 된 문장): ${esc(data.synthesized_counterpart)}`;
     $("#synth").classList.remove("hidden");
     renderLatency(data);
-    if (data.weak_fallback) {
-      showError("#match-error", "⚠️ 강한 후보 없음 — 아래는 τ 기준 미달인 약한 후보입니다(카드에 표시).");
-    }
     state.judged = {};   // 새 후보군 — 이전 후보의 판단 수를 이어받지 않는다
     renderCandidates(data.candidates);
     renderCandLane(data.candidates);
@@ -2067,13 +2059,26 @@ async function runMatch(allowWeak) {
     ["compose", "negotiate"].forEach((k) =>
       setNodeState(k, "locked", "판단 후"));
     refreshNodeGates();
-    openDrawer("match", "result");
+    // 데모는 채팅이 주 화면 — 결과는 채팅에 흐르므로 드로어를 밀어 올리지 않는다
+    // (대화 중에 모달이 튀어나오면 흐름이 끊긴다).
+    if (!_stream()) openDrawer("match", "result");
   } catch (err) {
     if (err.code === "no_strong_candidate") {
+      // 등급 라벨('강한/약한 후보') 대신 사실만 말하고, 다음 행동은 사람이 고른다.
+      // 채팅이 있으면 대화로 처리 — 모달·에러박스를 띄우지 않는다.
+      if (_stream()) {
+        botMsg("지금 조건에 들어맞는 상대를 풀에서 찾지 못했어요.<br>" +
+               "조건을 넓히거나, 순위가 낮은 후보까지 함께 볼 수 있어요 — 판단은 직접 하시면 돼요.");
+        chipRow([
+          { label: "순위 낮은 후보까지 보기", on: () => { userMsg("더 보기"); runMatch(true); } },
+          { label: "조건 바꾸기", on: () => document.getElementById("modal-intent").showModal() },
+        ]);
+        $("#candidates").innerHTML = "";
+        return;
+      }
       const box = document.getElementById("match-error");
-      box.innerHTML = "강한 후보 없음 — 엔진이 약한 후보를 억지로 채우지 않았어요. "
-        + "의도(지역·가치제안)를 바꾸거나, "
-        + `<button type="button" id="btn-match-weak" class="link-btn">그래도 약한 후보 보기</button>`;
+      box.innerHTML = "지금 조건에 맞는 상대를 풀에서 찾지 못했어요. "
+        + `<button type="button" id="btn-match-weak" class="link-btn">순위 낮은 후보까지 보기</button>`;
       box.classList.remove("hidden");
       document.getElementById("btn-match-weak").onclick = () => runMatch(true);
     } else {
@@ -2125,10 +2130,6 @@ function renderCandidates(candidates) {
     <div class="cand" id="cand-${esc(c.company_id)}">
       <div class="cand-head">
         <h3>${esc(c.name)} <small>(${esc(c.country)} · ${esc(c.pool)} 풀)</small></h3>
-        ${c.weak ? `<span class="weak-chip" title="τ(강한 후보 기준) 미달 — allow_weak로 억지로 채운 후보">⚠️ 약한 후보</span>` : ""}
-        <div class="score-bar" title="적합 신호 ${c.retrieval_score}"><i style="width:${Math.min(c.retrieval_score * 100, 100)}%"></i></div>
-        ${c.learned_relatedness != null ? `<span class="learned-chip" title="E9 · 1.2B 로컬 스코어러 관련도 (0~10) — 순위 산정에 사용">🧠 1.2B ${c.learned_relatedness}</span>` : ""}
-        ${c.api_relatedness != null ? `<span class="api-chip" title="API · K-EXAONE-236B 관련도 (0~10) — 비교용, 순위 미반영">☁️ API ${c.api_relatedness}</span>` : ""}
         <button class="j-btn" data-id="${esc(c.company_id)}">판단 실행 (Judge)</button>
       </div>
       <div class="points">${c.match_points.map((p) => `<span>${esc(p)}</span>`).join("")}</div>
