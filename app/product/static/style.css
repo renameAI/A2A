@@ -1282,3 +1282,5 @@ body.canvas-page { overflow: hidden; }
 @keyframes slotFlash { from { background: #E9F1FF; } to { background: #FAFCFF; } }
 .slot-flash { animation: slotFlash .7s ease; }
 @media (prefers-reduced-motion: reduce) { .slot-flash { animation: none; } }
+/* 구조화 구간 — 본문 없이 진척만 (원시 JSON 노출 방지) */
+.cquiet .cstream { font-family: inherit; font-size: 12.5px; color: #6C7A96; max-height: none; }

@@ -174,8 +174,8 @@ class _OpenAICompatExtractor:
         body = dict(payload)
         body["stream"] = True
         thinking = bool(body.get("chat_template_kwargs", {}).get("enable_thinking"))
-        label = ("깊은 추론" if thinking
-                 else "구조화" if "response_format" in body else "작성")
+        schema_call = "response_format" in body
+        label = ("깊은 추론" if thinking else "구조화" if schema_call else "작성")
         t0 = time.time()
         reason_parts: list[str] = []
         content_parts: list[str] = []
@@ -218,9 +218,17 @@ class _OpenAICompatExtractor:
                     if now - last_push >= 0.4 and (reason_parts or content_parts):
                         last_push = now
                         body_txt = "".join(content_parts)
-                        progress.live_update(
-                            label, body_txt or "".join(reason_parts),
-                            thinking=not body_txt)
+                        if schema_call:
+                            # 구조화 구간은 원시 JSON을 뱉는다 — 화면에 그대로 흘리면
+                            # 술 같은 이스케이프가 보이고, 모델이 퇴화 반복에
+                            # 빠지면("술술술…") 그 쓰레기까지 노출된다. 진행 상황만
+                            # 숫자로 알리고 본문은 숨긴다(파싱된 결과가 곧 나온다).
+                            progress.live_update(
+                                label, "", chars=len(body_txt), quiet=True)
+                        else:
+                            progress.live_update(
+                                label, body_txt or "".join(reason_parts),
+                                thinking=not body_txt)
         except httpx.ConnectError:
             raise EngineError(502, "llm_unreachable",
                               f"{self._label} 서버에 연결할 수 없습니다 ({self._url}). "
