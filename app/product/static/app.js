@@ -600,6 +600,55 @@ function chatCard(title, rows) {
     .join("")}</table></div>`);
 }
 
+/* 엔티티 체크리스트 — "전체 엔티티 → 답변 보고 채우기" 루프를 항상 보여준다.
+   한 번 띄운 카드를 제자리 갱신: 이름·자료가 들어올 때, 보강 질문이 생길 때,
+   답변할 때마다 ⬜→✅가 바뀐다. 뭐가 부족한지 사용자가 항상 안다. */
+function chatSlots() {
+  const f = chat.flow;
+  const rows = [];
+  rows.push(["회사명", f.name ? `✅ ${esc(f.name)}` : "⬜ 미입력 — 짧게 입력하면 이름으로 알아들어요"]);
+  rows.push(["회사 자료", f.assets.length
+    ? `✅ ${f.assets.length}건 (PDF ${f.assets.filter((a) => a.type === "ir_deck").length} · 텍스트 ${f.assets.filter((a) => a.type === "text").length})`
+    : "⬜ 없음 — IR PDF나 소개 텍스트"]);
+  const CORE = ["푸는 문제", "솔루션", "타겟 고객", "가치 제안"];
+  if (f.stage === "done") {
+    CORE.forEach((k) => rows.push([k, "✅ 추출 완료"]));
+  } else if (f.questions.length) {
+    f.questions.forEach(({ q }, i) => rows.push([
+      `질문 ${i + 1}`,
+      f.answers[q] != null ? `✅ ${esc(String(f.answers[q]).slice(0, 60))}`
+                           : `⬜ ${esc(q.slice(0, 60))}`,
+    ]));
+  } else {
+    CORE.forEach((k) => rows.push([k, "◇ 분석에서 추출 — 부족하면 콕 집어 여쭤봐요"]));
+  }
+  const html = `<div class="cbubble ccard cslots"><h4>📋 채워야 할 엔티티</h4><table>${
+    rows.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</table></div>`;
+  // 카드는 하나만 유지하고 제자리 교체 — 폴링·답변마다 새 카드가 쌓이면
+  // '지금 무엇이 부족한가'가 오히려 안 보인다. 바뀔 때 한 번 반짝여 시선을 준다.
+  const old = chat.slotEl?.isConnected ? chat.slotEl.querySelector(".ccard") : null;
+  if (old) {
+    old.insertAdjacentHTML("afterend", html);
+    const next = old.nextElementSibling;
+    old.remove();
+    next.classList.add("slot-flash");
+    next.addEventListener("animationend", () => next.classList.remove("slot-flash"), { once: true });
+    return;
+  }
+  chat.slotEl = pushRow("bot", html);
+}
+
+function chatGuide() {
+  botMsg("분석에 필요한 건 크게 네 가지예요:<br>" +
+    "① <b>푸는 문제</b> — 누가 겪는 어떤 문제인지<br>" +
+    "② <b>솔루션</b> — 어떻게 푸는지<br>" +
+    "③ <b>타겟 고객</b> — 누구에게 파는지<br>" +
+    "④ <b>가치 제안</b> — 매출·비용·임팩트·문제해결 중 무엇<br>" +
+    "IR에 이미 담겨 있으면 그대로 분석을 시작하세요 — 부족한 것만 제가 콕 집어 여쭤볼게요.");
+  chatSlots();
+  chatAssetChips();
+}
+
 /* ── job 폴링 → 채팅 미러 (runJob 훅) ─────────────────────────── */
 
 function renderChat(kind, job) {
@@ -766,6 +815,8 @@ async function chatStartOnboard() {
     renderProfile(data);
     $("#engine-mode").textContent = `engine: ${data.engine_mode}`;
     f.stage = "done";
+    f.questions = [];
+    chatSlots();               // 전 항목 ✅ — 채우기 루프가 닫히는 걸 보여준다
   } catch (err) {
     if (err.code === "profile_below_minimum") {
       chatQuestions(err.details?.open_questions || [], err.details?.clarify || []);
@@ -789,6 +840,7 @@ function chatQuestions(questions, clarify) {
   }
   botMsg(`거의 다 왔어요! 자료로 알 수 없는 것만 <b>${f.questions.length}건</b> 여쭤볼게요.`);
   f.stage = "questions";
+  chatSlots();               // 부족한 항목이 ⬜로 한눈에 — 답할 때마다 ✅로 바뀐다
   chatQuestionNext();
 }
 
@@ -804,7 +856,7 @@ function chatQuestionNext() {
     (c?.why ? `<div class="q-why">${esc(c.why)}</div>` : ""));
   const opts = (c?.options || []).map((o) => ({
     label: o,
-    on: () => { userMsg(o); f.answers[q] = o; chatQuestionNext(); },
+    on: () => { userMsg(o); f.answers[q] = o; chatSlots(); chatQuestionNext(); },
   }));
   opts.push({ label: "✏️ 직접 입력", on: () => {
     f.qTarget = q;
@@ -836,6 +888,13 @@ async function chatLoadList() {
   }
 }
 
+/* 이름 추출 — "리네임이야", "아 다이브인그룹이야" 같은 구어를 회사명으로 정리 */
+function _cleanName(v) {
+  return v.replace(/^(아+|어+|음+|그)[ ,.!]*/, "")
+          .replace(/(이야|이에요|예요|에요|입니다|이다|라고 해|야|임)[.!~]*$/, "")
+          .trim() || v;
+}
+
 function chatSend() {
   const input = $("#chat-input");
   const v = (input?.value || "").trim();
@@ -846,21 +905,51 @@ function chatSend() {
   if (f.qTarget) {                       // 보강 질문 직접 입력 답변
     f.answers[f.qTarget] = v;
     f.qTarget = null;
+    chatSlots();
     chatQuestionNext();
     return;
   }
-  if (f.stage === "boot" || f.stage === "name") {
-    f.name = v;
-    f.stage = "assets";
-    botMsg(`<b>${esc(v)}</b>, 반가워요! 이제 회사 소개를 붙여넣거나 IR PDF를 올려주세요.<br>자료가 모이면 분석을 시작할게요.`);
-    chatAssetChips();
-  } else if (f.stage === "assets") {
-    f.assets.push({ type: "text", content: v });
-    botMsg(`자료로 저장했어요 (${f.assets.length}건). 더 추가해도 되고, 바로 분석해도 돼요.`);
-    chatAssetChips();
-  } else {
-    botMsg("지금은 진행 중이에요 — 질문이 오면 여기서 바로 답할 수 있어요.");
+  if (f.stage === "running") {
+    botMsg("지금 분석 중이에요 — 질문이 오면 여기서 바로 답할 수 있어요.");
+    return;
   }
+  /* 사용자가 에이전트에게 묻는 경우 — 자료로 삼키지 않고 안내로 답한다 */
+  if (v.length <= 60 && (/[?？]$/.test(v) || /어떤 자료|뭐가 필요|뭘 줘|뭘 더/.test(v))) {
+    chatGuide();
+    return;
+  }
+  /* 짧은 한 줄 = 회사명 (자료는 보통 문단이다). 이미 이름이 있으면 정정인지 물어본다 —
+     실측: PDF 먼저 올린 뒤 "리네임이야"가 자료 4건으로 쌓였다(이름을 물어놓고 안 받음). */
+  const short = v.length <= 30 && !v.includes("\n");
+  if (short && !f.name) {
+    f.name = _cleanName(v);
+    f.stage = "assets";
+    botMsg(`<b>${esc(f.name)}</b>(으)로 기억할게요! 소개 텍스트를 붙여넣거나 IR PDF를 더 올려도 좋아요.`);
+    chatSlots();
+    chatAssetChips();
+    return;
+  }
+  if (short && f.name) {
+    const cand = _cleanName(v);
+    chipRow([
+      { label: `이름을 '${cand}'(으)로 변경`, on: () => {
+        f.name = cand;
+        botMsg(`회사명을 <b>${esc(cand)}</b>(으)로 바꿨어요.`);
+        chatSlots(); chatAssetChips();
+      } },
+      { label: "짧지만 자료로 저장", on: () => {
+        f.assets.push({ type: "text", content: v });
+        botMsg(`자료로 저장했어요 (${f.assets.length}건).`);
+        chatSlots(); chatAssetChips();
+      } },
+    ]);
+    return;
+  }
+  f.stage = "assets";
+  f.assets.push({ type: "text", content: v });
+  botMsg(`자료로 저장했어요 (${f.assets.length}건). 더 추가해도 되고, 바로 분석해도 돼요.`);
+  chatSlots();
+  chatAssetChips();
 }
 
 function chatInit() {
@@ -880,19 +969,22 @@ function chatInit() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error?.message || "업로드 실패");
       chat.flow.assets.push({ type: "ir_deck", content: "", url: data.path });
-      if (chat.flow.stage === "boot" || chat.flow.stage === "name") {
-        chat.flow.stage = "assets";
-        botMsg("IR 덱을 받았어요! 회사 이름도 알려주시면 더 정확해져요.");
-      } else {
-        botMsg(`IR 덱을 자료에 추가했어요 (${chat.flow.assets.length}건).`);
-      }
+      // stage는 바꾸지만 이름은 별도 슬롯 — 예전엔 stage=assets가 되면서 이후 입력이
+      // 전부 자료로 삼켜져, 이름을 물어놓고 못 받는 상태가 됐다.
+      chat.flow.stage = "assets";
+      botMsg(chat.flow.name
+        ? `IR 덱을 자료에 추가했어요 (${chat.flow.assets.length}건).`
+        : "IR 덱을 받았어요! <b>회사 이름</b>만 한 줄로 알려주시면 더 정확해져요.");
+      chatSlots();
       chatAssetChips();
     } catch (err) {
       botMsg(esc(err.message), { label: "오류", cls: "err" });
     }
     e.target.value = "";
   };
-  botMsg("안녕하세요! 저는 파트너를 찾아드리는 <b>매칭 에이전트</b>예요.<br>먼저 <b>회사 이름</b>을 알려주시겠어요?");
+  botMsg("안녕하세요! 저는 파트너를 찾아드리는 <b>매칭 에이전트</b>예요.<br>" +
+    "아래 항목을 채워가면서 회사의 상(像)을 세울게요. 먼저 <b>회사 이름</b>부터요.");
+  chatSlots();               // 처음부터 '무엇을 채워야 하는지' 전체를 보여준다
   chipRow([
     { label: "📄 IR PDF 올리기", keep: true, on: () => $("#chat-pdf").click() },
     { label: "기존 기업 불러오기", keep: true, on: chatLoadList },
