@@ -1273,3 +1273,12 @@ body.canvas-page { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .chat-dot.on, .ctyping span, .cstream .cursor { animation: none; }
 }
+
+/* 엔티티 체크리스트 — 채우기 루프의 현재 상태 (제자리 갱신) */
+.cslots { border-color: #C8D6EC; background: #FAFCFF; }
+.cslots h4 { color: #2B62D9; }
+.cslots td:first-child { width: 86px; color: #5A6B8A; }
+.cslots td:last-child { font-variant-numeric: tabular-nums; }
+@keyframes slotFlash { from { background: #E9F1FF; } to { background: #FAFCFF; } }
+.slot-flash { animation: slotFlash .7s ease; }
+@media (prefers-reduced-motion: reduce) { .slot-flash { animation: none; } }
