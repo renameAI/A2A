@@ -1284,3 +1284,77 @@ body.canvas-page { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .slot-flash { animation: none; } }
 /* 구조화 구간 — 본문 없이 진척만 (원시 JSON 노출 방지) */
 .cquiet .cstream { font-family: inherit; font-size: 12.5px; color: #6C7A96; max-height: none; }
+
+/* ── A2A 왕복 — 상대 에이전트는 다른 인격으로 보이게 (좌측·자주색 계열) ── */
+.crow-peer .cavatar::after {
+  content: ""; display: block; width: 30px; height: 30px; border-radius: 50%;
+  background: #6D3FD4; box-shadow: inset 0 0 0 2px rgba(255,255,255,.35);
+}
+.crow-peer .cavatar svg { display: none; }
+.ct-peer { color: #6D3FD4; font-weight: 800; }
+.cpeer {
+  background: #F6F2FF; border: 1px solid #E2D8FA;
+  border-left: 3px solid #6D3FD4; border-top-left-radius: 5px;
+}
+.cpeer b { color: #4A2A9E; }
+.a2a-verdict {
+  display: inline-block; margin-top: 6px; font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 999px;
+}
+.a2a-verdict.v-fit { background: #E0F3E8; color: #1D7A48; }
+.a2a-verdict.v-caution { background: #FDF1DD; color: #AD6C07; }
+.a2a-verdict.v-unfit { background: #FDE8E8; color: #C0392B; }
+.a2a-verdict.v-na { background: #EEF1F6; color: #6C7A96; }
+
+/* ── 헤더 A2A 배지 — 이 채팅이 프로토콜 위에서 돈다는 표시 ── */
+.chat-proto {
+  margin-left: auto; font-family: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: .1em;
+  color: var(--chat-brand); background: #EDF2FD; border: 1px solid #D3E0F8;
+  padding: 3px 8px; border-radius: 5px;
+}
+.chat-head .chat-dot { margin-left: 8px; }
+
+/* ── 대화 리듬 — 첫 버블만 이름/시간, 연속 버블은 붙여서 읽기 ── */
+#chat-stream { padding-bottom: 30px; }
+.crow + .crow { margin-top: 2px; }
+.crow.cfirst + .crow.cfirst { margin-top: 13px; }
+.cbubble { transition: box-shadow .2s; }
+.crow-bot .cbubble strong, .crow-bot .cbubble b { color: #10203A; }
+
+/* 사용자 버블 — 살짝 그라디언트로 깊이만 (플랫한 단색보다 손이 간 느낌) */
+.cb-user {
+  background: linear-gradient(180deg, #3A6FE0 0%, var(--chat-brand) 100%);
+  box-shadow: 0 1px 2px rgba(43, 98, 217, .28);
+}
+
+/* 시스템 노트 — 좌우 헤어라인으로 '구간 표시'임을 명확히 */
+.cnote {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 11px; letter-spacing: -.1px;
+}
+.cnote::before, .cnote::after {
+  content: ""; flex: 1; height: 1px; background: var(--chat-line);
+}
+
+/* A2A 왕복 — 상대 에이전트 버블에 프로토콜 느낌의 좌측 레일 */
+.cpeer { position: relative; }
+.cpeer::before {
+  content: ""; position: absolute; left: -3px; top: 10px; bottom: 10px;
+  width: 3px; border-radius: 2px;
+  background: linear-gradient(180deg, #8A5CF5, #6D3FD4);
+}
+.crow-peer .cavatar::after {
+  background: linear-gradient(145deg, #8A5CF5, #5B2FC0);
+  box-shadow: 0 1px 3px rgba(93, 47, 192, .35);
+}
+.ct-peer::before { content: "◆ "; opacity: .7; }
+
+/* 판정 칩 — 굵기·자간으로 위계 (색만으로 구분하지 않는다) */
+.a2a-verdict { letter-spacing: -.1px; border: 1px solid transparent; }
+.a2a-verdict.v-unfit { border-color: #F0C4C0; }
+.a2a-verdict.v-caution { border-color: #EDD9AE; }
+.a2a-verdict.v-fit { border-color: #BFE2CD; }
+
+/* 엔티티 카드 헤더 — 아이콘 자리 확보로 스캔 속도 */
+.ccard h4 { display: flex; align-items: center; gap: 6px; letter-spacing: -.3px; }

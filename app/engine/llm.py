@@ -100,7 +100,9 @@ def sanitize(obj):
     return obj
 
 
-_REPEAT_WINDOW = 40   # 퇴화 감지 창 — 최근 델타 N개가 사실상 같은 조각이면 중단
+_REPEAT_WINDOW = 40       # 퇴화 감지 창 — 최근 델타 N개가 사실상 같은 조각이면 중단
+_PARA_CHECK_EVERY = 60    # 문단 순환 검사 주기(델타 수) — 매 델타마다 재계산하지 않게
+_PARA_MIN_CHARS = 3000    # 이 길이를 넘겨야 문단 검사 — 짧은 정상 출력은 건드리지 않는다
 
 
 class _SynthResp:
@@ -232,6 +234,21 @@ class _OpenAICompatExtractor:
                         if len(uniq) <= 2 and avg <= 30:
                             progress.log(self._label,
                                          f"⚠ 퇴화 반복 감지({', '.join(list(uniq)[:2])!r}) — "
+                                         f"{len(''.join(content_parts)):,}자에서 중단")
+                            fin = "repetition"
+                            break
+                    # 문단 단위 순환 — 토큰 창으로는 안 잡힌다. 실측(다이브인 IR):
+                    # "이 회사는 …자체 플랫폼… / …프로젝트 기반 거래… / …파트너 호텔…"
+                    # 세 문단이 통째로 되풀이되며 19,286자까지 갔다. 각 델타는 서로
+                    # 달라서 uniq 검사를 그대로 통과한다 → 긴 꼬리를 문단으로 쪼개
+                    # 중복률을 본다(전체를 매번 재계산하지 않게 길이 게이트를 둔다).
+                    if (len(content_parts) % _PARA_CHECK_EVERY == 0
+                            and sum(len(t) for t in content_parts) > _PARA_MIN_CHARS):
+                        paras = [p.strip() for p in
+                                 "".join(content_parts).split("\n\n") if len(p.strip()) > 40]
+                        if len(paras) >= 6 and len(set(paras)) / len(paras) < 0.6:
+                            progress.log(self._label,
+                                         f"⚠ 문단 순환 감지(고유 {len(set(paras))}/{len(paras)}) — "
                                          f"{len(''.join(content_parts)):,}자에서 중단")
                             fin = "repetition"
                             break

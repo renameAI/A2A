@@ -493,7 +493,7 @@ function renderTicker(job) {
   t.classList.toggle("tick-live", running);
 }
 
-/* ═══ 매칭 에이전트 채팅 — 메신저형 대화 UI (데모 우측 패널) ═══════════
+/* ═══ 리네임 에이전트 채팅 — 메신저형 대화 UI (데모 우측 패널) ═══════════
    문법: 좌 = 에이전트(아바타·이름·흰 버블), 우 = 사용자(파란 버블).
    에이전트의 자문자답은 버블 위 마이크로 태그(확인→REQ / 결과→RES)로만 표기.
    입력도 여기서: 회사명·자료 텍스트는 컴포저로, IR PDF는 ＋버튼으로,
@@ -552,7 +552,7 @@ function pushRow(side, innerHtml, rowCls = "") {
   row.className = `crow crow-${side}${first ? " cfirst" : ""} ${rowCls}`;
   if (side === "bot") {
     row.innerHTML = `<span class="cavatar">${first ? AGENT_MARK : ""}</span>
-      <div class="cbody">${first ? `<div class="cname">매칭 에이전트 <time>${_tstamp()}</time></div>` : ""}${innerHtml}</div>`;
+      <div class="cbody">${first ? `<div class="cname">리네임 에이전트 <time>${_tstamp()}</time></div>` : ""}${innerHtml}</div>`;
   } else if (side === "user") {
     row.innerHTML = `<div class="cbody">${first ? `<div class="cname"><time>${_tstamp()}</time></div>` : ""}${innerHtml}</div>`;
   } else {
@@ -775,13 +775,15 @@ function chatEntities(kind, res) {
   } else if (kind === "judge") {
     const jr = res.judge_result;
     if (!jr) return;
+    const who = res.candidate_id || res.scout_company || "";
+    chatA2AExchange(who, jr);          // 축별 왕복을 대화로 재생 (LLM 추가 호출 0)
     rows = [["결정", `${DECISION_KO[jr.decision] || jr.decision}`],
             ["근거", jr.decision_rationale]]
       .concat((jr.category_judgments || []).slice(0, 10).map((d) => [
         DIM_KO[d.dimension] || d.dimension,
         `${VERDICT_KO[d.verdict] || d.verdict} (${AXIS_STATUS_KO[d.status] || d.status})`,
       ]));
-    title = `적합도 판단 — ${esc(res.candidate_id || res.scout_company || "")}`;
+    title = `적합도 판단 — ${esc(who)}`;
     const cid = res.candidate_id;
     if (cid && ["recommend", "conditional"].includes(jr.decision)) {
       after = () => {
@@ -1071,7 +1073,7 @@ function chatInit() {
     }
     e.target.value = "";
   };
-  botMsg("안녕하세요! 저는 파트너를 찾아드리는 <b>매칭 에이전트</b>예요.<br>" +
+  botMsg("안녕하세요! 저는 파트너를 찾아드리는 <b>리네임 에이전트</b>예요.<br>" +
     "아래 항목을 채워가면서 회사의 상(像)을 세울게요. 먼저 <b>회사 이름</b>부터요.");
   chatSlots();               // 처음부터 '무엇을 채워야 하는지' 전체를 보여준다
   chipRow([
@@ -1080,6 +1082,63 @@ function chatInit() {
   ], { keep: true });
 }
 chatInit();
+
+/* ── A2A 왕복 재생 — 판단을 '두 에이전트의 대화'로 보여준다 ─────────
+   추가 LLM 호출은 0이다. 상대의 질문은 박사님 온톨로지(buyer_ontology.yaml)의
+   실문장이고, 우리 답변은 엔진이 이미 만든 축별 rationale 그대로다. 즉 문구를
+   새로 지어내지 않는다 — 순서와 연출만 대화형으로 바꾼 것이다.
+   판정이 애매한 축(caution/unfit)만 왕복으로 보여준다: 10축을 전부 펼치면
+   대화가 길어져 오히려 '무엇이 쟁점인지'가 묻힌다. */
+
+let _axesMeta = null;
+async function axesMeta() {
+  if (_axesMeta) return _axesMeta;
+  try {
+    const d = await api("/product/axes");
+    _axesMeta = Object.fromEntries((d.axes || []).map((a) => [a.id, a]));
+  } catch { _axesMeta = {}; }
+  return _axesMeta;
+}
+
+function peerRow(name, html) {
+  return pushRow("bot", `<span class="ctag ct-peer">${esc(name)} 에이전트</span>` +
+    `<div class="cbubble cpeer">${html}</div>`, "crow-peer");
+}
+
+async function chatA2AExchange(who, jr) {
+  const meta = await axesMeta();
+  const dims = jr.category_judgments || [];
+  // 쟁점 축 우선 — unfit → caution 순, 최대 3개
+  const rank = { unfit: 0, caution: 1, fit: 2, na: 3 };
+  const picks = [...dims]
+    .sort((a, b) => (rank[a.verdict] ?? 9) - (rank[b.verdict] ?? 9))
+    .filter((d) => ["unfit", "caution"].includes(d.verdict))
+    .slice(0, 3);
+  if (!picks.length) return;
+
+  sysNote(`A2A 왕복 — ${who} 에이전트와 쟁점 ${picks.length}건을 확인합니다`);
+  let t = 0;
+  for (const d of picks) {
+    const ax = meta[d.dimension] || {};
+    const label = ax.name || DIM_KO[d.dimension] || d.dimension;
+    // 질문 우선순위: 온톨로지 실문장 → 핵심가치를 질문형으로 → 범용.
+    // 옛 스키마(BB 축 이전) 결과엔 메타가 없어 라벨과 질문이 같은 문자열이 되어
+    // 화면에 두 번 찍혔다 — 그 경우 범용 문장을 쓴다(중복 노출 금지).
+    const q = (ax.questions || [])[0]
+      || (ax.core_value ? `${ax.core_value} — 근거를 주세요.`
+                        : "이 축에서 우리가 납득할 근거를 주세요.");
+    // status는 구 산출물에 없다 — 없으면 아예 안 그린다(undefined 노출 금지)
+    const st = AXIS_STATUS_KO[d.status];
+    setTimeout(() => peerRow(who, `<b>${esc(label)}</b><br>${esc(q)}`), t);
+    t += 900;
+    setTimeout(() => botMsg(
+      `${esc(d.rationale)}` +
+      `<div class="a2a-verdict v-${d.verdict}">${VERDICT_KO[d.verdict] || d.verdict}` +
+      `${st ? ` · ${st}` : ""}</div>`,
+      { label: "응답", cls: "res" }), t);
+    t += 900;
+  }
+}
 
 function renderCanvasNode(kind, job) {
   renderTicker(job);

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A2A 매칭엔진 v0</title>
-<link rel="stylesheet" href="/style.css?v=demo10">
+<link rel="stylesheet" href="/style.css?v=demo12">
 </head>
 <body class="canvas-page">
 <header>
@@ -72,11 +72,15 @@
   </div>
 </div>
 
-<!-- 우측 — 매칭 에이전트 메신저 (입력·질문 답변·실시간 생성까지 대화로) -->
-<section id="agent-chat" aria-label="매칭 에이전트 채팅">
+<!-- 우측 — 리네임 에이전트 메신저 (입력·질문 답변·실시간 생성까지 대화로) -->
+<section id="agent-chat" aria-label="리네임 에이전트 채팅">
   <div class="chat-head">
     <span class="chat-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#2B62D9"/><path d="M10 20.5 L16 11.5 L22 20.5" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="20.5" r="2.4" fill="#fff"/><circle cx="16" cy="11.5" r="2.4" fill="#fff"/><circle cx="22" cy="20.5" r="2.4" fill="#9DBAF0"/></svg></span>
-    <div class="chat-id"><b>매칭 에이전트</b><small id="chat-badge">대기 중</small></div>
+    <div class="chat-id">
+      <b>리네임 에이전트</b>
+      <small id="chat-badge">대기 중</small>
+    </div>
+    <span class="chat-proto" title="Agent2Agent 프로토콜로 상대 에이전트와 교신합니다">A2A</span>
     <span id="chat-dot" class="chat-dot" aria-hidden="true"></span>
   </div>
   <div id="chat-stream" aria-live="polite"></div>
@@ -322,6 +326,6 @@
   </form>
 </dialog>
 
-<script src="/app.js?v=demo10"></script>
+<script src="/app.js?v=demo12"></script>
 </body>
 </html>
