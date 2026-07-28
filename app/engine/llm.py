@@ -100,6 +100,9 @@ def sanitize(obj):
     return obj
 
 
+_REPEAT_WINDOW = 40   # 퇴화 감지 창 — 최근 델타 N개가 사실상 같은 조각이면 중단
+
+
 class _SynthResp:
     """스트리밍 SSE를 다 모은 뒤 httpx.Response의 소비 인터페이스(status_code·
     json()·text)만 합성 — _chat의 재시도·폴백 로직이 스트리밍 여부를 모르게 한다."""
@@ -214,6 +217,24 @@ class _OpenAICompatExtractor:
                             content_parts.append(delta["content"])
                         if ch.get("finish_reason"):
                             fin = ch["finish_reason"]
+                    # 퇴화 반복 조기 차단 — 같은 짧은 조각이 계속 나오면 끊는다.
+                    # 실측: 구조화 호출에서 </thihk>(</think> 오타)가 8,594자 반복되며
+                    # 예산을 다 태우고 타임아웃으로 끝났다. 모델이 자기 종료 토큰을
+                    # 못 만들어 갇힌 상태라 더 기다려도 회복되지 않는다 — 여기서
+                    # 끊고 위층(_retry_json 재시도 / 폭주 재샘플)에 넘긴다.
+                    if len(content_parts) >= _REPEAT_WINDOW:
+                        tail = content_parts[-_REPEAT_WINDOW:]
+                        uniq = set(t.strip() for t in tail if t.strip())
+                        avg = sum(len(t) for t in tail) / len(tail)
+                        # "같은 짧은 조각의 반복" — 종류 ≤2 + 평균 길이 ≤30자.
+                        # 총합 임계로 재면 창 크기에 물려 경계에서 조용히 안 걸린다
+                        # (실측: 40×10자=400이 <400을 못 넘어 가드가 죽어 있었다).
+                        if len(uniq) <= 2 and avg <= 30:
+                            progress.log(self._label,
+                                         f"⚠ 퇴화 반복 감지({', '.join(list(uniq)[:2])!r}) — "
+                                         f"{len(''.join(content_parts)):,}자에서 중단")
+                            fin = "repetition"
+                            break
                     now = time.time()
                     if now - last_push >= 0.4 and (reason_parts or content_parts):
                         last_push = now
@@ -435,8 +456,13 @@ class _OpenAICompatExtractor:
 
     @staticmethod
     def _parse_json(text: str) -> dict:
-        # <think> 블록·코드펜스 제거 후 JSON 추출 → 정화
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+        # <think> 블록·코드펜스 제거 후 JSON 추출 → 정화.
+        # 닫는 태그 오타 허용: 실측으로 </thihk>가 나왔다(모델이 자기 종료 토큰을
+        # 틀리게 쓰는 케이스). 정확한 </think>만 지우면 오타본은 그대로 남아 JSON
+        # 파싱까지 같이 죽는다 — think 블록은 우리가 쓰지 않는 부산물이므로
+        # 철자가 흔들려도 잘라낸다. 닫는 태그가 아예 없으면 열린 지점부터 버린다.
+        text = re.sub(r"<think>.*?</th\w*k>", "", text, flags=re.S | re.I)
+        text = re.sub(r"<think>(?![\s\S]*</th\w*k>).*?(?=\{)", "", text, flags=re.S | re.I)
         text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
         for candidate in (text, text[text.find("{"): text.rfind("}") + 1]):
             try:
@@ -501,8 +527,20 @@ class _OpenAICompatExtractor:
             try:
                 return self._parse_json(self._chat(
                     system, user, schema=schema, thinking=False, max_tokens=struct_max,
-                    # 스키마 강제 구조화라 반복 루프 위험이 낮음(문법 제약) — 0.2 유지.
-                    temperature=0.2))
+                    # 0.2 → 0.5 (2026-07-28). 앞선 주석은 "스키마 강제라 반복 루프
+                    # 위험이 낮다(문법 제약)"고 봤는데, 실측이 그 가정을 깼다:
+                    # 구조화(단일 호출)에서 </thihk>가 8,594자 반복되고 타임아웃 2회
+                    # 연속으로 났다. </thihk>는 </think>의 오타 — 모델이 자기 종료
+                    # 토큰을 못 만들어 무한 재시도에 갇힌 것이다.
+                    #
+                    # 문법 제약이 못 막는 이유: json_schema는 **JSON 본문**만 구속하고
+                    # think 블록·서두 잡담은 문법 밖이라 자유 생성이다. _parse_json이
+                    # 사후에 <think>…</think>를 지우는 것도 **닫는 태그가 정상일 때만**
+                    # 통하고, 오타로 닫히면 정규식이 안 걸려 파싱까지 실패한다.
+                    #
+                    # 온도는 이미 추론 호출에서 같은 실패모드로 0.2→0.5로 올린 전례가
+                    # 있다(300초 타임아웃 2/10→4/5 급증). 같은 처방을 여기에도 적용.
+                    temperature=0.5))
             except EngineError as e:
                 if attempt == 2 or e.code == "llm_unreachable":
                     raise

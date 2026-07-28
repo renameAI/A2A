@@ -13,6 +13,8 @@ finish_reason=stop인데 완료 토큰 5·본문 0자를 반환한 사례(API �
 이 파일은 A(1회 재시도 + 재시도 후에도 비면 명시적 에러)와 B(질문 0건이면
 API를 태우지 않음)를 고정한다.
 """
+import json
+
 import pytest
 
 from app.engine.llm import _OpenAICompatExtractor
@@ -249,3 +251,49 @@ class TestClarifySkipsEmptyQuestions:
         assert result == []
         assert ex.called is False, \
             "open_questions가 비어 있으면 API를 호출하면 안 된다"
+
+
+class TestDegenerateRepetition:
+    """퇴화 반복 차단 — 실측(2026-07-28): 구조화 호출에서 </thihk>(</think> 오타)가
+    8,594자 반복되며 예산을 태우고 타임아웃 2회로 끝났다. 모델이 자기 종료 토큰을
+    못 만들어 갇힌 상태라 더 기다려도 회복되지 않는다."""
+
+    @staticmethod
+    def _run(deltas, monkeypatch):
+        import httpx
+        from app import progress
+        from app.engine.llm import _OpenAICompatExtractor
+
+        frames = [f'data: {json.dumps({"choices": [{"delta": {"content": c}}]})}'
+                  for c in deltas] + ["data: [DONE]"]
+
+        class _FakeStream:
+            status_code = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def iter_lines(self): return iter(frames)
+            def read(self): pass
+
+        monkeypatch.setattr(httpx, "stream", lambda *a, **k: _FakeStream())
+        ex = _OpenAICompatExtractor("http://x", "t", "m", 60, "TEST",
+                                    thinking_kwargs=True)
+        progress.bind()
+        return ex._post_stream({"messages": [],
+                                "response_format": {"type": "json_schema"}}, 60).json()
+
+    def test_repeated_typo_close_tag_is_cut(self, monkeypatch):
+        d = self._run(["</thihk>\n\n"] * 200, monkeypatch)
+        assert d["choices"][0]["finish_reason"] == "repetition"
+        assert len(d["choices"][0]["message"]["content"]) < 600   # 2,000자까지 안 간다
+
+    def test_normal_generation_not_cut(self, monkeypatch):
+        words = ["회사는 ", "친환경 ", "소재를 ", "개발하고 ", "있으며 ", "진출한다. "]
+        deltas = [words[i % len(words)] for i in range(200)]
+        d = self._run(deltas, monkeypatch)
+        assert d["choices"][0]["finish_reason"] == "stop"
+        assert len(d["choices"][0]["message"]["content"]) > 800   # 전량 통과
+
+    def test_typo_close_tag_stripped_before_json(self):
+        from app.engine.llm import _OpenAICompatExtractor as E
+        assert E._parse_json('<think>고민</thihk>{"a":1}') == {"a": 1}
+        assert E._parse_json('<think>안 닫힘\n\n{"a":1}') == {"a": 1}
