@@ -1274,10 +1274,15 @@ function initCanvas() {
         || st === "running" || st === "error") openDrawer("match");
     else document.getElementById("modal-intent").showModal();
   };
+  // 데모 캔버스엔 compose·negotiate 노드가 없다(제안·협상은 우측 채팅에서 흐른다).
+  // 없는 노드에 바인딩하면 TypeError로 initCanvas가 통째로 죽어 이후 초기화가
+  // 전부 안 된다 — 옵셔널로 건다.
   ["judge", "compose"].forEach((k) => {
-    $(`#node-${k}`).onclick = () => { if (nodeSt(k) !== "locked") openDrawer("match"); };
+    const el = $(`#node-${k}`);
+    if (el) el.onclick = () => { if (nodeSt(k) !== "locked") openDrawer("match"); };
   });
-  $("#node-negotiate").onclick = () => {
+  const negEl = $("#node-negotiate");
+  if (negEl) negEl.onclick = () => {
     npReset();
     const nameEl = document.getElementById("core-name");
     if (nameEl && nameEl.value.trim()) $("#np-company").value = nameEl.value.trim();
