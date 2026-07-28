@@ -1,6 +1,12 @@
 {
   "company": "Napa Valley Roadside Inn",
   "sector": "hospitality_renovation",
+  "country": "USA",
   "product": "3성급 · 30객실 · Napa, CA",
-  "public_profile": "와인 관광, 객실 노후, 업셀 잠재 (Napa, CA, USA)"
+  "public_profile": "와인 관광, 객실 노후, 업셀 잠재 (Napa, CA, USA)",
+  "pain_signal": "와인 관광, 객실 노후, 업셀 잠재",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }

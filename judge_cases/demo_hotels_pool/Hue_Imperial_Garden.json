@@ -1,6 +1,12 @@
 {
   "company": "Hue Imperial Garden",
   "sector": "hospitality_renovation",
+  "country": "Vietnam",
   "product": "3성급 · 32객실 · Hue",
-  "public_profile": "문화 관광지, 객실 노후, 낮은 RevPAR (Hue, Vietnam)"
+  "public_profile": "문화 관광지, 객실 노후, 낮은 RevPAR (Hue, Vietnam)",
+  "pain_signal": "문화 관광지, 객실 노후, 낮은 RevPAR",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }

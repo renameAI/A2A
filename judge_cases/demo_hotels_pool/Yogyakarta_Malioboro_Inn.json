@@ -1,6 +1,12 @@
 {
   "company": "Yogyakarta Malioboro Inn",
   "sector": "hospitality_renovation",
+  "country": "Indonesia",
   "product": "3성급 · 30객실 · Yogyakarta",
-  "public_profile": "문화 관광 중심지, 노후 객실, 낮은 객단가 (Yogyakarta, Indonesia)"
+  "public_profile": "문화 관광 중심지, 노후 객실, 낮은 객단가 (Yogyakarta, Indonesia)",
+  "pain_signal": "문화 관광 중심지, 노후 객실, 낮은 객단가",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }

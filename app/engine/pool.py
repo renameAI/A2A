@@ -180,19 +180,37 @@ def _load_extra_pool() -> list[CandidateRecord]:
             profile_text = r.get("public_profile") or ""
         except Exception:                          # noqa: BLE001 — 불량 파일은 건너뜀
             continue
+        # 선택 필드 — 있으면 실제 값을 쓴다(자리표시자로 덮지 않는다).
+        # 실측(데모 호텔 풀): 원본에 pain_signal·demand_type·purchase_value_props·
+        # willingness_purchase가 있는데 로더가 전부 버리고 "○○ 분야의 사업 성장" 같은
+        # 자리표시자만 넣었다. judge는 그 빈 프로필을 보고 10축을 전부
+        # "자료에 없어 caution"으로 판정했다 — 모델이 게으른 게 아니라 입력이 비었던
+        # 것이다. 기존 코스닥 풀(201건)엔 이 필드가 없으므로 없으면 종전대로 둔다.
+        pain = (r.get("pain_signal") or "").strip()
+        country = r.get("country") or "한국"
+        vps = [ValueProp(v) for v in (r.get("purchase_value_props") or [])
+               if v in ValueProp.__members__]
+        w = r.get("willingness_purchase")
+        buyer = r.get("demand_type") or ""
         out.append(CandidateRecord(
             company_id=f"kq-{name}",
             pool=PoolKind.external,
             profile=Profile(
-                basic=BasicInfo(name=name, country="한국", industry=sector),
+                basic=BasicInfo(name=name, country=country, industry=sector),
                 description=profile_text[:600],
-                # 외부 풀 계약: buy-side 정보는 미상 — 섹터·제품에서 최소 추론만
-                problem_solved=_inferred(f"{sector} 분야의 사업 성장", 0.5),
+                # buy-side 정보는 원본에 있으면 그것을, 없으면 최소 추론만
+                problem_solved=(_inferred(pain, 0.8) if pain
+                                else _inferred(f"{sector} 분야의 사업 성장", 0.5)),
                 solution=_inferred(product or sector, 0.6),
-                target_customer=_inferred(f"{sector} 수요 기업", 0.5),
+                target_customer=_inferred(
+                    f"{buyer} 유형 구매자" if buyer else f"{sector} 수요 기업",
+                    0.7 if buyer else 0.5),
+                purchase_value_props=vps,
+                willingness_purchase=(Willingness(w)
+                                      if w in Willingness.__members__ else None),
             ),
-            # 검색 면(sell_outreach): 키워드 밀도가 높은 섹터·제품을 앞에
-            pain_points=f"{sector} {product}",
+            # 검색 면(sell_outreach): 상대가 '겪는 문제'가 핵심 신호다 — pain을 앞에
+            pain_points=f"{pain} {sector} {product}".strip(),
             tags=[t for t in [sector] + product.split(",")[:2] if t.strip()],
         ))
     _EXTRA_POOL = out

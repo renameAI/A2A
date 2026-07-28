@@ -762,7 +762,7 @@ function chatEntities(kind, res) {
     rows = cands.map((c, i) => [`${i + 1}위`, c.name || c.company_id]);
     title = `후보 ${rows.length}곳`;
     after = () => {
-      botMsg("어느 곳부터 적합도를 판단할까요? (박사님 10축 온톨로지)");
+      botMsg("어느 곳부터 적합도를 판단할까요?");
       chipRow(cands.slice(0, 3).map((c) => ({
         label: `⚖️ ${c.name || c.company_id}`,
         on: (btn) => { userMsg(`${c.name || c.company_id} 판단`); judgeCandidate(c.company_id, btn); },
@@ -796,7 +796,7 @@ function chatEntities(kind, res) {
           `<small>레퍼런스: ${esc(m.reference_used)} · 주장→근거 추적 ${(m.claim_trace || []).length}건</small></div>`);
       }, 400 * i);
     });
-    setTimeout(() => sysNote("send_blocked — 발송은 검토 후 사람이 직접 결정합니다 (CMP-06)"),
+    setTimeout(() => sysNote("초안까지만 만들었어요 — 발송은 검토 후 직접 결정하세요"),
       400 * (res.messages || []).length + 200);
     return;
   } else {
@@ -2191,16 +2191,21 @@ function ensureLogBox(parent) {
 }
 
 async function judgeCandidate(candidateId, btn) {
-  btn.disabled = true; btn.textContent = "판단 중...";
+  const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "판단 중..."; }
   setCandState(candidateId, "running");
+  // 채팅에서 부르면 후보 카드 DOM이 없다(드로어를 안 열기 때문). 예전엔 area가
+  // null이라 ensureLogBox에서 바로 터져 A2A 왕복까지 도달을 못 했다 — 카드가
+  // 있으면 카드에 그리고, 없으면 채팅만으로 진행한다.
   const area = $(`#cand-${CSS.escape(candidateId)} .judge-area`);
-  const logBox = ensureLogBox(area);
+  const logBox = area ? ensureLogBox(area) : $("#match-log");
   try {
     const data = await runJob("/product/judge",
       { company_id: state.companyId, candidate_id: candidateId,
         intent: state.intent || collectIntent() }, logBox, "judge");
     state.judged[candidateId] = data.judge_result;
     setCandState(candidateId, "done", data.judge_result.decision);
+    if (!area) return;                          // 채팅 경로 — 결과는 renderChat이 그린다
     area.innerHTML = renderJudgment(data.judge_result, candidateId);
     if (logBox._pipe) area.prepend(logBox._pipe);   // 파이프박스도 함께 복원 (innerHTML로 유실 방지)
     area.prepend(logBox);                       // 로그는 결과 위에 유지 (접힘)
@@ -2214,9 +2219,10 @@ async function judgeCandidate(candidateId, btn) {
     const msg = err.code === "deal_breaker"
       ? `deal-breaker 결렬 — ${esc(err.details?.reason || err.message)} (사람에게 비노출 처리되는 매칭입니다)`
       : esc(`${err.code || ""} ${err.message}`);
-    area.insertAdjacentHTML("beforeend", `<div class="error">${msg}</div>`);
+    if (area) area.insertAdjacentHTML("beforeend", `<div class="error">${msg}</div>`);
+    else if (_stream()) botMsg(msg, { label: "오류", cls: "err" });
   } finally {
-    btn.disabled = false; btn.textContent = "판단 실행 (Judge)";
+    if (btn) { btn.disabled = false; btn.textContent = label || "판단 실행 (Judge)"; }
     refreshNodeGates();
   }
 }

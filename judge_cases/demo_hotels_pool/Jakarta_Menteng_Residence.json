@@ -1,6 +1,12 @@
 {
   "company": "Jakarta Menteng Residence",
   "sector": "hospitality_renovation",
+  "country": "Indonesia",
   "product": "3성급 · 55객실 · Jakarta (Menteng)",
-  "public_profile": "비즈니스 호텔, 객실 노후, 점유율 압박, 차별화 부재 (Jakarta (Menteng), Indonesia)"
+  "public_profile": "비즈니스 호텔, 객실 노후, 점유율 압박, 차별화 부재 (Jakarta (Menteng), Indonesia)",
+  "pain_signal": "비즈니스 호텔, 객실 노후, 점유율 압박, 차별화 부재",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }

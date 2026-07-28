@@ -1,6 +1,12 @@
 {
   "company": "Route 66 Motor Lodge",
   "sector": "hospitality_renovation",
+  "country": "USA",
   "product": "3성급 · 42객실 · Flagstaff, AZ",
-  "public_profile": "노스탤지어 로드사이드, 노후, 재포지셔닝 필요 — 경험형 전환 잠재 (Flagstaff, AZ, USA)"
+  "public_profile": "노스탤지어 로드사이드, 노후, 재포지셔닝 필요 — 경험형 전환 잠재 (Flagstaff, AZ, USA)",
+  "pain_signal": "노스탤지어 로드사이드, 노후, 재포지셔닝 필요 — 경험형 전환 잠재",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }

@@ -1,6 +1,12 @@
 {
   "company": "Hôtel des Calanques",
   "sector": "hospitality_renovation",
+  "country": "France",
   "product": "3성급 · 28객실 · Cassis",
-  "public_profile": "해안 관광지, 객실 낡음, 비수기 매출 공백 (Cassis, France)"
+  "public_profile": "해안 관광지, 객실 낡음, 비수기 매출 공백 (Cassis, France)",
+  "pain_signal": "해안 관광지, 객실 낡음, 비수기 매출 공백",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }

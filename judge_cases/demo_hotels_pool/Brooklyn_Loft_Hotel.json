@@ -1,6 +1,12 @@
 {
   "company": "Brooklyn Loft Hotel",
   "sector": "hospitality_renovation",
+  "country": "USA",
   "product": "4성급 · 60객실 · New York (Brooklyn)",
-  "public_profile": "이미 디자인 지향 신축 (New York (Brooklyn), USA)"
+  "public_profile": "이미 디자인 지향 신축 (New York (Brooklyn), USA)",
+  "pain_signal": "이미 디자인 지향 신축",
+  "demand_type": "curator",
+  "purchase_value_props": [
+    "impact"
+  ]
 }

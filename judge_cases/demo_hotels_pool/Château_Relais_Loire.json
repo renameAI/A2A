@@ -1,6 +1,10 @@
 {
   "company": "Château Relais Loire",
   "sector": "hospitality_renovation",
+  "country": "France",
   "product": "4성급 · 18객실 · Amboise (Loire)",
-  "public_profile": "문화재 보호 건물 — 구조 변경 제약, 무철거 전환도 인허가 난이 (Amboise (Loire), France)"
+  "public_profile": "문화재 보호 건물 — 구조 변경 제약, 무철거 전환도 인허가 난이 (Amboise (Loire), France)",
+  "pain_signal": "문화재 보호 건물 — 구조 변경 제약, 무철거 전환도 인허가 난이",
+  "demand_type": "unknown",
+  "purchase_value_props": []
 }

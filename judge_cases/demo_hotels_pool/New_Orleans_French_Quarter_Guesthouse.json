@@ -1,6 +1,12 @@
 {
   "company": "New Orleans French Quarter Guesthouse",
   "sector": "hospitality_renovation",
+  "country": "USA",
   "product": "3성급 · 18객실 · New Orleans",
-  "public_profile": "역사지구, 객실 낡음, 높은 관광 수요 — 경험형 전환 적합 (New Orleans, USA)"
+  "public_profile": "역사지구, 객실 낡음, 높은 관광 수요 — 경험형 전환 적합 (New Orleans, USA)",
+  "pain_signal": "역사지구, 객실 낡음, 높은 관광 수요 — 경험형 전환 적합",
+  "demand_type": "brand",
+  "purchase_value_props": [
+    "revenue_growth"
+  ]
 }
