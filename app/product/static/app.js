@@ -675,8 +675,9 @@ function renderChat(kind, job) {
     }
   }
 
-  /* 생성 중 텍스트 — 제자리 갱신 (매 폴링마다 새 버블을 만들지 않는다) */
-  if (job.live && job.live.text) {
+  /* 생성 중 텍스트 — 제자리 갱신 (매 폴링마다 새 버블을 만들지 않는다).
+     quiet(구조화 구간)은 본문 없이 진척만 — 원시 JSON·퇴화 반복을 화면에 안 흘린다. */
+  if (job.live && (job.live.text || job.live.quiet)) {
     if (!st.live) {
       st.live = pushRow("bot", `<span class="ctag ct-gen"></span>` +
         `<div class="cbubble cstream"><span class="txt"></span><span class="cursor"></span></div>`);
@@ -684,7 +685,9 @@ function renderChat(kind, job) {
     if (st.live) {
       st.live.querySelector(".ct-gen").textContent =
         `${job.live.stage}${job.live.thinking ? " · 사고 중" : ""} — ${(job.live.chars || 0).toLocaleString()}자`;
-      st.live.querySelector(".txt").textContent = job.live.text.slice(-1500);
+      st.live.classList.toggle("cquiet", !!job.live.quiet);
+      st.live.querySelector(".txt").textContent =
+        job.live.quiet ? "결과를 필드에 배치하는 중…" : job.live.text.slice(-1500);
       const b = st.live.querySelector(".cstream");
       b.scrollTop = b.scrollHeight;
     }

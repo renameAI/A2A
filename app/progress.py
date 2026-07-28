@@ -106,17 +106,23 @@ def tick_llm() -> None:
         run.tick_llm()
 
 
-def live_update(stage: str, text: str, *, thinking: bool = False) -> None:
+def live_update(stage: str, text: str, *, thinking: bool = False,
+                chars: int | None = None, quiet: bool = False) -> None:
     """생성 중 텍스트의 실시간 꼬리 교체 — 데모 채팅 UI가 폴링으로 읽는다.
 
     전체 텍스트가 아니라 꼬리 4,000자만 싣는다: 폴링(1.2s)마다 페이로드로
     나가므로 추론이 길어져도 응답 크기가 상수로 유지된다. chars로 전체 길이는
-    정직하게 노출한다(꼬리만 보이는 게 아니라 얼마나 생성됐는지)."""
+    정직하게 노출한다(꼬리만 보이는 게 아니라 얼마나 생성됐는지).
+
+    quiet=True는 '진행 중이지만 본문은 안 보여준다' — 구조화(JSON 스키마) 구간용.
+    거긴 원시 JSON이라 이스케이프가 그대로 노출되고, 모델 퇴화 반복도 같이 새어
+    나온다. chars로 진척만 알리고 텍스트는 비운다."""
     run = _current.get()
     if run is not None:
         with run._lock:
-            run.live = {"stage": stage, "text": text[-4000:],
-                        "chars": len(text), "thinking": thinking,
+            run.live = {"stage": stage, "text": "" if quiet else text[-4000:],
+                        "chars": len(text) if chars is None else chars,
+                        "thinking": thinking, "quiet": quiet,
                         "t": round(time.time() - run._t0, 1)}
 
 
