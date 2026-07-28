@@ -164,7 +164,7 @@ _FIELD = {
         "evidence_chunk_ids": {"type": "array", "items": {"type": "string"}},
     },
 }
-_VALUE_PROPS = {"type": "array", "items": {
+_VALUE_PROPS = {"type": "array", "uniqueItems": True, "items": {
     "type": "string",
     "enum": ["revenue_growth", "cost_reduction", "impact", "problem_solving"]}}
 _WILLINGNESS = {"type": ["string", "null"],
