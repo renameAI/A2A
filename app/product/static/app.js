@@ -499,9 +499,25 @@ function renderTicker(job) {
    입력도 여기서: 회사명·자료 텍스트는 컴포저로, IR PDF는 ＋버튼으로,
    보강 질문(4지선다)은 선택지 칩으로 — 팝업 없이 대화만으로 온보딩이 돈다. */
 
+/* 핵심 4항목 — 자료에서 추출되지만 대화로 직접 채울 수도 있다.
+   dialogue 키(문제·솔루션·타겟·판매가치)는 온보딩 모달과 같은 계약이라,
+   여기서 채우면 LLM 경로에서 [보강 대화 답변]으로 최우선(stated) 처리된다. */
+const CORE_SLOTS = [
+  { key: "문제", label: "푸는 문제", ask: "누가 겪는 <b>어떤 문제</b>를 푸시나요?",
+    ph: "예: 노후 호텔 객실의 매출 정체" },
+  { key: "솔루션", label: "솔루션", ask: "그 문제를 <b>어떤 방식</b>으로 푸시나요?",
+    ph: "예: 선투자 0 아트 전환 후 매출 셰어" },
+  { key: "타겟", label: "타겟 고객", ask: "<b>누구에게</b> 파시나요?",
+    ph: "예: 동남아 중가 노후 호텔 오너" },
+  { key: "판매가치", label: "가치 제안", ask: "상대에게 주는 <b>핵심 가치</b>는 무엇인가요?",
+    choices: [["revenue_growth", "매출 증대"], ["cost_reduction", "비용 절감"],
+              ["impact", "임팩트"], ["problem_solving", "문제 해결"]] },
+];
+
 const chat = {
   byJob: {},
-  flow: { stage: "boot", name: "", assets: [], answers: {}, questions: [], qi: 0, qTarget: null },
+  flow: { stage: "boot", name: "", assets: [], answers: {}, questions: [], qi: 0,
+          qTarget: null, core: {}, coreIdx: null },
   lastSide: null, typingEl: null,
 };
 const CHAT_SKIP = ["모델 응답 대기", "추론 계획"];
@@ -610,9 +626,8 @@ function chatSlots() {
   rows.push(["회사 자료", f.assets.length
     ? `✅ ${f.assets.length}건 (PDF ${f.assets.filter((a) => a.type === "ir_deck").length} · 텍스트 ${f.assets.filter((a) => a.type === "text").length})`
     : "⬜ 없음 — IR PDF나 소개 텍스트"]);
-  const CORE = ["푸는 문제", "솔루션", "타겟 고객", "가치 제안"];
   if (f.stage === "done") {
-    CORE.forEach((k) => rows.push([k, "✅ 추출 완료"]));
+    CORE_SLOTS.forEach((s) => rows.push([s.label, "✅ 추출 완료"]));
   } else if (f.questions.length) {
     f.questions.forEach(({ q }, i) => rows.push([
       `질문 ${i + 1}`,
@@ -620,7 +635,11 @@ function chatSlots() {
                            : `⬜ ${esc(q.slice(0, 60))}`,
     ]));
   } else {
-    CORE.forEach((k) => rows.push([k, "◇ 분석에서 추출 — 부족하면 콕 집어 여쭤봐요"]));
+    CORE_SLOTS.forEach((s) => {
+      const v = f.core[s.key];
+      rows.push([s.label, v ? `✅ ${esc(String(v).slice(0, 60))}`
+                            : "◇ 자료에서 추출 — 직접 알려주셔도 돼요"]);
+    });
   }
   const html = `<div class="cbubble ccard cslots"><h4>📋 채워야 할 엔티티</h4><table>${
     rows.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</table></div>`;
@@ -793,10 +812,59 @@ function chatEntities(kind, res) {
 /* ── 대화형 온보딩 — 이름 → 자료(텍스트·PDF) → 분석 → 보강 질문 답변 ── */
 
 function chatAssetChips() {
-  chipRow([
-    { label: "📄 IR PDF 추가", keep: true, on: () => $("#chat-pdf").click() },
-    { label: "▶ 프로필 분석 시작", on: () => { userMsg("프로필 분석 시작"); chatStartOnboard(); } },
-  ], { keep: true });
+  const f = chat.flow;
+  const filled = CORE_SLOTS.filter((s) => f.core[s.key]).length;
+  const chips = [{ label: "📄 IR PDF 추가", keep: true, on: () => $("#chat-pdf").click() }];
+  if (filled < CORE_SLOTS.length) {
+    chips.push({ label: filled ? `✏️ 핵심 항목 마저 채우기 (${filled}/4)` : "✏️ 핵심 4가지 직접 알려주기",
+                 on: () => chatCoreNext(0) });
+  }
+  chips.push({ label: "▶ 프로필 분석 시작",
+               on: () => { userMsg("프로필 분석 시작"); chatStartOnboard(); } });
+  chipRow(chips, { keep: true });
+}
+
+/* 핵심 4항목을 대화로 채운다 — 자료에 있으면 굳이 안 해도 되지만,
+   체크리스트가 "직접 알려주셔도 돼요"라고 해놓고 방법이 없으면 안 된다. */
+function chatCoreNext(idx) {
+  const f = chat.flow;
+  while (idx < CORE_SLOTS.length && f.core[CORE_SLOTS[idx].key]) idx++;
+  if (idx >= CORE_SLOTS.length) {
+    botMsg("핵심 항목을 다 채웠어요. 이제 분석을 시작할 수 있어요!");
+    chatSlots();
+    chatAssetChips();
+    return;
+  }
+  const slot = CORE_SLOTS[idx];
+  f.coreIdx = idx;
+  botMsg(slot.ask + (slot.ph ? `<div class="q-why">${esc(slot.ph)}</div>` : ""));
+  if (slot.choices) {
+    // 가치 제안은 통제 어휘 — 자유 입력 대신 칩으로(복수 선택 후 완료)
+    const picked = [];
+    const row = chipRow(slot.choices.map(([v, label]) => ({
+      label, keep: true,
+      on: (btn) => {
+        const i = picked.indexOf(v);
+        if (i >= 0) { picked.splice(i, 1); btn.classList.remove("on"); }
+        else { picked.push(v); btn.classList.add("on"); }
+      },
+    })).concat([{ label: "✓ 선택 완료", on: () => {
+      if (!picked.length) { botMsg("하나 이상 골라주세요."); chatCoreNext(idx); return; }
+      const labels = picked.map((v) => VP_KO[v] || v).join("·");
+      userMsg(labels);
+      f.core[slot.key] = picked.join(",");
+      f.coreIdx = null;
+      chatSlots();
+      chatCoreNext(idx + 1);
+    } }]), { keep: true });
+    return;
+  }
+  chipRow([{ label: "건너뛰기 — 자료에서 뽑아주세요", on: () => {
+    userMsg("건너뛰기");
+    f.coreIdx = null;
+    chatCoreNext(idx + 1);
+  } }]);
+  $("#chat-input")?.focus();
 }
 
 async function chatStartOnboard() {
@@ -808,6 +876,10 @@ async function chatStartOnboard() {
   f.stage = "running";
   const dialogue = [];
   if (f.name) dialogue.push({ q: "이름", a: f.name });
+  // 핵심 4항목 — 모달과 같은 dialogue 키라 LLM 경로에서 stated로 최우선 처리된다
+  for (const s of CORE_SLOTS) {
+    if (f.core[s.key]) dialogue.push({ q: s.key, a: f.core[s.key] });
+  }
   for (const [q, a] of Object.entries(f.answers)) dialogue.push({ q, a });
   const body = { dialogue, assets: f.assets, private_state: [] };
   if (state.companyId) body.company_id = state.companyId;
@@ -905,6 +977,15 @@ function chatSend() {
   input.value = "";
   userMsg(v);
   const f = chat.flow;
+  if (f.coreIdx != null) {               // 핵심 4항목 순차 입력 중
+    const slot = CORE_SLOTS[f.coreIdx];
+    f.core[slot.key] = v;
+    const at = f.coreIdx;
+    f.coreIdx = null;
+    chatSlots();
+    chatCoreNext(at + 1);
+    return;
+  }
   if (f.qTarget) {                       // 보강 질문 직접 입력 답변
     f.answers[f.qTarget] = v;
     f.qTarget = null;
@@ -975,10 +1056,15 @@ function chatInit() {
       // stage는 바꾸지만 이름은 별도 슬롯 — 예전엔 stage=assets가 되면서 이후 입력이
       // 전부 자료로 삼켜져, 이름을 물어놓고 못 받는 상태가 됐다.
       chat.flow.stage = "assets";
-      botMsg(chat.flow.name
-        ? `IR 덱을 자료에 추가했어요 (${chat.flow.assets.length}건).`
-        : "IR 덱을 받았어요! <b>회사 이름</b>만 한 줄로 알려주시면 더 정확해져요.");
       chatSlots();
+      if (!chat.flow.name) {
+        // 이름을 묻는 중엔 칩을 띄우지 않는다 — 질문해놓고 바로 옆에
+        // "분석 시작"을 같이 내밀면 무엇을 하라는 건지 모호해진다.
+        botMsg("IR 덱을 받았어요! 이제 <b>회사 이름</b>만 한 줄로 알려주세요.");
+        $("#chat-input")?.focus();
+        return;
+      }
+      botMsg(`IR 덱을 자료에 추가했어요 (${chat.flow.assets.length}건).`);
       chatAssetChips();
     } catch (err) {
       botMsg(esc(err.message), { label: "오류", cls: "err" });
