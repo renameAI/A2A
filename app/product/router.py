@@ -665,6 +665,23 @@ class ComposeCallRequest(BaseModel):
     tone: Optional[str] = None
 
 
+def _compose_reasoning_summary(result: JudgeResult) -> dict:
+    """메일 밖의 채팅에서 보여줄 구조화 판단 근거.
+
+    원시 trajectory/CoT는 전달하지 않는다. 사용자가 검토할 수 있는 결론·근거·
+    리스크와 레퍼런스만 공개해 메일 본문과 엔진 내부 추적값을 분리한다.
+    """
+    return {
+        "decision": result.decision.value,
+        "decision_rationale": result.decision_rationale,
+        "fit_reasons": list(result.fit_reasons),
+        "gap_factors": list(result.gap_factors),
+        "risks": [risk.model_dump(mode="json") for risk in result.risks],
+        "reference": result.match_summary.reference,
+        "deal_structure": result.deal_structure,
+    }
+
+
 @router.post("/compose", status_code=202)
 def compose_draft(req: ComposeCallRequest, background: BackgroundTasks):
     rec = _require_company(req.company_id)
@@ -673,11 +690,14 @@ def compose_draft(req: ComposeCallRequest, background: BackgroundTasks):
         raise EngineError(404, "not_found", f"후보 {req.candidate_id} 없음")
 
     def _run() -> dict:
-        return compose(ComposeRequest(
+        response = compose(ComposeRequest(
             mode=req.mode, judge_result=req.judge_result,
             self_profile=rec.profile, counterpart_profile=cand.profile,
             lens=Lens.sell, variants=req.variants, tone=req.tone,
         )).model_dump(mode="json")
+        response["candidate_id"] = req.candidate_id
+        response["reasoning_summary"] = _compose_reasoning_summary(req.judge_result)
+        return response
     return _submit(background, _run)
 
 

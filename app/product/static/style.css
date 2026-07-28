@@ -1239,6 +1239,8 @@ body.canvas-page { overflow: hidden; }
 .ccard td:first-child { width: 96px; font-weight: 700; color: #58698A; white-space: nowrap; }
 .cmail .mail-body { white-space: pre-wrap; font-size: 12.5px; color: #333D55; margin: 6px 0; }
 .cmail small { color: #93A0B4; }
+.cmail-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+.cmail-foot .cmail-copy { flex: none; padding: 5px 10px; font-size: 11.5px; }
 .q-why { font-size: 11.5px; color: var(--chat-sub); margin-top: 4px; }
 
 /* ── 컴포저 ── */

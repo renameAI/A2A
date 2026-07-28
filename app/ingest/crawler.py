@@ -62,7 +62,7 @@ def _cache_dir() -> Path:
 def _cache_get(url: str) -> str | None:
     path = _cache_dir() / (hashlib.sha256(url.encode()).hexdigest()[:24] + ".json")
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         if time.time() - data["ts"] < _CACHE_TTL_SECONDS:
             return data["text"]
     except (OSError, json.JSONDecodeError, KeyError):
@@ -75,7 +75,8 @@ def _cache_put(url: str, text: str) -> None:
         _cache_dir().mkdir(parents=True, exist_ok=True)
         path = _cache_dir() / (hashlib.sha256(url.encode()).hexdigest()[:24] + ".json")
         path.write_text(json.dumps({"ts": time.time(), "url": url, "text": text},
-                                   ensure_ascii=False))
+                                   ensure_ascii=False),
+                        encoding="utf-8")
     except OSError:
         pass   # 캐시 실패가 수집을 막지 않는다
 

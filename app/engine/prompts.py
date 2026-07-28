@@ -555,6 +555,10 @@ COMPOSE_SYSTEM = HARD_RULES + """
 상대의 처지에서 "지금 이걸 검토할 이유"가 서게.
 - 모든 핵심 주장은 judge 결과의 fit_reasons에서만 가져온다. 근거 없는 주장 절대 금지. \
 각 주장을 claim_trace에 기록하고 fit_reason_ref는 "fit_reasons[i]" 형식으로 원본 인덱스를 가리킨다.
+- body는 수신자에게 그대로 복사해 보낼 수 있는 완성된 메일만 쓴다. body 안에는 \
+fit_reason_ref·fit_reasons[i]·claim_trace·reference:·reference_used 같은 내부 필드명이나 \
+"변형 variant_A —" 같은 생성 메타데이터를 절대 쓰지 않는다. 근거 매핑은 오직 \
+claim_trace와 reference_used 필드에만 기록한다.
 - reference(유사 성공 사례)를 신뢰 장치로 반드시 싣는다. "first_case"면 첫 사례임을 \
 숨기지 말고, 대신 검증 장치(소규모 PoC·성과 데이터 공유·원상 복구 등)를 함께 제안한다.
 - deal_structure가 있으면 시작 제안으로 싣는다 (문턱을 낮추는 소규모 시작).
@@ -577,7 +581,8 @@ COMPOSE_SCHEMA = {
             "required": ["variant_label", "title", "body", "claim_trace",
                          "reference_used"],
             "properties": {
-                "variant_label": {"type": "string"},
+                "variant_label": {"type": "string",
+                                  "enum": ["A", "B", "C", "D", "E"]},
                 "title": {"type": "string"},
                 "body": {"type": "string"},
                 "claim_trace": {"type": "array", "items": {
@@ -609,7 +614,8 @@ def compose_user(req) -> str:
         f"Match Summary: {jr.match_summary.problem_solution} / "
         f"{jr.match_summary.value_proposition} / 레퍼런스: {jr.match_summary.reference}\n"
         f"딜 구조: {jr.deal_structure or '없음'}",
-        "위 판단만을 근거로 메시지를 작성하라.",
+        "위 판단만을 근거로 메시지를 작성하라. body에는 수신자에게 보낼 문장만 쓰고 "
+        "근거 인덱스·필드명·변형 라벨은 절대 섞지 마라.",
     ])
 
 

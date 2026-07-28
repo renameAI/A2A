@@ -152,10 +152,9 @@ SEED_POOL: list[CandidateRecord] = [
 ]
 
 
-# ── 외부 리서치 풀 로더 (코스닥 201사 — judge_cases/company_pool) ──────
-# A2A_POOL_DIR 환경변수가 가리키는 디렉터리의 *.json(company/sector/product/
-# public_profile)을 external 후보로 로드한다. 환경변수 없으면 기존 시드만 —
-# 테스트·골든셋은 영향받지 않는다(launch.json에서만 켠다).
+# ── 데모 호텔 풀 로더 (judge_cases/demo_hotels_pool) ───────────────
+# 제품 매칭은 이 고정 디렉터리의 강화된 호텔 25건만 사용한다. 셸·launch
+# profile에 남은 환경변수나 SEED_POOL·E11이 후보를 섞지 못하게 코드에서 격리한다.
 _EXTRA_POOL: list[CandidateRecord] | None = None
 
 
@@ -164,14 +163,13 @@ def _load_extra_pool() -> list[CandidateRecord]:
     if _EXTRA_POOL is not None:
         return _EXTRA_POOL
     import json
-    import os
     from pathlib import Path
-    d = os.environ.get("A2A_POOL_DIR", "")
-    if not d or not Path(d).is_dir():
+    d = Path(__file__).resolve().parents[2] / "judge_cases" / "demo_hotels_pool"
+    if not d.is_dir():
         _EXTRA_POOL = []
         return _EXTRA_POOL
     out: list[CandidateRecord] = []
-    for f in sorted(Path(d).glob("*.json")):
+    for f in sorted(d.glob("*.json")):
         try:
             r = json.loads(f.read_text(encoding="utf-8"))
             name = r["company"]
@@ -286,15 +284,8 @@ def _load_e11_pool() -> list[CandidateRecord]:
 
 
 def get_pool() -> list[CandidateRecord]:
-    import os
-    e11 = _load_e11_pool()
-    e11_names = {r.company_id.removeprefix("e11-") for r in e11}
-    extra = [r for r in _load_extra_pool()
-             if r.company_id.removeprefix("kq-") not in e11_names]
-    # 데모 격리 — A2A_SEED_POOL=0이면 시드 7건도 뺀다(호텔 25건만 남는 완전 통제).
-    # 기본은 포함: 골든셋·테스트가 시드 역할(디스트랙터·경쟁사)에 의존한다.
-    seed = [] if os.environ.get("A2A_SEED_POOL", "1") == "0" else SEED_POOL
-    return seed + extra + e11
+    # 제품 후보는 강화된 데모 호텔 25건으로 완전 격리한다.
+    return list(_load_extra_pool())
 
 
 def find(company_id: str) -> CandidateRecord | None:

@@ -32,7 +32,7 @@ POLARITY = {"recommend": "engage", "conditional": "engage", "hold": "defer",
 
 
 def load_golden(path: Optional[str] = None) -> dict:
-    return json.loads(Path(path or _GOLDEN).read_text())
+    return json.loads(Path(path or _GOLDEN).read_text(encoding="utf-8"))
 
 
 def _profile(ref: str):

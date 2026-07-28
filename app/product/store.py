@@ -9,6 +9,8 @@ CompanyRecord는 중첩 pydantic(Profile·QuestionPin·CommentThread…)이 많�
 문서형 저장이 정확하고 단순하다. 커넥션은 호출마다 새로 연다(audit·crawler와 동일
 패턴) — 백그라운드 job 스레드가 store를 호출해도 커넥션을 공유하지 않아 안전하다.
 """
+from __future__ import annotations
+
 import json
 import os
 import sqlite3

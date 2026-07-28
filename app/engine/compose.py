@@ -5,13 +5,90 @@
 Sales=밀어내기(A/B 다수·톤 있음) / Purchase=끌어당기기(1안·톤 없음) 비대칭 (CMP-05).
 사람 승인 없는 발송 절대 금지 — 초안까지만 (CMP-06, send_blocked 항상 true).
 """
+import re
+
 from ..config import get_settings
+from ..errors import EngineError
 from ..schemas import (ClaimTrace, ComposeMode, ComposeRequest, ComposeResponse,
                        ComposedMessage, Lens)
 from .llm import get_extractor
 from .prompts import COMPOSE_SCHEMA, COMPOSE_SYSTEM, compose_user
 
 _TONES = ["정중하고 신뢰감 있게", "간결하고 직접적으로"]
+_TRACE_PAREN_RE = re.compile(
+    r"\s*(?:"
+    r"\(\s*fit_reason_ref\s*:\s*fit_reasons\s*\[\s*\d+\s*\]\s*\)"
+    r"|\[\s*fit_reason_ref\s*:\s*fit_reasons\s*\[\s*\d+\s*\]\s*\]"
+    r"|\(\s*reference(?:_used)?\s*:[^)]*\)"
+    r"|\[\s*reference(?:_used)?\s*:[^\]]*\]"
+    r")",
+    re.IGNORECASE,
+)
+_FIT_REASON_TOKEN_RE = re.compile(
+    r"fit_reasons\s*\[\s*(\d+)\s*\]", re.IGNORECASE)
+_INTERNAL_LABEL_RE = re.compile(
+    r"\b(?:fit_reason_ref|claim_trace|reference_used|variant_label)\b\s*:?",
+    re.IGNORECASE)
+_REFERENCE_LABEL_RE = re.compile(r"\breference\s*:\s*", re.IGNORECASE)
+_VARIANT_HEADER_RE = re.compile(
+    r"^\s*(?:변형\s+)?(?:variant[_\s-]*)?[A-E]\s*[—–:-]",
+    re.IGNORECASE,
+)
+_TRACE_REF_RE = re.compile(r"^fit_reasons\[(\d+)\]$")
+
+
+def _public_body(body: str) -> str:
+    """메일 본문에서 엔진 내부 추적 표식만 제거한다.
+
+    reference 자체는 수신자에게 필요한 신뢰 근거이므로 자연어 문장은 보존하고,
+    ``(reference: ...)``·``(fit_reason_ref: ...)`` 같은 기계용 주석만 없앤다.
+    일반 괄호 문장까지 지우지 않도록 내부 키 이름이 있는 패턴으로 한정한다.
+    """
+    lines = body.strip().splitlines()
+    if lines and _VARIANT_HEADER_RE.match(lines[0]):
+        if len(lines) > 1:
+            lines = lines[1:]
+        else:
+            lines[0] = _VARIANT_HEADER_RE.sub("", lines[0], count=1)
+    cleaned = "\n".join(lines)
+    cleaned = _TRACE_PAREN_RE.sub("", cleaned)
+    cleaned = _FIT_REASON_TOKEN_RE.sub("", cleaned)
+    cleaned = _INTERNAL_LABEL_RE.sub("", cleaned)
+    cleaned = _REFERENCE_LABEL_RE.sub("", cleaned)
+    cleaned = re.sub(r"[ \t]+([,.!?])", r"\1", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _finalize_response(req: ComposeRequest,
+                       response: ComposeResponse) -> ComposeResponse:
+    """LLM 출력을 공개 본문과 내부 근거 메타데이터로 최종 분리한다."""
+    from .. import progress
+
+    limit = req.variants if req.lens == Lens.sell else 1
+    messages = response.messages[:limit] or response.messages
+    separated = 0
+    reason_count = len(req.judge_result.fit_reasons)
+    for index, message in enumerate(messages):
+        message.variant_label = chr(ord("A") + index)
+        public_body = _public_body(message.body)
+        if public_body != message.body.strip():
+            separated += 1
+        if not public_body:
+            raise EngineError(
+                502, "compose_invalid_output",
+                "메일 본문에서 내부 표식을 분리한 뒤 공개할 문장이 남지 않았습니다.",
+            )
+        message.body = public_body
+        message.claim_trace = [
+            trace for trace in message.claim_trace
+            if (match := _TRACE_REF_RE.fullmatch(trace.fit_reason_ref))
+            and int(match.group(1)) < reason_count
+        ]
+    if separated:
+        progress.log("Compose", f"메일 {separated}건의 내부 판단 표식을 본문 밖으로 분리")
+    return ComposeResponse(messages=messages, send_blocked=True)
 
 
 def _outreach_body(req: ComposeRequest, tone: str) -> tuple[str, list[ClaimTrace]]:
@@ -67,16 +144,15 @@ def _llm_compose(req: ComposeRequest, extractor) -> ComposeResponse:
                             f"수신자가 사는 가치의 언어로 번역")
     data = extractor.extract_json(COMPOSE_SYSTEM, compose_user(req), COMPOSE_SCHEMA)
     messages = [ComposedMessage.model_validate(m) for m in data["messages"]]
-    limit = req.variants if req.lens == Lens.sell else 1   # CMP-05 비대칭 강제
-    return ComposeResponse(messages=messages[:limit] or messages,
-                           send_blocked=True)              # CMP-06 항상 차단
+    return _finalize_response(
+        req, ComposeResponse(messages=messages, send_blocked=True))
 
 
 def _send_gate(resp: ComposeResponse) -> ComposeResponse:
     from .. import progress
     with progress.node("sendgate", "사람 승인 게이트 (CMP-06)"):
         progress.log("Compose", f"초안 {len(resp.messages)}건 생성 — "
-                                "send_blocked=true, 발송은 사람 승인 후")
+                                "자동 발송하지 않음, 검토 후 사람이 직접 발송")
     return resp
 
 
@@ -109,5 +185,5 @@ def compose(req: ComposeRequest) -> ComposeResponse:
                 claim_trace=claims,
                 reference_used=req.judge_result.match_summary.reference,
             ))
-    return _send_gate(
-        ComposeResponse(messages=messages, send_blocked=True))   # CMP-06
+    return _send_gate(_finalize_response(
+        req, ComposeResponse(messages=messages, send_blocked=True)))   # CMP-06

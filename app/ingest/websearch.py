@@ -37,7 +37,7 @@ def _cache_key(query: str) -> Path:
 
 def _cache_get(query: str) -> "list[dict] | None":
     try:
-        data = json.loads(_cache_key(query).read_text())
+        data = json.loads(_cache_key(query).read_text(encoding="utf-8"))
         if time.time() - data["ts"] < _CACHE_TTL_SECONDS:
             return data["hits"]
     except (OSError, json.JSONDecodeError, KeyError):
@@ -49,7 +49,8 @@ def _cache_put(query: str, hits: list[dict]) -> None:
     try:
         _cache_dir().mkdir(parents=True, exist_ok=True)
         _cache_key(query).write_text(
-            json.dumps({"ts": time.time(), "hits": hits}, ensure_ascii=False))
+            json.dumps({"ts": time.time(), "hits": hits}, ensure_ascii=False),
+            encoding="utf-8")
     except OSError:
         pass
 

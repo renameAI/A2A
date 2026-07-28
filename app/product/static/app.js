@@ -732,6 +732,27 @@ function renderChat(kind, job) {
   }
 }
 
+function chatMailCard(message) {
+  const row = pushRow("bot",
+    `<div class="cbubble ccard cmail">` +
+      `<h4>✉️ 제안 메일 초안 ${esc(message.variant_label)} — ${esc(message.title)}</h4>` +
+      `<div class="mail-body">${esc(message.body)}</div>` +
+      `<div class="cmail-foot"><small>초안 · 발송 전 검토 필요</small>` +
+      `<button type="button" class="cchip cmail-copy">본문 복사</button></div>` +
+    `</div>`);
+  const copy = row?.querySelector(".cmail-copy");
+  if (copy) {
+    copy.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(message.body);
+        copy.textContent = "복사 완료";
+      } catch {
+        copy.textContent = "복사 실패";
+      }
+    };
+  }
+}
+
 function chatEntities(kind, res) {
   if (!res) return;
   const vp = (a) => (a || []).map((v) => VP_KO[v] || v).join("·") || "미상";
@@ -795,15 +816,42 @@ function chatEntities(kind, res) {
       };
     }
   } else if (kind === "compose") {
-    (res.messages || []).forEach((m, i) => {
-      setTimeout(() => {
-        pushRow("bot", `<div class="cbubble ccard cmail"><h4>✉️ 제안 메일 초안 ${esc(m.variant_label)} — ${esc(m.title)}</h4>` +
-          `<div class="mail-body">${esc(m.body)}</div>` +
-          `<small>레퍼런스: ${esc(m.reference_used)} · 주장→근거 추적 ${(m.claim_trace || []).length}건</small></div>`);
-      }, 400 * i);
+    const reasoning = res.reasoning_summary || {};
+    let delay = 0;
+    const fitReasons = reasoning.fit_reasons || [];
+    const risks = reasoning.risks || [];
+    const gaps = reasoning.gap_factors || [];
+    if (fitReasons.length || risks.length || reasoning.reference || reasoning.deal_structure) {
+      setTimeout(() => sysNote("메일에 반영한 판단 근거를 본문과 분리해 보여드릴게요"), delay);
+      delay += 300;
+      fitReasons.slice(0, 4).forEach((reason, i) => {
+        setTimeout(() => entityMsg(`제안 근거 ${i + 1}`, reason), delay);
+        delay += 320;
+      });
+      gaps.slice(0, 2).forEach((gap, i) => {
+        setTimeout(() => entityMsg(`확인할 공백 ${i + 1}`, gap), delay);
+        delay += 320;
+      });
+      risks.slice(0, 2).forEach((risk, i) => {
+        setTimeout(() => entityMsg(
+          `확인 리스크 ${i + 1}`, risk.description || String(risk)), delay);
+        delay += 320;
+      });
+      if (reasoning.reference) {
+        setTimeout(() => entityMsg("적용 레퍼런스", reasoning.reference), delay);
+        delay += 320;
+      }
+      if (reasoning.deal_structure) {
+        setTimeout(() => entityMsg("시작 제안", reasoning.deal_structure), delay);
+        delay += 320;
+      }
+    }
+    (res.messages || []).forEach((message) => {
+      setTimeout(() => chatMailCard(message), delay);
+      delay += 400;
     });
     setTimeout(() => sysNote("초안까지만 만들었어요 — 발송은 검토 후 직접 결정하세요"),
-      400 * (res.messages || []).length + 200);
+      delay + 200);
     return;
   } else {
     return;
@@ -2260,7 +2308,6 @@ function renderJudgment(jr, candidateId, opts = {}) {
     ${jr.risks.length ? `<div><b style="font-size:13px">확인 리스크</b>${jr.risks.map((r) => `
       <div class="risk-item"><span class="risk-tag rt-${r.type}">${{ precondition: "선결", profitability: "수익성", dismissed: "기각" }[r.type]}</span>${esc(r.description)}</div>`).join("")}</div>` : ""}
     ${jr.deal_structure ? `<p style="font-size:13px"><b>딜 구조:</b> ${esc(jr.deal_structure)}</p>` : ""}
-    <details><summary>추론 궤적 (CoT)</summary><pre>${esc(jr.trajectory)}</pre></details>
     ${actions ? `<div style="margin-top:12px">
       <button class="c-btn primary">콜드메일 초안 (Compose)</button>
       <button class="n-btn">A2A 협상 시뮬레이션</button>
@@ -2271,28 +2318,39 @@ function renderJudgment(jr, candidateId, opts = {}) {
 /* ── ⑤ 초안 · 협상 ──────────────────────────────────────────── */
 
 async function composeDraft(candidateId, btn) {
-  btn.disabled = true; btn.textContent = "작성 중...";
+  const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "작성 중..."; }
   const area = $(`#cand-${CSS.escape(candidateId)} .output-area`);
-  const logBox = ensureLogBox(area);
+  const logBox = area ? ensureLogBox(area) : null;
   try {
     const data = await runJob("/product/compose",
       { company_id: state.companyId, candidate_id: candidateId,
         judge_result: state.judged[candidateId], mode: "outreach", variants: 2 }, logBox, "compose");
+    if (!area) return;                          // 채팅 경로 — renderChat이 결과를 표시
     area.innerHTML = data.messages.map((m) => `
       <div class="draft">
         <h4>변형 ${esc(m.variant_label)} — ${esc(m.title)}</h4>
         <pre>${esc(m.body)}</pre>
-        <small>레퍼런스: ${esc(m.reference_used)} · 주장→근거 추적 ${m.claim_trace.length}건</small>
-        <button onclick="navigator.clipboard.writeText(this.previousElementSibling.previousElementSibling.textContent)">복사</button>
+        <small>초안 · 발송 전 검토 필요</small>
+        <button type="button" class="draft-copy">본문 복사</button>
       </div>`).join("") +
-      `<div class="send-blocked">send_blocked — 엔진은 초안까지만 생성합니다. 발송은 검토 후 사람이 직접.</div>`;
+      `<div class="send-blocked">자동 발송되지 않습니다 — 초안을 검토한 뒤 사람이 직접 발송합니다.</div>`;
+    area.querySelectorAll(".draft-copy").forEach((copy, i) => {
+      copy.onclick = () => navigator.clipboard.writeText(data.messages[i].body);
+    });
     if (logBox._pipe) area.prepend(logBox._pipe);
     area.prepend(logBox);
     logBox.classList.add("log-collapsed");
     logBox.onclick = () => logBox.classList.toggle("log-collapsed");
-  } catch (err) { area.insertAdjacentHTML("beforeend", `<div class="error">${esc(err.message)}</div>`); }
+  } catch (err) {
+    if (area) area.insertAdjacentHTML(
+      "beforeend", `<div class="error">${esc(err.message)}</div>`);
+    else if (_stream())
+      botMsg(esc(err.message || "메일 초안 작성 중 문제가 생겼어요."),
+        { label: "오류", cls: "err" });
+  }
   finally {
-    btn.disabled = false; btn.textContent = "콜드메일 초안 (Compose)";
+    if (btn) { btn.disabled = false; btn.textContent = label || "콜드메일 초안 (Compose)"; }
     refreshNodeGates();
   }
 }

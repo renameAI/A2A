@@ -9,14 +9,38 @@ from pathlib import Path
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 
+def _parse_env_value(value: str) -> str:
+    """Remove dotenv-style inline comments without touching quoted # characters."""
+    quote = None
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and quote == '"':
+            escaped = True
+            continue
+        if char in {"'", '"'}:
+            quote = None if quote == char else char if quote is None else quote
+            continue
+        if char == "#" and quote is None and (
+                index == 0 or value[index - 1].isspace()):
+            value = value[:index]
+            break
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    return value
+
+
 def _load_dotenv() -> None:
     if not _ENV_PATH.exists():
         return
-    for line in _ENV_PATH.read_text().splitlines():
+    for line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
+            os.environ.setdefault(key.strip(), _parse_env_value(value))
 
 
 class Settings:
