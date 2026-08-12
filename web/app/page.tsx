@@ -60,6 +60,7 @@ export default function Page() {
   const [keyInput, setKeyInput] = useState("");
   const [keySaving, setKeySaving] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { api("/settings/llm").then(setLlm).catch(() => {}); }, []);
 
@@ -103,13 +104,56 @@ export default function Page() {
     push({ who: "agent", text: "안녕하세요. 회사 소개 텍스트를 붙여넣으면 프로필을 만들고, 조건에 맞는 리드를 웹에서 찾아드려요." });
   }, []);
 
-  async function runOnboard(text: string) {
+  /** PDF 업로드 → 엔진이 파싱할 Asset으로 변환.
+   *  Asset 계약: 업로드 파일은 url에 서버 경로, content는 빈 문자열. */
+  async function uploadFiles(files: File[]) {
+    const assets: Array<Record<string, string>> = [];
+    for (const f of files) {
+      const fd = new FormData();
+      fd.append("file", f);
+      // rewrites 프록시는 큰 multipart에서 500이 난다(실측 35MB) —
+      // 스트리밍 Route Handler(app/api/upload/route.ts)를 쓴다.
+      const r = await fetch("/api/upload", {
+        method: "POST", headers: { "X-Dev-User": DEV_USER }, body: fd });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j?.error?.message || `${f.name} 업로드 실패 (PDF만 가능)`);
+      }
+      const { path } = await r.json();
+      assets.push({ type: "ir_deck", content: "", url: path });
+    }
+    return assets;
+  }
+
+  async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])];
+    e.target.value = "";
+    if (!files.length || busy) return;
+    push({ who: "user", text: files.map((f) => f.name).join(", ") });
+    setBusy(true);
+    try {
+      const assets = await uploadFiles(files);
+      push({ who: "agent", text: "자료를 읽고 있어요…" });
+      await runOnboard("", assets);
+    } catch (err) {
+      push({ who: "agent", text: (err as Error).message });
+      setBusy(false);
+    }
+  }
+
+  async function runOnboard(text: string,
+                            assets?: Array<Record<string, string>>) {
     setBusy(true);
     try {
       let sid = session;
       if (!sid) {
         const s = await api("/onboarding-sessions",
-          { assets: [{ type: "text", content: text }] });
+          { assets: assets ?? [{ type: "text", content: text }] });
+        sid = s.session_id; setSession(sid);
+      } else if (assets) {
+        // 이미 세션이 있는데 자료가 더 오면 새 세션으로 시작한다 —
+        // 기존 세션의 자산 목록을 갱신하는 API가 아직 없다(정직한 한계).
+        const s = await api("/onboarding-sessions", { assets });
         sid = s.session_id; setSession(sid);
       } else {
         await api(`/onboarding-sessions/${sid}/messages`, { answer: text });
@@ -367,7 +411,10 @@ export default function Page() {
               }} />
             <div className="comp-bar">
               <div className="left">
-                <button className="icon-btn" title="자료 올리기">＋</button>
+                <input ref={fileRef} type="file" accept=".pdf" multiple hidden
+                  onChange={onPickFiles} />
+                <button className="icon-btn" title="자료 올리기 (PDF)"
+                  onClick={() => fileRef.current?.click()}>＋</button>
               </div>
               <button className="send" onClick={send} disabled={!input.trim() || busy}
                 title="보내기">➤</button>
