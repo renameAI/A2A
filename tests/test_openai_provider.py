@@ -11,8 +11,17 @@ from app.errors import EngineError
 
 
 def _settings(monkeypatch, **env) -> Settings:
+    """오프라인 테스트용 Settings — 실제 .env에서 격리한다.
+
+    _load_dotenv가 os.environ.setdefault라 delenv한 키를 .env가 되살린다.
+    개발 머신에 실키가 생기자 '키 없음' 테스트가 깨졌다(실측) — 테스트가
+    로컬 파일 상태에 의존하면 안 되므로 로더 자체를 무력화한다.
+    """
+    import app.config as config_mod
+    monkeypatch.setattr(config_mod, "_load_dotenv", lambda: None)
     for k in ("LLM_PROVIDER", "OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_BASE_URL",
-              "FRIENDLI_TOKEN", "FRIENDLI_ENDPOINT_ID"):
+              "FRIENDLI_TOKEN", "FRIENDLI_ENDPOINT_ID",
+              "LOCAL_LLM_BASE_URL", "LOCAL_LLM_MODEL"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -46,3 +55,36 @@ class TestOpenAIProvider:
                       OPENAI_BASE_URL="https://proxy.internal/v1/chat/completions")
         assert s.openai_model == "gpt-5.6-terra"
         assert s.openai_base_url == "https://proxy.internal/v1/chat/completions"
+
+
+class TestMaxTokensField:
+    """GPT-5.6 계열은 max_tokens를 거부한다 (실측 400 unsupported_parameter).
+    페이로드가 max_completion_tokens를 쓰는지 오프라인으로 고정한다."""
+
+    def test_openai_uses_max_completion_tokens(self, monkeypatch):
+        s = _settings(monkeypatch, LLM_PROVIDER="openai", OPENAI_API_KEY="sk-x")
+        ex = get_extractor(s)
+        seen = {}
+
+        class _Resp:
+            status_code = 200
+            def json(self):
+                return {"choices": [{"message": {"content": "ok"},
+                                     "finish_reason": "stop"}],
+                        "usage": {"completion_tokens": 3}}
+
+        def fake_post(payload, *, timeout=None):
+            seen.update(payload)
+            return _Resp()
+
+        monkeypatch.setattr(ex, "_post", fake_post)
+        ex._chat("sys", "user", max_tokens=1234)
+        assert "max_completion_tokens" in seen and seen["max_completion_tokens"] == 1234
+        assert "max_tokens" not in seen, "GPT-5.6은 max_tokens를 거부한다"
+
+    def test_local_keeps_max_tokens(self, monkeypatch):
+        """Ollama 등 기존 OpenAI 호환 서버는 max_tokens 그대로 — 회귀 방지."""
+        s = _settings(monkeypatch, LLM_PROVIDER="local",
+                      LOCAL_LLM_BASE_URL="http://x/v1/chat/completions",
+                      LOCAL_LLM_MODEL="exaone3.5:7.8b")
+        assert get_extractor(s)._max_tokens_field == "max_tokens"

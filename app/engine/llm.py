@@ -128,13 +128,18 @@ class _OpenAICompatExtractor:
     """
 
     def __init__(self, url: str, token: str, model: str, timeout: float,
-                 provider_label: str, *, thinking_kwargs: bool = False):
+                 provider_label: str, *, thinking_kwargs: bool = False,
+                 max_tokens_field: str = "max_tokens"):
         self._url = url
         self._token = token
         self._model = model
         self._timeout = timeout
         self._label = provider_label          # 로그 표시용
         self._thinking_kwargs = thinking_kwargs  # Friendli EXAONE만 True
+        # 출력 상한 파라미터명 — GPT-5.6 계열은 max_tokens를 거부하고
+        # max_completion_tokens를 요구한다(실측: 400 unsupported_parameter).
+        # 다른 OpenAI 호환 서버(Ollama 등)는 max_tokens 그대로.
+        self._max_tokens_field = max_tokens_field
 
     def _headers(self) -> dict:
         headers = {"Content-Type": "application/json"}
@@ -341,7 +346,7 @@ class _OpenAICompatExtractor:
             "model": self._model,
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": user}],
-            "max_tokens": max_tokens,
+            self._max_tokens_field: max_tokens,
         }
         if temperature is not None:
             payload["temperature"] = temperature
@@ -542,7 +547,7 @@ class OpenAIExtractor(_OpenAICompatExtractor):
         super().__init__(
             settings.openai_base_url, settings.openai_api_key,
             settings.openai_model, settings.llm_timeout, "OpenAI",
-            thinking_kwargs=False)
+            thinking_kwargs=False, max_tokens_field="max_completion_tokens")
 
 
 class LocalExtractor(_OpenAICompatExtractor):
