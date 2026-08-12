@@ -53,12 +53,19 @@ export default function Page() {
   const [cands, setCands] = useState<Cand[]>([]);
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
+  const [keyOpen, setKeyOpen] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const [keySaving, setKeySaving] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => { api("/settings/llm").then(setLlm).catch(() => {}); }, []);
 
   async function toggleLlm() {
     if (!llm || busy) return;
+    if (llm.provider === "local" && !llm.ready.openai) {
+      setKeyOpen(true);   // 키가 없으면 전환 대신 입력창을 연다
+      return;
+    }
     const next = llm.provider === "local" ? "openai" : "local";
     try {
       setLlm(await api("/settings/llm", { provider: next }));
@@ -66,6 +73,24 @@ export default function Page() {
     } catch (e) {
       push({ who: "agent", text: (e as Error).message });
     }
+  }
+
+  async function saveKey() {
+    const k = keyInput.trim();
+    if (!k || keySaving) return;
+    setKeySaving(true);
+    try {
+      const res = await api("/settings/openai-key", { key: k });
+      setKeyInput("");
+      setKeyOpen(false);
+      setLlm(res);   // 저장과 동시에 openai로 전환됨(백엔드 상태 반영)
+      push({ who: "stamp",
+        text: `OpenAI 키를 등록했습니다 (${res.masked}, ${res.persisted ? ".env에 저장됨" : "이번 실행에만 적용"})` });
+      // 저장만으로는 provider가 안 바뀌므로 바로 전환까지 이어준다
+      setLlm(await api("/settings/llm", { provider: "openai" }));
+    } catch (e) {
+      push({ who: "agent", text: (e as Error).message });
+    } finally { setKeySaving(false); }
   }
 
   const push = (m: Msg) => setMsgs((xs) => [...xs, m]);
@@ -208,36 +233,67 @@ export default function Page() {
 
   return (
     <div className="app">
-      <nav className="rail"><div className="ws">r.</div></nav>
+      <nav className="rail" aria-label="워크스페이스">
+        <div className="ws" title="rename">r.</div>
+        <div className="spacer" />
+        <div className="me" title="보람">보</div>
+      </nav>
+
       <aside className="side">
         <div className="side-head">
-          <div className="brand">rename<em>.</em><small>Lead 발굴 워크스페이스</small></div>
+          <div className="brand">rename<em>.</em>
+            <small>Lead 발굴 워크스페이스</small></div>
+          <button className="btn-new" title="새 Lead Request"
+            onClick={() => location.reload()}>+</button>
         </div>
         <div className="side-scroll">
-          <div className="sec-title">진행 중 Request</div>
-          {requestId
-            ? <button className="chan active"><span className="hash">#</span>{requestId}</button>
-            : <div className="empty">아직 없어요</div>}
+          <div className="sec">
+            <div className="sec-title"><span className="tri">▾</span> 진행 중 Request</div>
+            {requestId ? (
+              <button className="chan active">
+                <span className="hash">#</span>
+                <span className="nm">{requestId}</span>
+                {cands.length > 0 && <span className="badge">{cands.length}</span>}
+              </button>
+            ) : <div className="empty">아직 없어요</div>}
+          </div>
+          <div className="sec">
+            <div className="sec-title"><span className="tri">▾</span> 저장한 Lead</div>
+            <button className="chan">
+              <span className="hash">☆</span>
+              <span className="nm">저장 {saved.size}곳</span></button>
+          </div>
+        </div>
+        <div className="side-foot">
+          <span className="dot-live" />
+          rename 에이전트 온라인 · {llm?.label ?? "…"}
         </div>
       </aside>
 
       <main className="main">
         <header className="chat-head">
           <h1><span className="hash">#</span> lead-discovery</h1>
-          {busy && <span className="pill">작업 중</span>}
-          {llm && (
-            <button className="llm-toggle" onClick={toggleLlm} disabled={busy}
-              title={llm.ready.openai
-                ? "클릭해서 모델 전환"
-                : "GPT 전환은 OPENAI_API_KEY 설정 후 가능"}>
-              <span className={`opt ${llm.provider === "local" ? "on" : ""}`}>
-                EXAONE 로컬</span>
-              <span className={`opt ${llm.provider === "openai" ? "on" : ""}`}>
-                GPT Luna{!llm.ready.openai && " 🔒"}</span>
-            </button>
-          )}
+          {busy && <span className="pill run">작업 중</span>}
+          <span className="topic">
+            {versionId ? "프로필 승인됨 · 조건에 맞는 리드를 찾습니다"
+              : "회사 소개를 붙여넣으면 프로필부터 만들어요"}
+          </span>
+          <div className="right">
+            {llm && (
+              <button className="llm-toggle" onClick={toggleLlm} disabled={busy}
+                title={llm.ready.openai
+                  ? "클릭해서 모델 전환"
+                  : "클릭하면 OpenAI 키를 입력할 수 있어요"}>
+                <span className={`opt ${llm.provider === "local" ? "on" : ""}`}>
+                  EXAONE 로컬</span>
+                <span className={`opt ${llm.provider === "openai" ? "on" : ""}`}>
+                  GPT Luna{!llm.ready.openai && " 🔒"}</span>
+              </button>
+            )}
+          </div>
         </header>
         <div className="msgs">
+          <div className="day"><span>오늘</span></div>
           {msgs.map((m, i) => m.who === "stamp" ? (
             <div className="stamp" key={i}><b>보람</b>님이 {m.text}</div>
           ) : (
@@ -306,15 +362,49 @@ export default function Page() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
               }} />
-            <button className="send" onClick={send} aria-label="보내기">➤</button>
+            <div className="comp-bar">
+              <div className="left">
+                <button className="icon-btn" title="자료 올리기">＋</button>
+              </div>
+              <button className="send" onClick={send} disabled={!input.trim() || busy}
+                title="보내기">➤</button>
+            </div>
           </div>
           <div className="comp-hint">
-            Enter 전송 · 메일은 초안까지만 — 발송은 항상 사람이 결정해요
+            Enter 전송 · Shift+Enter 줄바꿈 · 메일은 초안까지만 — 발송은 항상 사람이 결정해요
           </div>
         </div>
       </main>
 
+      {keyOpen && (
+        <div className="modal-backdrop" onClick={() => setKeyOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>OpenAI API 키 입력</h2>
+            <p className="modal-sub">여기 붙여넣은 키는 채팅에 남지 않고 엔진으로만 전달돼요.</p>
+            <input
+              type="password"
+              autoFocus
+              placeholder="sk-..."
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveKey(); }}
+            />
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => setKeyOpen(false)}>취소</button>
+              <button className="btn pri" disabled={keySaving || !keyInput.trim()}
+                onClick={saveKey}>{keySaving ? "저장 중…" : "저장하고 전환"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <aside className="panel">
+        <div className="pstat">
+          <div className="cell"><div className="n">{cands.length}</div>
+            <div className="l">후보</div></div>
+          <div className="cell"><div className="n">{saved.size}</div>
+            <div className="l">저장</div></div>
+        </div>
         <h3>저장한 후보</h3>
         {saved.size === 0
           ? <div className="empty">후보를 저장하면 여기에 쌓여요</div>

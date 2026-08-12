@@ -63,6 +63,37 @@ def llm_settings(user: SaasUser = Depends(current_user)):
     return _llm_state()
 
 
+class OpenAIKey(BaseModel):
+    key: str = Field(min_length=20)
+
+
+@router.post("/settings/openai-key")
+def set_openai_key(req: OpenAIKey, user: SaasUser = Depends(current_user)):
+    """사용자가 브라우저에서 직접 붙여넣은 키를 받는다 — 채팅·로그 미경유.
+
+    처리: ① 형식 검사 ② 프로세스 env 반영(즉시 사용 가능) ③ .env에 영속
+    (재시작 생존 — .env는 gitignore라 커밋 불가). 키 값은 어떤 로그·응답에도
+    전문을 남기지 않는다(마스킹만 반환)."""
+    key = req.key.strip()
+    if not key.startswith("sk-"):
+        raise EngineError(400, "invalid_input",
+                          "OpenAI 키 형식이 아닙니다 (sk- 로 시작해야 해요)")
+    _os.environ["OPENAI_API_KEY"] = key
+    env_path = _os.environ.get("A2A_ENV_FILE", ".env")
+    try:
+        from pathlib import Path
+        p = Path(env_path)
+        lines = p.read_text().splitlines() if p.exists() else []
+        lines = [l for l in lines if not l.startswith("OPENAI_API_KEY=")]
+        lines.append(f"OPENAI_API_KEY={key}")
+        p.write_text("\n".join(lines) + "\n")
+        persisted = True
+    except OSError:
+        persisted = False   # 읽기 전용 컨테이너 등 — 프로세스 env로는 이미 유효
+    return {"saved": True, "persisted": persisted,
+            "masked": f"sk-****{key[-4:]}", **_llm_state()}
+
+
 @router.post("/settings/llm")
 def set_llm(req: LlmToggle, user: SaasUser = Depends(current_user)):
     s = get_settings()

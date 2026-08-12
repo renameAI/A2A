@@ -30,3 +30,4 @@ runs/
 !.claude/
 .claude/*
 !.claude/skills/
+saas.db
