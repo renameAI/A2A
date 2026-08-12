@@ -154,5 +154,7 @@ app.include_router(a2a_router)
 from .product.router import router as product_router   # noqa: E402
 
 app.include_router(product_router)
+from .saas.router import router as saas_router   # noqa: E402 — SaaS 계층 (이슈 #6)
+app.include_router(saas_router)
 app.mount("/", StaticFiles(directory=Path(__file__).parent / "product" / "static",
                            html=True), name="ui")

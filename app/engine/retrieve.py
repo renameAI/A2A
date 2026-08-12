@@ -90,6 +90,30 @@ def synthesize_counterpart(req: RetrieveRequest) -> str:
     return template_counterpart(req)
 
 
+def build_search_brief(req: RetrieveRequest) -> "SearchBrief":
+    """상대상 생성 공개 래퍼 (이슈 #6-D, §6.3) — 검색 시작 전에 사용자가 확인하고,
+    웹 검색 쿼리의 씨앗이 된다. 쿼리 가설은 결정적(LLM 무관)으로 프로필·의도에서
+    도출한다 — 상대상 합성(LLM 1회)만 확률적이고 그건 synthesized_counterpart로
+    분리돼 있어 사용자가 눈으로 검증한다."""
+    from ..schemas import SearchBrief
+    p = req.requester_profile
+    region = req.intent.target_region or ""
+    ttype = req.intent.target_type or p.target_customer.value or ""
+    problem_head = (p.problem_solved.value or "").split(",")[0][:40]
+    queries = [q.strip() for q in (
+        f"{region} {ttype} {problem_head}",
+        f"{region} {ttype} renovation OR improvement partner",
+        f"{region} {ttype} 채용 OR hiring facility manager",
+    ) if q.strip()]
+    return SearchBrief(
+        deterministic_anchor=template_counterpart(req),
+        synthesized_counterpart=synthesize_counterpart(req),
+        query_hypotheses=queries,
+        must_have=list(req.intent.must_have_conditions),
+        exclusions=list(req.intent.excluded_conditions),
+    )
+
+
 def _search_text(rec: CandidateRecord, direction: RetrieveDirection) -> str:
     """검색이 향하는 면 (RET-02): 판매 요청이면 상대의 '겪는 문제', 구매 요청이면 '솔루션'."""
     if direction == RetrieveDirection.sell_outreach:
@@ -179,7 +203,12 @@ def _match_points(synth: str, anchor: str, rec: CandidateRecord) -> list[str]:
     return points or rec.tags[:1] or ["프로필 유사 신호"]
 
 
-def retrieve(req: RetrieveRequest) -> RetrieveResponse:
+def retrieve(req: RetrieveRequest,
+             candidate_records: "list[CandidateRecord] | None" = None
+             ) -> RetrieveResponse:
+    """candidate_records를 주면 내부 풀 대신 그 후보만 채점한다 (이슈 #6-D,
+    기획서 §6.2 — 웹에서 동적 수집한 후보를 같은 알고리즘으로 재랭킹).
+    None이면 기존 계약 그대로 get_pool() 사용."""
     from .. import progress
     from ..errors import EngineError
     # 최소 신호 게이트 (적대적 검토 RET-03) — product 경로는 REP-06이 막지만
@@ -198,8 +227,13 @@ def retrieve(req: RetrieveRequest) -> RetrieveResponse:
         if synth != anchor:
             progress.log("합성", "결정적 앵커 혼합 활성 — LLM 합성 요동의 점수 분산 1/4 감쇠")
     with progress.node("search", "하이브리드 검색 (2단)"):
-        records = [r for r in get_pool()
-                   if req.pool == PoolChoice.both or r.pool.value == req.pool.value]
+        if candidate_records is not None:
+            records = list(candidate_records)   # 동적 주입 — pool 필터 미적용 (§6.2)
+            progress.log("검색", f"동적 후보 주입 — 웹 수집 {len(records)}건을 "
+                                 f"내부 풀 대신 채점")
+        else:
+            records = [r for r in get_pool()
+                       if req.pool == PoolChoice.both or r.pool.value == req.pool.value]
         # 자기 자신은 후보에서 제외
         records = [r for r in records
                    if r.profile.basic.name != req.requester_profile.basic.name]

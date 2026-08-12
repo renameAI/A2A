@@ -587,16 +587,19 @@ def enforce_question_axioms(open_questions: list[str], profile: Profile
 
 # ── 공통 게이트·출력 ────────────────────────────────────────────────
 
-def _check_minimum(profile: Profile, open_questions: list[str],
-                   extractor=None, full_text: str = "") -> None:
+def _minimum_met(profile: Profile) -> bool:
     """최소 프로필 기준 (REP-06): 문제·솔루션·VP·타겟 각 1개 이상."""
-    minimum_met = bool(
+    return bool(
         profile.problem_solved.value
         and profile.solution.value
         and profile.target_customer.value
         and (profile.sell_value_props or profile.purchase_value_props)
     )
-    if not minimum_met:
+
+
+def _check_minimum(profile: Profile, open_questions: list[str],
+                   extractor=None, full_text: str = "") -> None:
+    if not _minimum_met(profile):
         clarify = _clarify_questions(extractor, profile, open_questions, full_text)
         raise ProfileBelowMinimum(open_questions, clarify)
 
@@ -650,8 +653,16 @@ def represent(req: RepresentRequest, settings: Settings | None = None
                              f"{rej['duplicate_field']}·예산초과 {rej['over_budget']})")
 
     with progress.node("gate", "최소 프로필 게이트 (REP-06)"):
-        _check_minimum(profile, open_questions, extractor, full_text)
-        progress.log("게이트", "최소 프로필 기준(REP-06) 통과")
+        if req.profile_purpose == "prospect":
+            # 후보 모드 (§5.4) — 물어볼 사용자가 없으므로 게이트를 강제하지 않고
+            # 부분 프로필을 반환한다. 미달 여부는 minimum_met으로 정직하게 표시.
+            met = _minimum_met(profile)
+            progress.log("게이트", f"prospect 모드 — 게이트 미강제, "
+                                   f"minimum_met={met} (부분 프로필 허용)")
+        else:
+            _check_minimum(profile, open_questions, extractor, full_text)
+            met = True
+            progress.log("게이트", "최소 프로필 기준(REP-06) 통과")
 
     from .. import audit
     with progress.node("audit", "감사 로그 (SYS-04)"):
@@ -679,7 +690,7 @@ def represent(req: RepresentRequest, settings: Settings | None = None
         profile=profile,
         embedding=embedding,
         ontology_anchors=anchors,
-        minimum_met=True,
+        minimum_met=met,
         open_questions=open_questions,
         engine_mode=engine_mode,
         evidence=evidence,

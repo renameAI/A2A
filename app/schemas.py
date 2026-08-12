@@ -3,7 +3,7 @@
 타입·enum의 단일 진실원천. 엔진 로직은 이 스키마 위에서만 동작한다.
 """
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import (BaseModel, ConfigDict, Field, field_validator,
                       model_validator)
@@ -220,6 +220,26 @@ class Intent(BaseModel):
     differentiator: Optional[str] = None
     key_proof: Optional[str] = None
     entry_channel: Optional[str] = None
+    # SaaS Lead Request 확장 (이슈 #6-D, 기획서 §6.5) — 전부 optional·기본값이라
+    # 기존 요청·테스트 계약 불변.
+    target_industry: Optional[str] = None
+    target_company_size: Optional[str] = None
+    target_contact_role: Optional[str] = None
+    must_have_conditions: list[str] = []
+    excluded_conditions: list[str] = []
+    lead_count: Optional[int] = None
+    outreach_language: Optional[str] = None
+    call_to_action: Optional[str] = None
+
+
+class SearchBrief(BaseModel):
+    """검색 전 단계 산출물 (§6.3) — 사용자 확인·웹 쿼리 생성·재검색 기록에 사용."""
+    deterministic_anchor: str
+    synthesized_counterpart: str
+    query_hypotheses: list[str]
+    must_have: list[str]
+    exclusions: list[str]
+
 
 
 # ── /v1/represent (API §1) ──────────────────────────────────────────
@@ -256,6 +276,10 @@ class RepresentRequest(BaseModel):
     assets: list[Asset] = Field(min_length=1)
     dialogue: list[DialogueTurn] = []
     lens_hint: Optional[LensHint] = None
+    # SaaS 후보 모드 (이슈 #6-C, 기획서 §5.4): prospect는 직접 질문할 사용자가
+    # 없으므로 최소 프로필 게이트를 강제하지 않고 부분 Profile + minimum_met=False를
+    # 반환한다. 기본값 requester — 기존 호출·테스트 계약 불변.
+    profile_purpose: Literal["requester", "prospect"] = "requester"
 
 
 class OntologyAnchor(BaseModel):
@@ -442,6 +466,47 @@ class ComposedMessage(BaseModel):
 class ComposeResponse(BaseModel):
     messages: list[ComposedMessage]
     send_blocked: bool = True        # 항상 true — 사람 승인 게이트 (CMP-06)
+
+
+class CandidateInsight(BaseModel):
+    """Retrieve와 Compose V2 사이의 근거 계층 (§7) — 적합·부적합을 결정하지 않는다.
+
+    생성 원칙(§7.2): 잠재 니즈를 확정 사실처럼 표현하지 않고, 관측과 추론을
+    분리하며, 근거 없는 수치·고객명을 생성하지 않는다. uncertainties는 이메일에서
+    단정하면 안 되는 목록이다."""
+    candidate_id: str
+    observed_needs: list[str] = []
+    need_evidence: list[str] = []       # 근거 문장 요지 (원문 관측분만)
+    value_bridge: list[str] = []        # 후보의 문제 ↔ 요청 기업 솔루션 연결점
+    personalization_hooks: list[str] = []
+    uncertainties: list[str] = []
+    source_urls: list[str] = []
+
+
+class ComposeLeadRequest(BaseModel):
+    """Judge 없는 메일 생성 입력 (§8.3) — 가짜 JudgeResult를 만들지 않는다(§8.1)."""
+    requester_profile: Profile
+    intent: Intent
+    candidate_profile: Profile
+    candidate_insight: CandidateInsight
+    variants: int = Field(default=2, ge=1, le=3)
+    tone: Optional[str] = None
+    language: str = "ko"
+
+
+class LeadEmailDraft(BaseModel):
+    variant_label: str
+    subject: str
+    body: str
+    call_to_action: str
+    claim_trace: list[ClaimTrace] = []
+    sources_used: list[str] = []
+    warnings: list[str] = []            # 확인 안 돼 본문에서 뺀 정보 (§8.6)
+
+
+class ComposeLeadResponse(BaseModel):
+    drafts: list[LeadEmailDraft]
+    send_blocked: bool = True           # 항상 true — 자동 발송 경로 없음 (§8.7)
 
 
 # ── /v1/negotiate (API §5, 스키마 §5) ───────────────────────────────
