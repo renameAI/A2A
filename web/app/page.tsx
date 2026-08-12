@@ -344,21 +344,25 @@ export default function Page() {
           {msgs.map((m, i) => m.who === "stamp" ? (
             <div className="stamp" key={i}><b>보람</b>님이 {m.text}</div>
           ) : (
-            <div className="msg" key={i}>
-              <div className={`ava ${m.who}`}>{m.who === "agent" ? "r." : "보"}</div>
+            <div className={`msg ${m.who === "user" ? "me" : "them"}`} key={i}>
+              <div className={`ava ${m.who}`}>r.</div>
               <div className="body">
-                <div className="who">
-                  {m.who === "agent" ? "rename 에이전트" : "보람"}
-                  {m.who === "agent" && <span className="tag">앱</span>}
-                </div>
-                <p>{m.text}{busy && i === msgs.length - 1 && m.who === "agent" &&
-                  <span className="typing"><i /><i /><i /></span>}</p>
-                {m.jsx}
+                {m.who === "agent" && (
+                  <div className="who">rename 에이전트<span className="tag">앱</span></div>
+                )}
+                {m.text && (
+                  <div className="bubble">
+                    {m.text}
+                    {busy && i === msgs.length - 1 && m.who === "agent" &&
+                      <span className="typing"><i /><i /><i /></span>}
+                  </div>
+                )}
+                {m.jsx && <div className="attach">{m.jsx}</div>}
               </div>
             </div>
           ))}
           {cands.length > 0 && (
-            <div className="msg">
+            <div className="msg them">
               <div className="ava agent">r.</div>
               <div className="body">
                 <div className="card" style={{ maxWidth: 680 }}>
