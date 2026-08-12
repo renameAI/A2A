@@ -1,0 +1,13 @@
+.env*
+.venv/
+.git/
+.claude/
+cache/
+uploads/
+training/
+judge_cases/
+tests/
+docs/*
+!docs/LEAD_DISCOVERY_SAAS_PLAN.md
+*.db
+__pycache__/

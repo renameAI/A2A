@@ -531,6 +531,20 @@ class FriendliExtractor(_OpenAICompatExtractor):
             settings.llm_timeout, "K-EXAONE", thinking_kwargs=True)
 
 
+class OpenAIExtractor(_OpenAICompatExtractor):
+    """OpenAI Chat Completions (기본 gpt-5.6-luna) — SaaS 서빙 트랙 (이슈 #6).
+
+    thinking_kwargs=False — EXAONE의 reasoning 토글이 없다. deep 경로의 2단계
+    분리(추론→구조화)는 그대로 작동해 경량 티어(Luna)의 스키마 준수를 돕는다.
+    """
+
+    def __init__(self, settings: Settings):
+        super().__init__(
+            settings.openai_base_url, settings.openai_api_key,
+            settings.openai_model, settings.llm_timeout, "OpenAI",
+            thinking_kwargs=False)
+
+
 class LocalExtractor(_OpenAICompatExtractor):
     """로컬/저사양 OpenAI 호환 모델 (Ollama·llama.cpp 등) — 오프라인 실행.
 
@@ -573,6 +587,12 @@ def get_extractor(settings: Settings) -> Extractor:
             return AnthropicExtractor(settings)
         raise EngineError(500, "config_error",
                           "LLM_PROVIDER=anthropic인데 ANTHROPIC_API_KEY가 "
+                          "없습니다 — 조용한 대체 없음")
+    if provider == "openai":
+        if settings.openai_api_key:
+            return OpenAIExtractor(settings)
+        raise EngineError(500, "config_error",
+                          "LLM_PROVIDER=openai인데 OPENAI_API_KEY가 "
                           "없습니다 — 조용한 대체 없음")
     raise EngineError(500, "config_error",
                       f"알 수 없는 LLM_PROVIDER: {provider} "

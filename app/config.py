@@ -60,6 +60,13 @@ class Settings:
         # Anthropic — LLM_PROVIDER=anthropic일 때만 사용
         self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         self.anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
+        # OpenAI — LLM_PROVIDER=openai (SaaS 서빙, 이슈 #6). local 슬롯과 같은
+        # OpenAI 호환 규격이지만 이름을 분리한다 — 'local'에 원격 URL을 꽂는
+        # 우회는 동작해도 설정 파일을 읽는 사람을 속인다.
+        self.openai_api_key = os.environ.get("OPENAI_API_KEY", "")
+        self.openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
+        self.openai_base_url = os.environ.get(
+            "OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions")
         self.apify_token = os.environ.get("APIFY_TOKEN", "")
         self.fetch_timeout = float(os.environ.get("INGEST_FETCH_TIMEOUT", "15"))
         self.crawl_max_pages = int(os.environ.get("CRAWL_MAX_PAGES", "5"))
@@ -93,6 +100,8 @@ class Settings:
             return bool(self.local_base_url and self.local_model)
         if self.llm_provider == "anthropic":
             return bool(self.anthropic_api_key)
+        if self.llm_provider == "openai":
+            return bool(self.openai_api_key)
         return False
 
     @property
