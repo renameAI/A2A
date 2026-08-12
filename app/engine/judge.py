@@ -9,9 +9,9 @@ v0: 규칙 기반 차원 판정. Phase 2: EXAONE CoT 파인튜닝 모델 호출�
 """
 from .. import progress
 from ..config import get_settings
-from ..schemas import (JUDGE_DIMENSIONS, AxisStatus, ConfidenceBand,
-                       DecisionType, Dimension, JudgeRequest, JudgeResult,
-                       Objective, Vantage, VerdictType, Willingness)
+from ..schemas import (JUDGE_DIMENSIONS, AxisStatus, CategoryJudgment,
+                       ConfidenceBand, DecisionType, Dimension, JudgeRequest,
+                       JudgeResult, Objective, Vantage, VerdictType, Willingness)
 from .dealbreakers import check_deal_breakers
 from .llm import get_extractor
 from .prompts import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_user

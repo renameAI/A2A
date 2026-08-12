@@ -23,3 +23,10 @@ dataset/
 .gstack/
 # 구출된 학습 런 (adapter 가중치) — GB 단위, git 대상 아님
 runs/
+
+# 로컬 시크릿 백업 — 절대 커밋 금지
+.env.bak*
+# 팀 배포 스킬은 추적한다 (.claude의 나머지는 로컬 설정이라 무시 유지)
+!.claude/
+.claude/*
+!.claude/skills/
