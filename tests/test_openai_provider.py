@@ -88,3 +88,36 @@ class TestMaxTokensField:
                       LOCAL_LLM_BASE_URL="http://x/v1/chat/completions",
                       LOCAL_LLM_MODEL="exaone3.5:7.8b")
         assert get_extractor(s)._max_tokens_field == "max_tokens"
+
+
+class TestTemperature:
+    """GPT-5.6은 temperature 커스텀을 거부한다 (400 unsupported_value).
+    우리 0.5는 EXAONE 반복 루프 방어용이라, 안 받는 모델엔 빼고 보낸다."""
+
+    def _capture(self, monkeypatch, ex) -> dict:
+        seen = {}
+
+        class _Resp:
+            status_code = 200
+            def json(self):
+                return {"choices": [{"message": {"content": "ok"},
+                                     "finish_reason": "stop"}],
+                        "usage": {"completion_tokens": 3}}
+
+        monkeypatch.setattr(ex, "_post",
+                            lambda payload, *, timeout=None: (seen.update(payload),
+                                                              _Resp())[1])
+        ex._chat("sys", "user", max_tokens=100, temperature=0.5)
+        return seen
+
+    def test_openai_omits_temperature(self, monkeypatch):
+        s = _settings(monkeypatch, LLM_PROVIDER="openai", OPENAI_API_KEY="sk-x")
+        seen = self._capture(monkeypatch, get_extractor(s))
+        assert "temperature" not in seen, "GPT-5.6은 temperature를 거부한다"
+
+    def test_local_keeps_temperature(self, monkeypatch):
+        s = _settings(monkeypatch, LLM_PROVIDER="local",
+                      LOCAL_LLM_BASE_URL="http://x/v1/chat/completions",
+                      LOCAL_LLM_MODEL="exaone3.5:7.8b")
+        seen = self._capture(monkeypatch, get_extractor(s))
+        assert seen["temperature"] == 0.5, "EXAONE 반복 루프 방어값은 유지"

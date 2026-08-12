@@ -129,7 +129,8 @@ class _OpenAICompatExtractor:
 
     def __init__(self, url: str, token: str, model: str, timeout: float,
                  provider_label: str, *, thinking_kwargs: bool = False,
-                 max_tokens_field: str = "max_tokens"):
+                 max_tokens_field: str = "max_tokens",
+                 supports_temperature: bool = True):
         self._url = url
         self._token = token
         self._model = model
@@ -140,6 +141,10 @@ class _OpenAICompatExtractor:
         # max_completion_tokens를 요구한다(실측: 400 unsupported_parameter).
         # 다른 OpenAI 호환 서버(Ollama 등)는 max_tokens 그대로.
         self._max_tokens_field = max_tokens_field
+        # GPT-5.6 계열은 temperature 커스텀을 거부한다(400 unsupported_value —
+        # 기본값 1만 허용). 우리 0.5는 EXAONE 반복 루프 방어용이라 모델이
+        # 안 받으면 그냥 빼면 된다 — 보내서 요청 전체를 죽이는 것보다 낫다.
+        self._supports_temperature = supports_temperature
 
     def _headers(self) -> dict:
         headers = {"Content-Type": "application/json"}
@@ -348,7 +353,7 @@ class _OpenAICompatExtractor:
                          {"role": "user", "content": user}],
             self._max_tokens_field: max_tokens,
         }
-        if temperature is not None:
+        if temperature is not None and self._supports_temperature:
             payload["temperature"] = temperature
         if self._thinking_kwargs:
             payload["chat_template_kwargs"] = {"enable_thinking": thinking}
@@ -547,7 +552,8 @@ class OpenAIExtractor(_OpenAICompatExtractor):
         super().__init__(
             settings.openai_base_url, settings.openai_api_key,
             settings.openai_model, settings.llm_timeout, "OpenAI",
-            thinking_kwargs=False, max_tokens_field="max_completion_tokens")
+            thinking_kwargs=False, max_tokens_field="max_completion_tokens",
+            supports_temperature=False)
 
 
 class LocalExtractor(_OpenAICompatExtractor):
