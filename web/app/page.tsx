@@ -1,0 +1,334 @@
+"use client";
+/* rename. Lead 발굴 워크스페이스 — saas.html 이식 1차 (이슈 #6-F).
+ *
+ * 배선: /api → Next rewrites → 엔진 /saas. 인증은 dev 헤더(로컬)이며
+ * SAAS_AUTH=firebase 전환 시 이 파일의 authHeaders()만 Firebase SDK 토큰으로
+ * 바뀐다. 상태는 서버(SaasStore)가 원본 — 새로고침 시 /saas/lead-requests로
+ * 복원한다 (saas.html의 메모리 상태 소실 문제 해소).
+ */
+import { useEffect, useRef, useState } from "react";
+
+type Msg = { who: "agent" | "user" | "stamp"; text: string; jsx?: React.ReactNode };
+type Cand = { company_id: string; name: string; source_url: string;
+  pain_signal: string; retrieval_score: number; weak: boolean };
+
+const DEV_USER = "boram";
+function authHeaders(): Record<string, string> {
+  return { "X-Dev-User": DEV_USER, "Content-Type": "application/json" };
+}
+
+async function api(path: string, body?: unknown) {
+  const r = await fetch(`/api/saas${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: authHeaders(),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j?.error?.message || "요청 실패"),
+    { payload: j?.error });
+  return j;
+}
+
+async function pollJob(jobId: string): Promise<Record<string, unknown>> {
+  for (;;) {
+    const r = await fetch(`/api/product/jobs/${jobId}`, { headers: authHeaders() });
+    const j = await r.json();
+    if (j.status === "done") return j.result;
+    if (j.status === "error") throw Object.assign(
+      new Error(j.error?.message || "실패"), { payload: j.error });
+    await new Promise((res) => setTimeout(res, 1200));
+  }
+}
+
+export default function Page() {
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [input, setInput] = useState("");
+  const [session, setSession] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<string[]>([]);
+  const [versionId, setVersionId] = useState<string | null>(null);
+  const [requestId, setRequestId] = useState<string | null>(null);
+  const [cands, setCands] = useState<Cand[]>([]);
+  const [saved, setSaved] = useState<Set<string>>(new Set());
+  const bottom = useRef<HTMLDivElement>(null);
+
+  const push = (m: Msg) => setMsgs((xs) => [...xs, m]);
+  useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
+
+  useEffect(() => {
+    push({ who: "agent", text: "안녕하세요. 회사 소개 텍스트를 붙여넣으면 프로필을 만들고, 조건에 맞는 리드를 웹에서 찾아드려요." });
+  }, []);
+
+  async function runOnboard(text: string) {
+    setBusy(true);
+    try {
+      let sid = session;
+      if (!sid) {
+        const s = await api("/onboarding-sessions",
+          { assets: [{ type: "text", content: text }] });
+        sid = s.session_id; setSession(sid);
+      } else {
+        await api(`/onboarding-sessions/${sid}/messages`, { answer: text });
+      }
+      push({ who: "agent", text: "자료를 읽고 있어요…" });
+      const { job_id } = await api(`/onboarding-sessions/${sid}/run`);
+      const res = (await pollJob(job_id)) as {
+        needs_answers: boolean;
+        session: { current_questions: string[]; profile?: { basic: { name: string } } };
+      };
+      if (res.needs_answers) {
+        setQuestions(res.session.current_questions);
+        push({ who: "agent", text: res.session.current_questions[0]
+          ?? "회사에 대해 더 알려주세요." });
+      } else {
+        const name = res.session.profile?.basic?.name ?? "회사";
+        push({
+          who: "agent", text: `${name} 프로필이 준비됐어요. 승인하면 리드 발굴을 시작할 수 있어요.`,
+          jsx: <button className="btn pri" onClick={() => approve(sid!)}>프로필 승인</button>,
+        });
+      }
+    } catch (e) {
+      push({ who: "agent", text: (e as Error).message });
+    } finally { setBusy(false); }
+  }
+
+  async function approve(sid: string) {
+    const { version_id } = await api(`/onboarding-sessions/${sid}/approve`);
+    setVersionId(version_id);
+    push({ who: "stamp", text: "프로필을 승인했습니다" });
+    push({
+      who: "agent", text: "어떤 리드를 찾을까요?",
+      jsx: <BriefForm onSubmit={(intent) => createRequest(version_id, intent)} />,
+    });
+  }
+
+  async function createRequest(vid: string, intent: Record<string, unknown>) {
+    setBusy(true);
+    try {
+      const doc = await api("/lead-requests", {
+        title: String(intent.target_region || "") + " " + String(intent.target_type || "리드"),
+        profile_version_id: vid, intent,
+      });
+      setRequestId(doc.request_id);
+      push({ who: "stamp", text: "검색 조건을 확정했습니다" });
+      push({ who: "agent", text: "검색 기준을 만들고 있어요…" });
+      const b = await api(`/lead-requests/${doc.request_id}/search-brief`);
+      const brief = (await pollJob(b.job_id)) as {
+        search_brief: { synthesized_counterpart: string } };
+      push({
+        who: "agent", text: "이 기준으로 찾을게요.",
+        jsx: (
+          <div className="card">
+            <div className="card-head">검색 기준</div>
+            <div className="card-body">
+              <div className="persona">{brief.search_brief.synthesized_counterpart}</div>
+            </div>
+            <div className="card-foot">
+              <button className="btn pri"
+                onClick={() => runSearch(doc.request_id)}>이 기준으로 검색</button>
+            </div>
+          </div>
+        ),
+      });
+    } catch (e) { push({ who: "agent", text: (e as Error).message }); }
+    finally { setBusy(false); }
+  }
+
+  async function runSearch(rid: string) {
+    setBusy(true);
+    push({ who: "stamp", text: "검색 기준을 승인했습니다" });
+    push({ who: "agent", text: "웹에서 후보를 모으고 있어요…" });
+    try {
+      const s = await api(`/lead-requests/${rid}/search`);
+      const res = (await pollJob(s.job_id)) as { candidates: Cand[] };
+      setCands(res.candidates);
+      push({ who: "agent", text: `후보 ${res.candidates.length}곳이에요. 저장한 후보만 메일 초안으로 이어져요.` });
+    } catch (e) {
+      const code = (e as { payload?: { code?: string } }).payload?.code;
+      push({ who: "agent", text: code === "cost_cap"
+        ? (e as Error).message
+        : `후보를 찾지 못했어요 — ${(e as Error).message}` });
+    } finally { setBusy(false); }
+  }
+
+  async function draftMail(cid: string) {
+    if (!requestId) return;
+    setBusy(true);
+    push({ who: "agent", text: "수요 신호를 정리하고 초안을 쓰고 있어요…" });
+    try {
+      const i = await api(`/lead-requests/${requestId}/candidates/${cid}/insight`);
+      await pollJob(i.job_id);
+      const c = await api(`/lead-requests/${requestId}/candidates/${cid}/compose`);
+      const res = (await pollJob(c.job_id)) as {
+        drafts: { subject: string; body: string; warnings: string[] }[] };
+      const d = res.drafts[0];
+      push({
+        who: "agent", text: "초안이에요. 발송은 직접 하셔야 해요.",
+        jsx: (
+          <div className="card">
+            <div className="mail-sub">{d.subject}</div>
+            <div className="mail-body">{d.body}</div>
+            {d.warnings.map((w, k) => (
+              <div className="mail-note" key={k}><b>제외됨</b> {w}</div>))}
+            <div className="card-foot">
+              <button className="btn coral"
+                onClick={() => navigator.clipboard.writeText(d.body)}>본문 복사</button>
+            </div>
+          </div>
+        ),
+      });
+    } catch (e) { push({ who: "agent", text: (e as Error).message }); }
+    finally { setBusy(false); }
+  }
+
+  function send() {
+    const v = input.trim();
+    if (!v || busy) return;
+    setInput("");
+    push({ who: "user", text: v });
+    if (!versionId) { runOnboard(v); return; }
+    push({ who: "agent", text: "지금은 위 카드의 버튼으로 진행해 주세요 — 자유 대화 확장은 다음 이슈예요." });
+  }
+
+  return (
+    <div className="app">
+      <nav className="rail"><div className="ws">r.</div></nav>
+      <aside className="side">
+        <div className="side-head">
+          <div className="brand">rename<em>.</em><small>Lead 발굴 워크스페이스</small></div>
+        </div>
+        <div className="side-scroll">
+          <div className="sec-title">진행 중 Request</div>
+          {requestId
+            ? <button className="chan active"><span className="hash">#</span>{requestId}</button>
+            : <div className="empty">아직 없어요</div>}
+        </div>
+      </aside>
+
+      <main className="main">
+        <header className="chat-head">
+          <h1><span className="hash">#</span> lead-discovery</h1>
+          {busy && <span className="pill">작업 중</span>}
+        </header>
+        <div className="msgs">
+          {msgs.map((m, i) => m.who === "stamp" ? (
+            <div className="stamp" key={i}><b>보람</b>님이 {m.text}</div>
+          ) : (
+            <div className="msg" key={i}>
+              <div className={`ava ${m.who}`}>{m.who === "agent" ? "r." : "보"}</div>
+              <div className="body">
+                <div className="who">
+                  {m.who === "agent" ? "rename 에이전트" : "보람"}
+                  {m.who === "agent" && <span className="tag">앱</span>}
+                </div>
+                <p>{m.text}{busy && i === msgs.length - 1 && m.who === "agent" &&
+                  <span className="typing"><i /><i /><i /></span>}</p>
+                {m.jsx}
+              </div>
+            </div>
+          ))}
+          {cands.length > 0 && (
+            <div className="msg">
+              <div className="ava agent">r.</div>
+              <div className="body">
+                <div className="card" style={{ maxWidth: 680 }}>
+                  <div className="card-head">후보 {cands.length}곳
+                    <span className="meta">회사명을 누르면 원문</span></div>
+                  <div className="card-body">
+                    {cands.map((c, i) => (
+                      <div className="cand-row" key={c.company_id}>
+                        <div className="rank">{i + 1}위</div>
+                        <div className="cand-main">
+                          <div className="cand-name">
+                            <a href={c.source_url} target="_blank" rel="noreferrer">
+                              {c.name}</a>
+                            {c.weak && <span className="chip ask"> 임계 미만</span>}
+                          </div>
+                          <div className="cand-why">{c.pain_signal.slice(0, 120)}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 5, flex: "none" }}>
+                          <button
+                            className={`mini ${saved.has(c.company_id) ? "saved" : ""}`}
+                            onClick={() => setSaved((s) => {
+                              const n = new Set(s);
+                              if (n.has(c.company_id)) n.delete(c.company_id);
+                              else n.add(c.company_id);
+                              return n;
+                            })}>
+                            {saved.has(c.company_id) ? "저장됨" : "저장"}
+                          </button>
+                          <button className="mini"
+                            onClick={() => draftMail(c.company_id)}>메일 초안</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={bottom} />
+        </div>
+        <div className="composer">
+          <div className="comp-box">
+            <textarea rows={1} value={input}
+              placeholder={versionId
+                ? "#lead-discovery 에 메시지 보내기"
+                : "회사 소개를 붙여넣거나, 질문에 답해주세요"}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+              }} />
+            <button className="send" onClick={send} aria-label="보내기">➤</button>
+          </div>
+          <div className="comp-hint">
+            Enter 전송 · 메일은 초안까지만 — 발송은 항상 사람이 결정해요
+          </div>
+        </div>
+      </main>
+
+      <aside className="panel">
+        <h3>저장한 후보</h3>
+        {saved.size === 0
+          ? <div className="empty">후보를 저장하면 여기에 쌓여요</div>
+          : [...saved].map((cid) => {
+              const c = cands.find((x) => x.company_id === cid);
+              return <div className="box" key={cid}><b>{c?.name ?? cid}</b>
+                <a href={c?.source_url} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 12 }}>{c?.source_url}</a></div>;
+            })}
+      </aside>
+    </div>
+  );
+}
+
+function BriefForm({ onSubmit }:
+  { onSubmit: (intent: Record<string, unknown>) => void }) {
+  const [region, setRegion] = useState("일본");
+  const [ttype, setTtype] = useState("독립 호텔");
+  const [notes, setNotes] = useState("객실 리노베이션과 운영 개선");
+  const [count, setCount] = useState(10);
+  return (
+    <div className="card">
+      <div className="card-head">Lead Request</div>
+      <div className="card-body">
+        <div className="frm">
+          <label>지역<input value={region}
+            onChange={(e) => setRegion(e.target.value)} /></label>
+          <label>상대 유형<input value={ttype}
+            onChange={(e) => setTtype(e.target.value)} /></label>
+          <label>제안 내용<input value={notes}
+            onChange={(e) => setNotes(e.target.value)} /></label>
+          <label>찾을 수<input type="number" min={1} max={30} value={count}
+            onChange={(e) => setCount(+e.target.value || 10)} /></label>
+        </div>
+      </div>
+      <div className="card-foot">
+        <button className="btn pri" onClick={() => onSubmit({
+          value_props: ["revenue_growth"], target_region: region,
+          target_type: ttype, notes, lead_count: count,
+        })}>이 조건으로 후보 찾기</button>
+      </div>
+    </div>
+  );
+}

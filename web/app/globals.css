@@ -1,0 +1,161 @@
+/* rename. 디자인 토큰 — saas.html 원형에서 이식 (이슈 #6-F) */
+:root {
+  --ink: #131A2A;
+  --ink-2: #1C2438;
+  --ink-3: #0D1220;
+  --paper: #FBFBF9;
+  --white: #FFFFFF;
+  --line: #E7E5DF;
+  --line-soft: #F0EEE8;
+  --txt: #1F2430;
+  --txt-2: #6B7280;
+  --txt-3: #9AA1AC;
+  --coral: #F2542D;
+  --coral-soft: #FEEEE8;
+  --green: #1F8A5D;
+  --green-soft: #E9F5EF;
+  --blue: #3C6FF2;
+  --blue-soft: #EDF2FE;
+  --amber: #B45309;
+  --mono: "SF Mono", "D2Coding", ui-monospace, Menlo, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  font-family: "Pretendard Variable", Pretendard, -apple-system, sans-serif;
+  color: var(--txt); background: var(--paper);
+  font-size: 14px; line-height: 1.55; overflow: hidden;
+}
+button { font: inherit; cursor: pointer; border: none; background: none; }
+input, textarea { font: inherit; }
+
+.app { display: grid; grid-template-columns: 44px 256px 1fr 360px; height: 100vh; }
+@media (max-width: 1080px) { .app { grid-template-columns: 44px 220px 1fr; }
+  .panel { display: none; } }
+
+/* 레일 · 사이드바 */
+.rail { background: var(--ink-3); display: flex; flex-direction: column;
+  align-items: center; padding: 10px 0; gap: 10px; }
+.rail .ws { width: 30px; height: 30px; border-radius: 8px; background: var(--coral);
+  color: #fff; font-weight: 800; font-size: 15px; display: grid; place-items: center; }
+.side { background: var(--ink); color: #C7CCDA; display: flex; flex-direction: column; }
+.side-head { padding: 14px 16px 12px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.brand { font-size: 17px; font-weight: 800; color: #fff; }
+.brand em { font-style: normal; color: var(--coral); }
+.brand small { display: block; font-size: 11px; font-weight: 500; color: #8A93A8; }
+.side-scroll { flex: 1; overflow-y: auto; padding: 10px 8px; }
+.sec-title { font-size: 11.5px; font-weight: 700; color: #7C8499; padding: 4px 10px;
+  text-transform: uppercase; letter-spacing: .4px; }
+.chan { display: flex; align-items: center; gap: 8px; padding: 5px 10px;
+  border-radius: 6px; color: #B6BDCD; font-size: 13.5px; width: 100%;
+  text-align: left; margin: 1px 0; white-space: nowrap; overflow: hidden; }
+.chan:hover { background: var(--ink-2); }
+.chan.active { background: var(--coral); color: #fff; font-weight: 600; }
+.chan .hash { opacity: .55; font-weight: 600; }
+
+/* 채팅 */
+.main { display: flex; flex-direction: column; min-width: 0; background: var(--white); }
+.chat-head { padding: 10px 20px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 12px; }
+.chat-head h1 { font-size: 16px; font-weight: 800; }
+.chat-head .hash { color: var(--txt-3); font-weight: 600; }
+.pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px;
+  background: var(--blue-soft); color: var(--blue); }
+.msgs { flex: 1; overflow-y: auto; padding: 18px 0 8px; background: var(--paper); }
+.msg { display: flex; gap: 11px; padding: 5px 20px; }
+.msg:hover { background: #F5F4F0; }
+.ava { width: 36px; height: 36px; border-radius: 8px; flex: none; display: grid;
+  place-items: center; font-weight: 800; font-size: 14px; color: #fff; margin-top: 2px; }
+.ava.agent { background: var(--coral); }
+.ava.user { background: #2F3B58; }
+.body { min-width: 0; flex: 1; }
+.who { font-weight: 800; font-size: 13.5px; }
+.who .t { font-weight: 500; font-size: 11.5px; color: var(--txt-3); margin-left: 7px; }
+.who .tag { font-size: 10px; font-weight: 700; background: var(--line-soft);
+  color: var(--txt-2); padding: 1px 6px; border-radius: 4px; margin-left: 5px; }
+.msg p { font-size: 14px; margin-top: 1px; }
+.stamp { display: flex; align-items: baseline; gap: 8px; padding: 3px 20px 3px 67px;
+  font-size: 12.5px; color: var(--txt-2); }
+.stamp b { color: var(--txt); }
+
+/* 카드 */
+.card { background: var(--white); border: 1px solid var(--line); border-radius: 12px;
+  margin-top: 7px; max-width: 640px; overflow: hidden; }
+.card-head { padding: 11px 16px 0; display: flex; align-items: baseline; gap: 8px;
+  font-weight: 800; font-size: 14px; }
+.card-head .meta { margin-left: auto; font-weight: 500; font-size: 11.5px;
+  color: var(--txt-3); }
+.card-body { padding: 13px 16px; }
+.card-foot { padding: 10px 16px; border-top: 1px solid var(--line-soft);
+  display: flex; gap: 8px; align-items: center; background: #FCFBF8; }
+.btn { padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 700; }
+.btn.pri { background: var(--green); color: #fff; }
+.btn.coral { background: var(--coral); color: #fff; }
+.btn.ghost { background: var(--white); border: 1px solid var(--line);
+  color: var(--txt-2); }
+.persona { background: #F6F5F1; border-radius: 10px; padding: 12px 14px;
+  font-size: 15px; line-height: 1.6; font-weight: 500; }
+.kv { display: grid; grid-template-columns: 96px 1fr; gap: 5px 12px; font-size: 13px; }
+.kv dt { color: var(--txt-3); font-weight: 600; font-size: 12px; }
+.frm { display: grid; gap: 8px; }
+.frm label { display: grid; grid-template-columns: 74px 1fr; align-items: center;
+  gap: 10px; font-size: 12.5px; color: var(--txt-2); font-weight: 600; }
+.frm input { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px;
+  font-size: 13.5px; outline: none; }
+.frm input:focus { border-color: var(--coral); }
+
+/* 후보 행 */
+.cand-row { display: flex; gap: 12px; padding: 11px 0;
+  border-bottom: 1px solid var(--line-soft); }
+.cand-row:last-child { border: none; }
+.rank { font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: var(--txt-3); width: 26px; flex: none; padding-top: 2px; }
+.cand-main { flex: 1; min-width: 0; }
+.cand-name { font-weight: 800; font-size: 14px; }
+.cand-name a { color: var(--txt); text-decoration: none; }
+.cand-name a:hover { color: var(--blue); text-decoration: underline; }
+.cand-why { font-size: 12.5px; color: var(--txt-2); margin-top: 2px; }
+.mini { padding: 4px 10px; border-radius: 6px; font-size: 11.5px; font-weight: 700;
+  border: 1px solid var(--line); color: var(--txt-2); background: var(--white); }
+.mini.saved { background: var(--green); border-color: var(--green); color: #fff; }
+.chip { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px;
+  border-radius: 12px; margin: 2px 3px 2px 0; }
+.chip.ask { background: #FDF3E7; color: var(--amber); }
+
+/* 진행 */
+.typing { display: inline-flex; gap: 3px; margin-left: 2px; }
+.typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--coral);
+  animation: tp 1.2s infinite; }
+.typing i:nth-child(2) { animation-delay: .15s; }
+.typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes tp { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .typing i { animation: none; } }
+
+/* 컴포저 */
+.composer { padding: 10px 20px 16px; background: var(--paper); }
+.comp-box { border: 1.5px solid var(--line); border-radius: 12px;
+  background: var(--white); display: flex; align-items: flex-end; }
+.comp-box:focus-within { border-color: var(--coral); }
+.comp-box textarea { flex: 1; border: none; outline: none; resize: none;
+  padding: 12px 14px; font-size: 14px; max-height: 120px; background: transparent; }
+.comp-box .send { background: var(--coral); color: #fff; width: 30px; height: 30px;
+  border-radius: 8px; margin: 0 8px 8px 0; }
+.comp-hint { font-size: 11px; color: var(--txt-3); margin-top: 5px; }
+
+/* 메일 */
+.mail-sub { font-weight: 800; font-size: 14px; padding: 12px 16px 0; }
+.mail-body { padding: 8px 16px 12px; font-size: 13.5px; white-space: pre-line; }
+.mail-note { margin: 0 16px 12px; font-size: 12px; color: var(--txt-2); }
+.mail-note b { color: var(--amber); }
+
+/* 우측 패널 */
+.panel { border-left: 1px solid var(--line); background: var(--white);
+  overflow-y: auto; padding: 16px; }
+.panel h3 { font-size: 12px; font-weight: 800; color: var(--txt-3);
+  text-transform: uppercase; letter-spacing: .4px; margin: 16px 0 8px; }
+.panel h3:first-child { margin-top: 0; }
+.box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+  font-size: 13px; margin-bottom: 8px; }
+.box b { display: block; font-size: 13.5px; margin-bottom: 2px; }
+.empty { color: var(--txt-3); font-size: 12.5px; text-align: center;
+  padding: 30px 10px; }
