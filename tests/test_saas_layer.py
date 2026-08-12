@@ -16,8 +16,13 @@ from app.saas.store import LocalSaasStore
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
+    # 실제 .env에서 격리 — _load_dotenv가 setdefault라 delenv한 키를 되살린다.
+    # 개발 머신에 SAAS_ALLOWED_USERS가 생기면 '전원 거부' 테스트가 깨진다(실측).
+    import app.config as config_mod
+    monkeypatch.setattr(config_mod, "_load_dotenv", lambda: None)
     monkeypatch.setenv("SAAS_AUTH", "dev")
     monkeypatch.setenv("SAAS_DB_PATH", str(tmp_path / "saas.db"))
+    monkeypatch.setenv("SAAS_ALLOWED_USERS", "boram")   # 기본: boram만 허용
     store_module._store = None            # 싱글턴 초기화 (테스트 격리)
     from app.main import app
     return TestClient(app)
@@ -213,3 +218,38 @@ class TestLlmToggle:
         r = client.post("/saas/settings/llm", headers=H,
                         json={"provider": "local"}).json()
         assert r["provider"] == "local"
+
+
+class TestAccessControl:
+    """허용 목록 — 미설정이면 전원 거부(fail closed). API 예산 방어의 1차 관문."""
+
+    def test_empty_allowlist_denies_everyone(self, client, monkeypatch):
+        monkeypatch.delenv("SAAS_ALLOWED_USERS", raising=False)
+        r = client.get("/saas/me", headers=H)
+        assert r.status_code == 403
+        assert "닫혀" in r.json()["detail"]
+
+    def test_only_listed_user_passes(self, client, monkeypatch):
+        monkeypatch.setenv("SAAS_ALLOWED_USERS", "boram, tools@renamecorp.com")
+        assert client.get("/saas/me", headers=H).status_code == 200
+        assert client.get("/saas/me",
+                          headers={"X-Dev-User": "stranger"}).status_code == 403
+
+    def test_email_match_is_case_insensitive(self, client, monkeypatch):
+        monkeypatch.setenv("SAAS_ALLOWED_USERS", "BORAM@DEV.LOCAL")
+        assert client.get("/saas/me", headers=H).status_code == 200
+
+
+class TestGlobalCostCap:
+    """워크스페이스별 캡만으로는 사용자 수만큼 곱해진다 — 전역 캡이 계정을 지킨다."""
+
+    def test_global_cap_blocks_across_workspaces(self, tmp_path, monkeypatch):
+        from app.saas import cost
+        s = LocalSaasStore(str(tmp_path / "g.db"))
+        monkeypatch.setenv("COST_CAP_GLOBAL_MONTH_USD", "0.06")
+        monkeypatch.setenv("COST_CAP_REQUEST_USD", "99")
+        monkeypatch.setenv("COST_CAP_MONTH_USD", "99")
+        cost.reserve(s, "ws-a", "r1", "represent")   # 0.05
+        with pytest.raises(EngineError) as e:        # 다른 사용자여도 전역이 막는다
+            cost.reserve(s, "ws-b", "r1", "represent")
+        assert e.value.code == "cost_cap"

@@ -24,6 +24,18 @@ def month_cap() -> float:
     return float(os.environ.get("COST_CAP_MONTH_USD", "100"))
 
 
+def global_month_cap() -> float:
+    """전 워크스페이스 합산 월 상한 — 계정 전체를 지키는 마지막 방벽.
+
+    워크스페이스별 캡만 있으면 사용자 수만큼 곱해진다(100명 × $100 = $10,000).
+    이 캡은 사용자가 몇이든 계정이 감당할 금액을 넘지 않게 한다.
+    """
+    return float(os.environ.get("COST_CAP_GLOBAL_MONTH_USD", "50"))
+
+
+GLOBAL_WS = "__global__"   # 전역 카운터를 담는 예약 워크스페이스 키
+
+
 def usd(tokens_in: int, tokens_out: int) -> float:
     return tokens_in / 1e6 * _price_in() + tokens_out / 1e6 * _price_out()
 
@@ -41,6 +53,12 @@ ESTIMATE_USD = {
 
 
 def reserve(store, ws: str, request_id: str, stage: str, count: int = 1) -> None:
-    """과금 호출 직전 선예약 — 캡 초과 시 EngineError(402) 전파 (job 중단)."""
+    """과금 호출 직전 선예약 — 캡 초과 시 EngineError(402) 전파 (job 중단).
+
+    전역 캡을 **먼저** 검사한다: 계정이 이미 한도면 어느 워크스페이스든 못 쓴다.
+    """
     est = ESTIMATE_USD.get(stage, 0.02) * count
+    store.reserve_cost(GLOBAL_WS, "all", est,
+                       req_cap=float("inf"),      # 전역엔 요청별 캡이 없다
+                       month_cap=global_month_cap())
     store.reserve_cost(ws, request_id, est, req_cap(), month_cap())

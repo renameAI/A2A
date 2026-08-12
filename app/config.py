@@ -67,6 +67,13 @@ class Settings:
         self.openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
         self.openai_base_url = os.environ.get(
             "OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions")
+        # SaaS 접근 허용 목록 (이슈 #6) — 비면 전원 거부(fail closed).
+        # auth가 os.environ을 직접 읽으면 _load_dotenv 이전에 평가돼 항상 빈
+        # 목록이 된다(실측: 허용 사용자도 403). 설정은 여기 한 곳에서만 읽는다.
+        self.saas_allowed_users = {
+            x.strip().lower()
+            for x in os.environ.get("SAAS_ALLOWED_USERS", "").split(",")
+            if x.strip()}
         self.apify_token = os.environ.get("APIFY_TOKEN", "")
         self.fetch_timeout = float(os.environ.get("INGEST_FETCH_TIMEOUT", "15"))
         self.crawl_max_pages = int(os.environ.get("CRAWL_MAX_PAGES", "5"))
