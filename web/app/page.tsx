@@ -11,6 +11,8 @@ import { useEffect, useRef, useState } from "react";
 type Msg = { who: "agent" | "user" | "stamp"; text: string; jsx?: React.ReactNode };
 type Cand = { company_id: string; name: string; source_url: string;
   pain_signal: string; retrieval_score: number; weak: boolean };
+type Llm = { provider: "local" | "openai"; label: string; model: string;
+  ready: { local: boolean; openai: boolean } };
 
 const DEV_USER = "boram";
 function authHeaders(): Record<string, string> {
@@ -50,7 +52,21 @@ export default function Page() {
   const [requestId, setRequestId] = useState<string | null>(null);
   const [cands, setCands] = useState<Cand[]>([]);
   const [saved, setSaved] = useState<Set<string>>(new Set());
+  const [llm, setLlm] = useState<Llm | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { api("/settings/llm").then(setLlm).catch(() => {}); }, []);
+
+  async function toggleLlm() {
+    if (!llm || busy) return;
+    const next = llm.provider === "local" ? "openai" : "local";
+    try {
+      setLlm(await api("/settings/llm", { provider: next }));
+      push({ who: "stamp", text: `모델을 ${next === "openai" ? "GPT Luna" : "EXAONE 로컬"}로 전환했습니다` });
+    } catch (e) {
+      push({ who: "agent", text: (e as Error).message });
+    }
+  }
 
   const push = (m: Msg) => setMsgs((xs) => [...xs, m]);
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
@@ -209,6 +225,17 @@ export default function Page() {
         <header className="chat-head">
           <h1><span className="hash">#</span> lead-discovery</h1>
           {busy && <span className="pill">작업 중</span>}
+          {llm && (
+            <button className="llm-toggle" onClick={toggleLlm} disabled={busy}
+              title={llm.ready.openai
+                ? "클릭해서 모델 전환"
+                : "GPT 전환은 OPENAI_API_KEY 설정 후 가능"}>
+              <span className={`opt ${llm.provider === "local" ? "on" : ""}`}>
+                EXAONE 로컬</span>
+              <span className={`opt ${llm.provider === "openai" ? "on" : ""}`}>
+                GPT Luna{!llm.ready.openai && " 🔒"}</span>
+            </button>
+          )}
         </header>
         <div className="msgs">
           {msgs.map((m, i) => m.who === "stamp" ? (

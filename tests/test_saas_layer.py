@@ -192,3 +192,24 @@ class TestJourney:
         assert res["send_blocked"] is True
         assert res["drafts"][0]["warnings"] == ["미확인이라 본문에서 제외: 예산 규모"]
         assert res["drafts"][0]["claim_trace"], "주장→근거 연결이 비어 있으면 안 된다"
+
+
+class TestLlmToggle:
+    def test_state_and_guarded_switch(self, client, monkeypatch):
+        monkeypatch.setenv("LLM_PROVIDER", "local")
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        s = client.get("/saas/settings/llm", headers=H).json()
+        assert s["provider"] == "local" and s["ready"]["openai"] is False
+        # 키 없이 GPT 전환 → 409 (조용한 대체 없음)
+        r = client.post("/saas/settings/llm", headers=H,
+                        json={"provider": "openai"})
+        assert r.status_code == 409
+        # 키가 있으면 전환되고 상태가 반영된다
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+        r = client.post("/saas/settings/llm", headers=H,
+                        json={"provider": "openai"}).json()
+        assert r["provider"] == "openai" and r["label"] == "GPT Luna"
+        # 로컬 복귀
+        r = client.post("/saas/settings/llm", headers=H,
+                        json={"provider": "local"}).json()
+        assert r["provider"] == "local"

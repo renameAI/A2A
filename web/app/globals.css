@@ -122,6 +122,14 @@ input, textarea { font: inherit; }
   border-radius: 12px; margin: 2px 3px 2px 0; }
 .chip.ask { background: #FDF3E7; color: var(--amber); }
 
+/* LLM 토글 — 채널 헤더 우측 세그먼트 */
+.llm-toggle { margin-left: auto; display: flex; gap: 0; border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; padding: 0; background: var(--white); }
+.llm-toggle .opt { padding: 5px 12px; font-size: 12px; font-weight: 700;
+  color: var(--txt-3); }
+.llm-toggle .opt.on { background: var(--ink); color: #fff; }
+.llm-toggle:disabled { opacity: .5; cursor: default; }
+
 /* 진행 */
 .typing { display: inline-flex; gap: 3px; margin-left: 2px; }
 .typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--coral);

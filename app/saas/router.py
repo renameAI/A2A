@@ -5,6 +5,8 @@
 Judge는 어떤 경로에서도 호출하지 않는다 (§2.3).
 """
 from fastapi import APIRouter, BackgroundTasks, Depends
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from ..jobs import store as job_store
@@ -31,6 +33,49 @@ def _submit(background: BackgroundTasks, fn) -> dict:
     job, _ = job_store.create()
     background.add_task(job_store.run, job, fn)
     return {"job_id": job.job_id}
+
+
+# ── LLM 프로바이더 토글 (EXAONE 로컬 ↔ GPT Luna) ────────────────────
+# 프로세스 전역 전환 — Settings()가 매 호출 env를 읽으므로 env 교체가 곧 반영이다.
+# MVP 운영 도구: 키가 없는 쪽으로는 전환을 거부한다(조용한 대체 없음 — 전환해 놓고
+# 첫 호출에서 터지는 것보다 전환 시점에 거부하는 것이 정직하다).
+
+import os as _os
+
+
+class LlmToggle(BaseModel):
+    provider: Literal["local", "openai"]
+
+
+def _llm_state() -> dict:
+    s = get_settings()
+    return {
+        "provider": s.llm_provider,
+        "model": s.openai_model if s.llm_provider == "openai" else s.local_model,
+        "label": "GPT Luna" if s.llm_provider == "openai" else "EXAONE 로컬",
+        "ready": {"local": bool(s.local_base_url and s.local_model),
+                  "openai": bool(s.openai_api_key)},
+    }
+
+
+@router.get("/settings/llm")
+def llm_settings(user: SaasUser = Depends(current_user)):
+    return _llm_state()
+
+
+@router.post("/settings/llm")
+def set_llm(req: LlmToggle, user: SaasUser = Depends(current_user)):
+    s = get_settings()
+    if req.provider == "openai" and not s.openai_api_key:
+        raise EngineError(409, "config_error",
+                          "OPENAI_API_KEY가 없어 GPT로 전환할 수 없습니다 — "
+                          "키를 설정한 뒤 다시 시도하세요.")
+    if req.provider == "local" and not (s.local_base_url and s.local_model):
+        raise EngineError(409, "config_error",
+                          "LOCAL_LLM_BASE_URL·LOCAL_LLM_MODEL이 없어 로컬로 "
+                          "전환할 수 없습니다.")
+    _os.environ["LLM_PROVIDER"] = req.provider
+    return _llm_state()
 
 
 # ── 사용자·워크스페이스 ─────────────────────────────────────────────
