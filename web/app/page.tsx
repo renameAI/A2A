@@ -19,9 +19,12 @@ function authHeaders(): Record<string, string> {
   return { "X-Dev-User": DEV_USER, "Content-Type": "application/json" };
 }
 
-async function api(path: string, body?: unknown) {
+/** body 유무로 메서드를 추측하지 않는다 — /run·/search처럼 본문 없는 POST가
+ *  GET으로 나가 404가 났다(실측). 메서드는 호출자가 명시한다. */
+async function api(path: string, body?: unknown, method: "GET" | "POST" = "GET") {
+  const m = body !== undefined ? "POST" : method;
   const r = await fetch(`/api/saas${path}`, {
-    method: body === undefined ? "GET" : "POST",
+    method: m,
     headers: authHeaders(),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -112,7 +115,7 @@ export default function Page() {
         await api(`/onboarding-sessions/${sid}/messages`, { answer: text });
       }
       push({ who: "agent", text: "자료를 읽고 있어요…" });
-      const { job_id } = await api(`/onboarding-sessions/${sid}/run`);
+      const { job_id } = await api(`/onboarding-sessions/${sid}/run`, undefined, "POST");
       const res = (await pollJob(job_id)) as {
         needs_answers: boolean;
         session: { current_questions: string[]; profile?: { basic: { name: string } } };
@@ -134,7 +137,7 @@ export default function Page() {
   }
 
   async function approve(sid: string) {
-    const { version_id } = await api(`/onboarding-sessions/${sid}/approve`);
+    const { version_id } = await api(`/onboarding-sessions/${sid}/approve`, undefined, "POST");
     setVersionId(version_id);
     push({ who: "stamp", text: "프로필을 승인했습니다" });
     push({
@@ -153,7 +156,7 @@ export default function Page() {
       setRequestId(doc.request_id);
       push({ who: "stamp", text: "검색 조건을 확정했습니다" });
       push({ who: "agent", text: "검색 기준을 만들고 있어요…" });
-      const b = await api(`/lead-requests/${doc.request_id}/search-brief`);
+      const b = await api(`/lead-requests/${doc.request_id}/search-brief`, undefined, "POST");
       const brief = (await pollJob(b.job_id)) as {
         search_brief: { synthesized_counterpart: string } };
       push({
@@ -180,7 +183,7 @@ export default function Page() {
     push({ who: "stamp", text: "검색 기준을 승인했습니다" });
     push({ who: "agent", text: "웹에서 후보를 모으고 있어요…" });
     try {
-      const s = await api(`/lead-requests/${rid}/search`);
+      const s = await api(`/lead-requests/${rid}/search`, undefined, "POST");
       const res = (await pollJob(s.job_id)) as { candidates: Cand[] };
       setCands(res.candidates);
       push({ who: "agent", text: `후보 ${res.candidates.length}곳이에요. 저장한 후보만 메일 초안으로 이어져요.` });
@@ -197,9 +200,9 @@ export default function Page() {
     setBusy(true);
     push({ who: "agent", text: "수요 신호를 정리하고 초안을 쓰고 있어요…" });
     try {
-      const i = await api(`/lead-requests/${requestId}/candidates/${cid}/insight`);
+      const i = await api(`/lead-requests/${requestId}/candidates/${cid}/insight`, undefined, "POST");
       await pollJob(i.job_id);
-      const c = await api(`/lead-requests/${requestId}/candidates/${cid}/compose`);
+      const c = await api(`/lead-requests/${requestId}/candidates/${cid}/compose`, undefined, "POST");
       const res = (await pollJob(c.job_id)) as {
         drafts: { subject: string; body: string; warnings: string[] }[] };
       const d = res.drafts[0];
