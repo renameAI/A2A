@@ -50,5 +50,6 @@ def build_insight(extractor, candidate_id: str, requester: Profile,
     data = extractor.extract_json(
         INSIGHT_SYSTEM,
         insight_user(requester, intent, candidate, pain_signal, urls),
-        INSIGHT_SCHEMA, deep=False)   # 판정이 아니라 정리 — 얕은 경로면 충분
+        INSIGHT_SCHEMA, deep=False,
+        allow_foreign=True)   # 판정이 아니라 정리 — 얕은 경로면 충분
     return CandidateInsight(candidate_id=candidate_id, source_urls=urls, **data)

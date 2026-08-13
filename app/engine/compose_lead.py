@@ -72,7 +72,8 @@ def _user(req: ComposeLeadRequest) -> str:
 
 def compose_lead(extractor, req: ComposeLeadRequest) -> ComposeLeadResponse:
     data = extractor.extract_json(COMPOSE_LEAD_SYSTEM, _user(req),
-                                  COMPOSE_LEAD_SCHEMA, deep=False)
+                                  COMPOSE_LEAD_SCHEMA, deep=False,
+                                  allow_foreign=True)
     ins = req.candidate_insight
     drafts = []
     for d in data["drafts"][: req.variants]:

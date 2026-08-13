@@ -90,24 +90,71 @@ def synthesize_counterpart(req: RetrieveRequest) -> str:
     return template_counterpart(req)
 
 
-def build_search_brief(req: RetrieveRequest) -> "SearchBrief":
-    """상대상 생성 공개 래퍼 (이슈 #6-D, §6.3) — 검색 시작 전에 사용자가 확인하고,
-    웹 검색 쿼리의 씨앗이 된다. 쿼리 가설은 결정적(LLM 무관)으로 프로필·의도에서
-    도출한다 — 상대상 합성(LLM 1회)만 확률적이고 그건 synthesized_counterpart로
-    분리돼 있어 사용자가 눈으로 검증한다."""
-    from ..schemas import SearchBrief
+QUERY_SYSTEM = """당신은 B2B 리드 발굴의 검색 전략가다. 주어진 '이상적 상대의 상'으로
+**기업을 찾는** 웹 검색어를 만든다.
+
+핵심 원칙 — 우리는 **회사**를 찾지 주제 해설을 찾지 않는다:
+- 나쁜 검색어: "에너지 음료 카페인 부작용" → 블로그·뉴스 기사가 나온다
+- 좋은 검색어: "일본 건강음료 수입 유통사 회사소개" → 실제 기업 페이지가 나온다
+- 업종을 가리키는 명사(유통사·수입사·제조사·운영사·에이전시)와 기업 페이지를
+  뜻하는 말(회사소개·공식·기업정보·취급 브랜드)을 반드시 넣는다.
+- 현지어를 섞는다. 일본이면 일본어(株式会社·卸·輸入), 베트남이면 영어를 함께 쓴다.
+- 상대의 '문제'만 검색하면 그 문제를 다룬 기사가 나온다 — 문제를 겪는 **주체**를 검색한다.
+
+검색어 4개를 만든다. 각각 다른 각도로 — ① 업종+지역 기업 목록 ② 현지어 업종명
+③ 취급·모집 신호(파트너 모집·신규 브랜드 도입) ④ 협회·디렉터리·전시 참가사."""
+
+QUERY_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["queries"],
+    "properties": {"queries": {
+        "type": "array", "minItems": 3, "maxItems": 5,
+        "items": {"type": "string"}}},
+}
+
+
+def _fallback_queries(req: RetrieveRequest) -> list[str]:
+    """LLM 없이도 최소한 '기업'을 겨냥한다 — 이전 하드코딩(호텔 전용
+    'renovation partner'·'facility manager')은 다른 업종에서 완전히 빗나갔다."""
     p = req.requester_profile
     region = req.intent.target_region or ""
     ttype = req.intent.target_type or p.target_customer.value or ""
-    problem_head = (p.problem_solved.value or "").split(",")[0][:40]
-    queries = [q.strip() for q in (
-        f"{region} {ttype} {problem_head}",
-        f"{region} {ttype} renovation OR improvement partner",
-        f"{region} {ttype} 채용 OR hiring facility manager",
-    ) if q.strip()]
+    ind = req.intent.target_industry or p.basic.industry or ""
+    return [q.strip() for q in (
+        f"{region} {ttype} 회사소개",
+        f"{region} {ind} 유통사 OR 수입사 기업정보",
+        f"{region} {ttype} 파트너 모집",
+    ) if q.strip() and q.strip() != region]
+
+
+def build_search_brief(req: RetrieveRequest) -> "SearchBrief":
+    """상대상 생성 공개 래퍼 (이슈 #6-D, §6.3) — 검색 시작 전에 사용자가 확인하고,
+    웹 검색 쿼리의 씨앗이 된다.
+
+    쿼리도 LLM이 만든다(2026-08 수정): 결정적 템플릿은 업종을 모른다 —
+    호텔 기준으로 박아둔 'renovation partner'가 음료 회사 검색에 그대로 나가
+    에너지음료 해설 기사만 10건 걸렸다(실측). 상대상은 이미 업종을 담고 있으므로
+    그걸 씨앗으로 '기업을 찾는' 검색어를 뽑는 게 맞다."""
+    from ..config import get_settings
+    from ..schemas import SearchBrief
+    from .llm import get_extractor
+    synth = synthesize_counterpart(req)
+    try:
+        data = get_extractor(get_settings()).extract_json(
+            QUERY_SYSTEM,
+            f"[이상적 상대의 상]\n{synth}\n\n"
+            f"[지역] {req.intent.target_region or '미지정'}\n"
+            f"[상대 유형] {req.intent.target_type or '미지정'}",
+            QUERY_SCHEMA, deep=False, allow_foreign=True)
+        queries = [q for q in data.get("queries", []) if q.strip()]
+    except Exception as e:            # 검색어 생성 실패로 전체를 죽이지 않는다
+        from .. import progress
+        progress.log("검색", f"⚠ 검색어 생성 실패({type(e).__name__}) — 규칙 기반 대체")
+        queries = []
+    queries = queries or _fallback_queries(req)
     return SearchBrief(
         deterministic_anchor=template_counterpart(req),
-        synthesized_counterpart=synthesize_counterpart(req),
+        synthesized_counterpart=synth,
         query_hypotheses=queries,
         must_have=list(req.intent.must_have_conditions),
         exclusions=list(req.intent.excluded_conditions),

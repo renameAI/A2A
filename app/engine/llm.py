@@ -77,26 +77,35 @@ class AnthropicExtractor:
 
 
 # 코드 레벨 정화 — 약한/작은 모델은 프롬프트를 덜 지키므로 사후에도 방어한다.
-# 한국어 비즈니스 서술에 원래 없는 문자군(한자·가나·대체문자·제어문자)을 제거.
-_GARBAGE_CHARS = re.compile(
-    r"[一-鿿㐀-䶿぀-ヿ�\x00-\x08\x0b\x0c\x0e-\x1f]")
+#
+# 두 문자군을 분리한다(2026-08 정규화). 원래는 하나로 묶여 있었는데, 해외 리드
+# 발굴을 붙이자 그게 사고가 됐다 — 일본 기업명·현지어 검색어·일본어 메일이
+# 통째로 지워졌다(실측: 株式会社ヤマト飲料 → '').
+#   · 제어문자·대체문자(�): 어떤 언어에서도 쓰레기 → 항상 제거
+#   · 한자·가나: 한국어 서술에서는 EXAONE 환각 노이즈지만, 해외 기업 데이터에서는
+#     정상 값 → keep_cjk=True일 때 보존
+_CONTROL_CHARS = re.compile(r"[�\x00-\x08\x0b\x0c\x0e-\x1f]")
+_CJK_CHARS = re.compile(r"[一-鿿㐀-䶿぀-ヿ]")
 
 
-def _clean_text(s: str) -> str:
-    """문장 속 한자·가나·깨진 글자를 제거해 순수 한국어 출력을 보장 (이슈 #3)."""
-    cleaned = _GARBAGE_CHARS.sub("", s)
+def _clean_text(s: str, *, keep_cjk: bool = False) -> str:
+    """깨진 글자를 제거한다. keep_cjk=False면 한자·가나까지 제거해 순수 한국어를
+    보장한다 (이슈 #3). 해외 데이터 경로는 keep_cjk=True로 호출한다."""
+    cleaned = _CONTROL_CHARS.sub("", s)
+    if not keep_cjk:
+        cleaned = _CJK_CHARS.sub("", cleaned)
     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
     return cleaned
 
 
-def sanitize(obj):
+def sanitize(obj, *, keep_cjk: bool = False):
     """파싱된 출력의 모든 문자열 값을 재귀 정화. dict/list/str 모두 처리."""
     if isinstance(obj, str):
-        return _clean_text(obj)
+        return _clean_text(obj, keep_cjk=keep_cjk)
     if isinstance(obj, list):
-        return [sanitize(x) for x in obj]
+        return [sanitize(x, keep_cjk=keep_cjk) for x in obj]
     if isinstance(obj, dict):
-        return {k: sanitize(v) for k, v in obj.items()}
+        return {k: sanitize(v, keep_cjk=keep_cjk) for k, v in obj.items()}
     return obj
 
 
@@ -130,7 +139,8 @@ class _OpenAICompatExtractor:
     def __init__(self, url: str, token: str, model: str, timeout: float,
                  provider_label: str, *, thinking_kwargs: bool = False,
                  max_tokens_field: str = "max_tokens",
-                 supports_temperature: bool = True):
+                 supports_temperature: bool = True,
+                 strict_schema: bool = False):
         self._url = url
         self._token = token
         self._model = model
@@ -145,6 +155,7 @@ class _OpenAICompatExtractor:
         # 기본값 1만 허용). 우리 0.5는 EXAONE 반복 루프 방어용이라 모델이
         # 안 받으면 그냥 빼면 된다 — 보내서 요청 전체를 죽이는 것보다 낫다.
         self._supports_temperature = supports_temperature
+        self._strict_schema = strict_schema
 
     def _headers(self) -> dict:
         headers = {"Content-Type": "application/json"}
@@ -358,9 +369,13 @@ class _OpenAICompatExtractor:
         if self._thinking_kwargs:
             payload["chat_template_kwargs"] = {"enable_thinking": thinking}
         if schema is not None:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "output", "schema": schema}}
+            js = {"name": "output", "schema": schema}
+            if self._strict_schema:
+                # OpenAI 구조화 출력은 strict 없이는 스키마를 '힌트'로만 쓴다 —
+                # 형태만 맞고 값이 빈 문자열로 오는 사고를 실측했다(검색어 4개가
+                # 전부 ""). strict=true여야 제약 디코딩이 실제로 걸린다.
+                js["strict"] = True
+            payload["response_format"] = {"type": "json_schema", "json_schema": js}
         reason_limit = (_timeout_override if _timeout_override is not None
                         else self._reason_timeout(thinking))
         try:
@@ -435,7 +450,7 @@ class _OpenAICompatExtractor:
         return content
 
     @staticmethod
-    def _parse_json(text: str) -> dict:
+    def _parse_json(text: str, *, allow_foreign: bool = False) -> dict:
         # <think> 블록·코드펜스 제거 후 JSON 추출 → 정화.
         # 닫는 태그 오타 허용: 실측으로 </thihk>가 나왔다(모델이 자기 종료 토큰을
         # 틀리게 쓰는 케이스). 정확한 </think>만 지우면 오타본은 그대로 남아 JSON
@@ -446,14 +461,20 @@ class _OpenAICompatExtractor:
         text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
         for candidate in (text, text[text.find("{"): text.rfind("}") + 1]):
             try:
-                return sanitize(json.loads(candidate))
+                # 해외 리드 발굴에서는 일본어·중국어가 정상 데이터다 —
+                # 정화기는 EXAONE 환각 방어용이라 CJK까지 지우면 현지 회사명·
+                # 검색어·메일 본문이 통째로 날아간다(실측: 株式会社ヤマト飲料 → '').
+                # 제어문자·깨진 글자는 어느 경로에서든 계속 제거한다.
+                return sanitize(json.loads(candidate), keep_cjk=allow_foreign)
             except (json.JSONDecodeError, ValueError):
                 continue
         raise EngineError(502, "llm_error",
                           f"JSON 파싱 실패 — 응답 앞부분: {text[:200]}")
 
     def extract_json(self, system: str, user: str, schema: dict,
-                     deep: bool = False) -> dict:
+                     deep: bool = False, allow_foreign: bool = False) -> dict:
+        """allow_foreign=True면 한국어 정화기를 건너뛴다 — 해외 리드 발굴에서
+        일본어·중국어 회사명·검색어·메일 본문은 정상 데이터다."""
         if deep:
             # 추론 토큰 예산 — 표준 정책은 16384(절삭 없이 끝까지 사고). 낮추지 않는다.
             # 실측(2026-07-27): .env에서 4500으로 눌러둔 채 judge를 10축으로 늘렸더니
@@ -493,9 +514,11 @@ class _OpenAICompatExtractor:
                                "추가하지 마라.")
                 return self._retry_json(FORMAT_SYSTEM, format_user, schema)
         with progress.node("llm.format", "구조화 (단일 호출)"):
-            return self._retry_json(system, user, schema)
+            return self._retry_json(system, user, schema,
+                                    allow_foreign=allow_foreign)
 
-    def _retry_json(self, system: str, user: str, schema: dict) -> dict:
+    def _retry_json(self, system: str, user: str, schema: dict, *,
+                    allow_foreign: bool = False) -> dict:
         # 구조화 출력 상한 — 비대 프로필(자료 인용 다수)에서 judge JSON이 8192를
         # 넘겨 잘리는 사례(finish_reason=length) 실측. 기본 16384로 상향, 환경변수로
         # 조정. cap은 상한일 뿐이라 정상 출력은 EOS로 일찍 멈춰 지연·비용 영향 없음
@@ -520,7 +543,7 @@ class _OpenAICompatExtractor:
                     #
                     # 온도는 이미 추론 호출에서 같은 실패모드로 0.2→0.5로 올린 전례가
                     # 있다(300초 타임아웃 2/10→4/5 급증). 같은 처방을 여기에도 적용.
-                    temperature=0.5))
+                    temperature=0.5), allow_foreign=allow_foreign)
             except EngineError as e:
                 if attempt == 2 or e.code == "llm_unreachable":
                     raise
@@ -553,7 +576,7 @@ class OpenAIExtractor(_OpenAICompatExtractor):
             settings.openai_base_url, settings.openai_api_key,
             settings.openai_model, settings.llm_timeout, "OpenAI",
             thinking_kwargs=False, max_tokens_field="max_completion_tokens",
-            supports_temperature=False)
+            supports_temperature=False, strict_schema=True)
 
 
 class LocalExtractor(_OpenAICompatExtractor):

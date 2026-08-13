@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from ..jobs import store as job_store
 from ..config import get_settings
 from ..engine.candidate_adapter import candidate_record_from_profile
+from ..engine.candidate_extract import extract_companies, filter_company_hits
 from ..engine.candidate_insight import build_insight
 from ..engine.compose_lead import compose_lead
 from ..engine.llm import get_extractor
@@ -303,21 +304,34 @@ def run_search(rid: str, background: BackgroundTasks,
                     seen.add(h["url"])
                     hits.append(h)
         progress.log("검색", f"웹 수집 {len(hits)}건 (쿼리 {len(queries)}개, 중복 제거)")
+        # ① 도메인 필터 — 블로그·위키·SNS·쇼핑몰은 기업 페이지가 아니다
+        hits, dropped = filter_company_hits(hits)
+        if dropped:
+            progress.log("검색", f"비기업 도메인 {dropped}건 제외 (블로그·위키·SNS 등)")
+        # ② 기업 추출 — 검색 히트를 그대로 후보로 쓰면 기사 제목이 회사명이 된다
+        cost.reserve(store, user.workspace_id, rid, "insight")
+        companies = extract_companies(
+            get_extractor(settings), hits,
+            doc["search_brief"]["synthesized_counterpart"],
+            requester_name=profile.basic.name)
+        progress.log("검색", f"실존 기업 {len(companies)}곳 추출 "
+                             f"(히트 {len(hits)}건 중)")
         records = []
-        for i, h in enumerate(hits):
+        for i, c in enumerate(companies):
+            desc = c["what"] or c["signal"]
             thin = Profile(
-                basic=BasicInfo(name=h["title"][:80] or f"후보{i+1}",
+                basic=BasicInfo(name=c["name"],
                                 country=intent.target_region or "미상",
                                 industry=intent.target_industry or "unknown"),
-                description=h["snippet"],
-                problem_solved=ProvField(value=h["snippet"][:200],
+                description=desc,
+                problem_solved=ProvField(value=(c["signal"] or desc)[:200],
                                          provenance=Provenance.inferred,
                                          confidence=0.4),
                 solution=ProvField(value="", provenance=Provenance.ask),
                 target_customer=ProvField(value="", provenance=Provenance.ask))
             records.append(candidate_record_from_profile(
-                f"web-{rid}-{i+1:02d}", thin, h["url"],
-                pain_signal=h["snippet"]))
+                f"web-{rid}-{i+1:02d}", thin, c["url"],
+                pain_signal=f"{c['what']} {c['signal']}".strip()))
         result = retrieve(RetrieveRequest(
             requester_profile=profile, intent=intent,
             direction=RetrieveDirection.sell_outreach, pool=PoolChoice.both,
