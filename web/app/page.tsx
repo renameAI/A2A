@@ -43,8 +43,10 @@ type Llm = { provider: "local" | "openai"; label: string; model: string;
 
 /** body 유무로 메서드를 추측하지 않는다 — /run·/search처럼 본문 없는 POST가
  *  GET으로 나가 404가 났다(실측). 메서드는 호출자가 명시한다. */
-async function api(path: string, body?: unknown, method: "GET" | "POST" = "GET") {
-  const m = body !== undefined ? "POST" : method;
+async function api(path: string, body?: unknown,
+                   method: "GET" | "POST" | "DELETE" = "GET") {
+  const m = method !== "GET" ? method
+    : (body !== undefined ? "POST" : "GET");
   const r = await fetch(`/api/saas${path}`, {
     method: m,
     headers: await authHeaders(),
@@ -280,6 +282,23 @@ function Workspace({ who }: { who: string }) {
             + "지난 대화 내용은 저장되지 않아 후보 목록부터 다시 보여드려요." });
     } catch (e) {
       push({ who: "agent", text: `불러오지 못했어요 — ${(e as Error).message}` });
+    }
+  }
+
+  /** 요청 삭제 — 파생물(온톨로지·원장·인사이트·초안)까지 서버가 연쇄로 지운다.
+   *  되돌릴 수 없으므로 무엇이 사라지는지 말하고 확인을 받는다. */
+  async function removeRequest(r: ReqSummary) {
+    const label = r.title || r.request_id;
+    if (!confirm(`"${label}" 을(를) 삭제할까요?\n\n`
+      + `후보 ${r.candidate_count}곳과 그 판독·메일 초안이 함께 지워지고 `
+      + `되돌릴 수 없어요.`)) return;
+    try {
+      await api(`/lead-requests/${r.request_id}`, undefined, "DELETE");
+      setReqs((xs) => xs.filter((x) => x.request_id !== r.request_id));
+      if (r.request_id === requestId) newRequest();
+      push({ who: "stamp", text: `${label} 을(를) 삭제했습니다` });
+    } catch (e) {
+      push({ who: "agent", text: `삭제하지 못했어요 — ${(e as Error).message}` });
     }
   }
 
@@ -657,15 +676,20 @@ function Workspace({ who }: { who: string }) {
             {reqs.length === 0 && !requestId && (
               <div className="empty">아직 없어요</div>)}
             {reqs.map((r) => (
-              <button key={r.request_id} disabled={busy}
-                className={`chan ${r.request_id === requestId ? "active" : ""}`}
-                title={r.request_id}
-                onClick={() => openRequest(r.request_id)}>
-                <span className="hash">#</span>
-                <span className="nm">{r.title || r.request_id}</span>
-                {r.candidate_count > 0 &&
-                  <span className="badge">{r.candidate_count}</span>}
-              </button>
+              <div className={`chan-row ${r.request_id === requestId ? "on" : ""}`}
+                key={r.request_id}>
+                <button disabled={busy}
+                  className={`chan ${r.request_id === requestId ? "active" : ""}`}
+                  title={r.request_id}
+                  onClick={() => openRequest(r.request_id)}>
+                  <span className="hash">#</span>
+                  <span className="nm">{r.title || r.request_id}</span>
+                  {r.candidate_count > 0 &&
+                    <span className="badge">{r.candidate_count}</span>}
+                </button>
+                <button className="chan-del" disabled={busy} title="이 요청 삭제"
+                  onClick={() => removeRequest(r)}>×</button>
+              </div>
             ))}
           </div>
           <div className="sec">

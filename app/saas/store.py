@@ -59,12 +59,37 @@ class LocalSaasStore:
                 (kind, ws, doc_id)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def list(self, kind: str, ws: str) -> list[dict]:
+    def list(self, kind: str, ws: str, limit: "int | None" = None) -> list[dict]:
+        sql = "SELECT body FROM docs WHERE kind=? AND ws=? ORDER BY updated DESC"
+        args: tuple = (kind, ws)
+        if limit is not None:
+            sql += " LIMIT ?"
+            args = (kind, ws, limit)
         with self._connect() as con:
-            rows = con.execute(
-                "SELECT body FROM docs WHERE kind=? AND ws=? ORDER BY updated DESC",
-                (kind, ws)).fetchall()
+            rows = con.execute(sql, args).fetchall()
         return [json.loads(r[0]) for r in rows]
+
+    def delete(self, kind: str, ws: str, doc_id: str) -> bool:
+        with self._connect() as con:
+            cur = con.execute(
+                "DELETE FROM docs WHERE kind=? AND ws=? AND doc_id=?",
+                (kind, ws, doc_id))
+        return cur.rowcount > 0
+
+    def delete_prefix(self, kind: str, ws: str, prefix: str) -> int:
+        """doc_id가 prefix로 시작하는 문서를 지운다 — 요청 연쇄 삭제용
+        (company_ontology의 f"{rid}::{cid}" 같은 합성 키)."""
+        with self._connect() as con:
+            cur = con.execute(
+                "DELETE FROM docs WHERE kind=? AND ws=? AND doc_id LIKE ?",
+                (kind, ws, prefix + "%"))
+        return cur.rowcount
+
+    def delete_workspace(self, ws: str) -> int:
+        """워크스페이스 전체 파기 — '내 자료 지워주세요'에 응할 수 있는 경로."""
+        with self._connect() as con:
+            cur = con.execute("DELETE FROM docs WHERE ws=?", (ws,))
+        return cur.rowcount
 
     def new_id(self, prefix: str) -> str:
         return f"{prefix}-{uuid.uuid4().hex[:10]}"
@@ -122,10 +147,38 @@ class FirestoreSaasStore:
         snap = self._doc(kind, ws, doc_id).get()
         return snap.to_dict() if snap.exists else None
 
-    def list(self, kind: str, ws: str) -> list[dict]:
+    def list(self, kind: str, ws: str, limit: "int | None" = None) -> list[dict]:
         col = self._db.collection("saas").document(ws).collection(kind)
-        return [d.to_dict() for d in
-                col.order_by("_updated", direction=self._fs.Query.DESCENDING).stream()]
+        q = col.order_by("_updated", direction=self._fs.Query.DESCENDING)
+        if limit is not None:
+            q = q.limit(limit)
+        return [d.to_dict() for d in q.stream()]
+
+    def delete(self, kind: str, ws: str, doc_id: str) -> bool:
+        ref = self._doc(kind, ws, doc_id)
+        if not ref.get().exists:
+            return False
+        ref.delete()
+        return True
+
+    def delete_prefix(self, kind: str, ws: str, prefix: str) -> int:
+        col = self._db.collection("saas").document(ws).collection(kind)
+        n = 0
+        # Firestore엔 prefix delete가 없다 — 범위 질의로 접두어를 잡는다
+        # (\uf8ff는 유니코드 사용자 영역 마지막 문자로, 접두어 상한 관용구다).
+        for d in col.where("__name__", ">=", prefix)\
+                    .where("__name__", "<", prefix + "\uf8ff").stream():
+            d.reference.delete()
+            n += 1
+        return n
+
+    def delete_workspace(self, ws: str) -> int:
+        n = 0
+        for col in self._db.collection("saas").document(ws).collections():
+            for d in col.stream():
+                d.reference.delete()
+                n += 1
+        return n
 
     def new_id(self, prefix: str) -> str:
         return f"{prefix}-{uuid.uuid4().hex[:10]}"
@@ -210,11 +263,30 @@ class SupabaseSaasStore:
                    f"&workspace_id=eq.{_q(ws)}&doc_id=eq.{_q(doc_id)}&limit=1")
         return rows[0]["body"] if rows else None
 
-    def list(self, kind: str, ws: str) -> list[dict]:
-        rows = self._req(
-            "GET", f"/{self.TABLE}?select=body&kind=eq.{_q(kind)}"
-                   f"&workspace_id=eq.{_q(ws)}&order=updated_at.desc")
+    def list(self, kind: str, ws: str, limit: "int | None" = None) -> list[dict]:
+        url = (f"/{self.TABLE}?select=body&kind=eq.{_q(kind)}"
+               f"&workspace_id=eq.{_q(ws)}&order=updated_at.desc")
+        if limit is not None:
+            url += f"&limit={int(limit)}"
+        rows = self._req("GET", url)
         return [r["body"] for r in (rows or [])]
+
+    def delete(self, kind: str, ws: str, doc_id: str) -> bool:
+        self._req("DELETE",
+                  f"/{self.TABLE}?kind=eq.{_q(kind)}&workspace_id=eq.{_q(ws)}"
+                  f"&doc_id=eq.{_q(doc_id)}")
+        return True
+
+    def delete_prefix(self, kind: str, ws: str, prefix: str) -> int:
+        # PostgREST의 like 필터 — *가 SQL의 %에 해당한다
+        self._req("DELETE",
+                  f"/{self.TABLE}?kind=eq.{_q(kind)}&workspace_id=eq.{_q(ws)}"
+                  f"&doc_id=like.{_q(prefix + '*')}")
+        return -1      # PostgREST는 삭제 건수를 기본 반환하지 않는다
+
+    def delete_workspace(self, ws: str) -> int:
+        self._req("DELETE", f"/{self.TABLE}?workspace_id=eq.{_q(ws)}")
+        return -1
 
     def new_id(self, prefix: str) -> str:
         return f"{prefix}-{uuid.uuid4().hex[:10]}"

@@ -479,3 +479,12 @@ a.ct-v{color:var(--blue)}
 /* 접점 출처 불일치 경고 — 링크가 아니라 평문(클릭 유도 금지) */
 .ct-warn{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:4px;
   background:var(--amber-soft);color:var(--amber);cursor:help;flex:none}
+
+/* Request 항목 — 호버 시에만 삭제가 드러난다(오클릭 방지) */
+.chan-row{display:flex;align-items:center;gap:2px}
+.chan-row .chan{flex:1;min-width:0}
+.chan-del{opacity:0;color:#7C8499;font-size:15px;padding:2px 6px;border-radius:5px;
+  flex:none;line-height:1}
+.chan-row:hover .chan-del{opacity:1}
+.chan-del:hover{background:rgba(255,255,255,.1);color:var(--coral)}
+.chan-del:disabled{opacity:0}

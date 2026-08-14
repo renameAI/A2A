@@ -96,6 +96,10 @@ def record_run(store, workspace_id: str, rid: str, *,
 # 수 없고, HKV의 원칙(미관측≠부정)이 여기서도 성립한다.
 OUTCOME_WEIGHTS = {"saved": 2.0, "drafted": 4.0, "replied": 8.0}
 
+# 원장 조회 상한 — 최근 N건만 추천 근거로 삼는다. 무제한 list()는 사용량에
+# 비례해 느려지고, 오래된 검색 경향은 추천 가치도 낮다.
+_LEDGER_SCAN = int(__import__("os").environ.get("KEYWORD_LEDGER_SCAN", "300"))
+
 
 def outcome_weight(o: dict) -> float:
     """결과 한 건의 추가 신뢰도. 계층은 누적이다 — 답장까지 갔으면
@@ -119,7 +123,10 @@ def recommend(store, workspace_id: str, current_queries: list[str], *,
     결과 원장(outcome)이 있으면 '많이 찾힌 검색어'가 아니라 '실제로 통한
     검색어'가 위로 온다 — 저장·초안·답장이 그 검색어의 신뢰도를 올린다.
     """
-    runs = [r for r in store.list("keyword_run", workspace_id)
+    # 최근 것만 본다. 원장은 검색할 때마다 쌓이므로 전체를 끌어오면 많이 쓴
+    # 사용자일수록 검색 시작이 느려진다 — 그 원인이 자기 사용 이력이라는 걸
+    # 알 길도 없다(감사 확정 medium). 추천은 최신 경향이 더 유용하기도 하다.
+    runs = [r for r in store.list("keyword_run", workspace_id, limit=_LEDGER_SCAN)
             if not r.get("request_id", "").startswith(exclude_rid or "\0")]
     if not runs:
         return []
@@ -127,7 +134,7 @@ def recommend(store, workspace_id: str, current_queries: list[str], *,
     ow: dict[str, float] = defaultdict(float)
     replies: dict[str, int] = defaultdict(int)
     drafts: dict[str, int] = defaultdict(int)
-    for o in store.list("outcome", workspace_id):
+    for o in store.list("outcome", workspace_id, limit=_LEDGER_SCAN):
         if o.get("request_id", "").startswith(exclude_rid or "\0"):
             continue
         q = (o.get("found_by") or "").strip()

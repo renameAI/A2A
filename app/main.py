@@ -5,6 +5,7 @@
 """
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, FastAPI, Request
@@ -28,7 +29,30 @@ from .log import setup as _log_setup   # noqa: E402
 _log_setup()          # stdout JSON 한 줄 — Cloud Logging이 파싱한다
 _boot = logging.getLogger("a2a.boot")
 
-app = FastAPI(title="A2A B2B 매칭엔진", version="0.1.0")
+@asynccontextmanager
+async def _lifespan(_: FastAPI):
+    """적용된 설정을 기동 시 한 번 남긴다. 이름이 어긋난 환경변수가 조용히
+    무시되던 사고(COST_CAP_* vs COST_CAP_*_USD)를 로그로 잡을 수 있게.
+
+    on_event는 FastAPI에서 폐기됐다 — lifespan을 쓴다."""
+    from .config import get_settings
+    from .saas import cost
+    s = get_settings()
+    _boot.info("엔진 기동", extra={
+        "llm_provider": s.llm_provider,
+        "saas_auth": os.environ.get("SAAS_AUTH", "dev"),
+        "saas_store": os.environ.get("SAAS_STORE", "local"),
+        "allowed_users": len(s.saas_allowed_users),
+        "cap_request_usd": cost.req_cap(),
+        "cap_month_usd": cost.month_cap(),
+        "cap_global_month_usd": cost.global_month_cap(),
+        "legacy_surface": LEGACY_ON,
+    })
+    yield
+
+
+app = FastAPI(title="A2A B2B 매칭엔진", version="0.1.0",
+              lifespan=_lifespan)
 
 # 레거시 엔진 API(/v1/*)와 A2A 전송층은 인증이 없다. SaaS 제품에서는 쓰지
 # 않으므로 기본 차단하고, A2A 에이전트 연동이 필요할 때만 명시적으로 켠다.
@@ -188,25 +212,6 @@ if LEGACY_ON:
 from .saas.router import router as saas_router   # noqa: E402
 
 app.include_router(saas_router)
-
-
-@app.on_event("startup")
-def _log_effective_config() -> None:
-    """적용된 설정을 기동 시 한 번 남긴다. 이름이 어긋난 환경변수가 조용히
-    무시되던 사고(COST_CAP_* vs COST_CAP_*_USD)를 로그로 잡을 수 있게."""
-    from .config import get_settings
-    from .saas import cost
-    s = get_settings()
-    _boot.info("엔진 기동", extra={
-        "llm_provider": s.llm_provider,
-        "saas_auth": os.environ.get("SAAS_AUTH", "dev"),
-        "saas_store": os.environ.get("SAAS_STORE", "local"),
-        "allowed_users": len(s.saas_allowed_users),
-        "cap_request_usd": cost.req_cap(),
-        "cap_month_usd": cost.month_cap(),
-        "cap_global_month_usd": cost.global_month_cap(),
-        "legacy_surface": LEGACY_ON,
-    })
 
 
 @app.get("/healthz")

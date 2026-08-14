@@ -22,9 +22,12 @@ class FakeStore:
     def get(self, kind, ws, doc_id):
         return self.docs.get((kind, ws, doc_id))
 
-    def list(self, kind, ws):
-        return [v for (k, w, _), v in self.docs.items()
+    def list(self, kind, ws, limit=None):
+        # 실 계약과 정렬 — limit을 안 받으면 recommend()가 TypeError로 죽는다
+        # (계약 변경을 이 테스트가 잡아냈다).
+        rows = [v for (k, w, _), v in self.docs.items()
                 if k == kind and w == ws]
+        return rows[:limit] if limit is not None else rows
 
 
 WS = "ws-test"

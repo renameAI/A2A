@@ -34,6 +34,10 @@ from .store import get_saas_store
 
 router = APIRouter(prefix="/saas", tags=["saas"])
 
+class _SkipSnippetLog(Exception):
+    """스니펫 로그가 꺼져 있다는 내부 신호 — 오류가 아니다."""
+
+
 def _upload_root() -> Path:
     """호출 시점에 env를 읽는다 — 모듈 상수로 두면 테스트가 저장소에 파일을
     쓰고, 배포에서 UPLOAD_DIR을 바꿔도 반영되지 않는다."""
@@ -372,6 +376,60 @@ def get_request(rid: str, user: SaasUser = Depends(current_user)):
     return doc
 
 
+@router.delete("/lead-requests/{rid}")
+def delete_request(rid: str, user: SaasUser = Depends(current_user)):
+    """요청과 그 파생물을 전부 지운다.
+
+    연쇄가 필요한 이유: 요청 문서만 지우면 온톨로지·키워드 원장·결과·인사이트·
+    메일 초안이 고아로 남아 계속 추천 가중에 반영된다. "지워달라"는 요청에
+    응하려면 파생물까지 따라가야 한다(감사 확정 medium — 삭제 경로가 앱
+    전체에 0개였다).
+    """
+    store = get_saas_store()
+    if store.get("lead_request", user.workspace_id, rid) is None:
+        raise EngineError(404, "not_found", f"Request {rid} 없음")
+    ws = user.workspace_id
+    removed = {"lead_request": int(store.delete("lead_request", ws, rid))}
+    # 합성 키(f"{rid}::...")를 쓰는 파생물은 접두어로 지운다
+    for kind in ("company_ontology", "insight", "email_draft", "outcome",
+                 "cost_request"):
+        removed[kind] = store.delete_prefix(kind, ws, f"{rid}::")
+    # 키워드 원장은 f"{rid}-w{wave}" 형태
+    removed["keyword_run"] = store.delete_prefix("keyword_run", ws, f"{rid}-w")
+    removed["cost_request_self"] = int(store.delete("cost_request", ws, rid))
+    return {"deleted": rid, "removed": removed}
+
+
+class DeleteMe(BaseModel):
+    """워크스페이스 파기는 되돌릴 수 없다 — 오타 한 번으로 지워지지 않게
+    사용자가 자기 식별자를 그대로 다시 입력하게 한다."""
+    confirm: str
+
+
+@router.post("/me/delete")
+def delete_me(body: DeleteMe, user: SaasUser = Depends(current_user)):
+    """내 워크스페이스의 모든 문서를 지운다. 업로드 파일도 함께.
+
+    POST인 이유: 확인 문구를 본문으로 받아야 하고, DELETE에 본문을 싣는 것은
+    프록시·클라이언트마다 취급이 다르다.
+    """
+    expected = user.email or user.uid
+    if body.confirm.strip() != expected:
+        raise EngineError(400, "invalid_input",
+                          f"확인 문구가 다릅니다 — '{expected}' 를 그대로 입력하세요.")
+    store = get_saas_store()
+    n = store.delete_workspace(user.workspace_id)
+    # 업로드한 원본 자료도 지운다 — 문서만 지우면 IR덱 PDF가 디스크에 남는다
+    import shutil
+    d = _upload_root() / user.workspace_id
+    files = 0
+    if d.exists():
+        files = sum(1 for _ in d.iterdir())
+        shutil.rmtree(d, ignore_errors=True)
+    return {"deleted_workspace": user.workspace_id,
+            "documents": n, "files": files}
+
+
 def _load_request(store, user, rid) -> "tuple[dict, Profile, Intent]":
     doc = store.get("lead_request", user.workspace_id, rid)
     if doc is None:
@@ -525,9 +583,15 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
     # 실전 스니펫 캡처 (B5) — 라벨은 사람이 확정한다(모델 출력을 골드로 쓰면
     # 순환 논증). 한 URL에서 회사가 여럿 나올 수 있으므로 리스트로 담는다.
     # 실패해도 검색은 계속.
+    # 기본은 끔. Cloud Run의 파일시스템은 인스턴스 메모리라 이 쓰기는 재시작마다
+    # 증발하면서 그때까지는 메모리를 먹는다(감사 확정 low). 골든셋 증강이
+    # 필요한 로컬·볼륨 환경에서만 SNIPPET_LOG_PATH로 켠다.
+    snippet_path = os.environ.get("SNIPPET_LOG_PATH", "")
     try:
-        log_p = _P("dataset/snippet_log.jsonl")
-        log_p.parent.mkdir(exist_ok=True)
+        if not snippet_path:
+            raise _SkipSnippetLog
+        log_p = _P(snippet_path)
+        log_p.parent.mkdir(parents=True, exist_ok=True)
         by_url: dict[str, list[dict]] = {}
         for c in companies:
             by_url.setdefault(c["url"], []).append(c)
@@ -548,6 +612,8 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
                         for c in cs
                         for x in (onts.get(c["_cid"], {}).get("signals") or [])],
                 }, ensure_ascii=False) + "\n")
+    except _SkipSnippetLog:
+        pass
     except OSError as e:
         progress.log("검색", f"⚠ 스니펫 로그 실패({type(e).__name__}) — 검색은 계속")
 

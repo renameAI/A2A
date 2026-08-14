@@ -33,8 +33,9 @@ class FakeStore:
     def get(self, kind, ws, doc_id):
         return self.docs.get((kind, ws, doc_id))
 
-    def list(self, kind, ws):
-        return [v for (k, w, _), v in self.docs.items() if k == kind and w == ws]
+    def list(self, kind, ws, limit=None):
+        rows = [v for (k, w, _), v in self.docs.items() if k == kind and w == ws]
+        return rows[:limit] if limit is not None else rows
 
     def reserve_cost(self, *a, **k):
         pass
