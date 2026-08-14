@@ -3,6 +3,7 @@
 엔진은 상태를 보유하지 않는다. 대화·인박스·설정은 제품(클라이언트)이 보유하고
 매 요청에 필요한 입력을 전달한다. judge·negotiate는 비동기 (SYS-02).
 """
+import logging
 import os
 from pathlib import Path
 
@@ -21,6 +22,11 @@ from .jobs import store
 from .schemas import (ComposeRequest, ComposeResponse, JobOut, JudgeRequest,
                       NegotiateRequest, RepresentRequest, RepresentResponse,
                       RetrieveRequest, RetrieveResponse, ScoutRequest)
+
+from .log import setup as _log_setup   # noqa: E402
+
+_log_setup()          # stdout JSON 한 줄 — Cloud Logging이 파싱한다
+_boot = logging.getLogger("a2a.boot")
 
 app = FastAPI(title="A2A B2B 매칭엔진", version="0.1.0")
 
@@ -182,6 +188,25 @@ if LEGACY_ON:
 from .saas.router import router as saas_router   # noqa: E402
 
 app.include_router(saas_router)
+
+
+@app.on_event("startup")
+def _log_effective_config() -> None:
+    """적용된 설정을 기동 시 한 번 남긴다. 이름이 어긋난 환경변수가 조용히
+    무시되던 사고(COST_CAP_* vs COST_CAP_*_USD)를 로그로 잡을 수 있게."""
+    from .config import get_settings
+    from .saas import cost
+    s = get_settings()
+    _boot.info("엔진 기동", extra={
+        "llm_provider": s.llm_provider,
+        "saas_auth": os.environ.get("SAAS_AUTH", "dev"),
+        "saas_store": os.environ.get("SAAS_STORE", "local"),
+        "allowed_users": len(s.saas_allowed_users),
+        "cap_request_usd": cost.req_cap(),
+        "cap_month_usd": cost.month_cap(),
+        "cap_global_month_usd": cost.global_month_cap(),
+        "legacy_surface": LEGACY_ON,
+    })
 
 
 @app.get("/healthz")

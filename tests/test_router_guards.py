@@ -98,3 +98,45 @@ def test_rank_pool_has_no_k_ceiling():
     src = inspect.getsource(r._rank_pool)
     assert "min(max(k, len(records)), 50)" not in src
     assert "max(k, len(records))" in src
+
+
+def test_usage_reports_caps_and_marks_estimate(client):
+    """이번 달 사용량이 캡과 함께 나오고, 추정치임을 표시한다."""
+    r = client.get("/saas/usage", headers=H)
+    assert r.status_code == 200
+    j = r.json()
+    assert j["estimated"] is True
+    assert j["workspace_cap_usd"] > 0 and j["global_cap_usd"] > 0
+    assert "month" in j
+
+
+def test_cost_cap_env_names_match_docs():
+    """환경변수 이름이 코드와 문서에서 어긋나면 운영자가 설정한 캡이
+    조용히 무시된다(감사 확정 — .env.example은 COST_CAP_REQUEST,
+    코드는 COST_CAP_REQUEST_USD였다)."""
+    import inspect
+    import pathlib
+
+    from app.saas import cost
+    src = inspect.getsource(cost)
+    example = (pathlib.Path(__file__).resolve().parent.parent
+               / ".env.example").read_text(encoding="utf-8")
+    for name in ("COST_CAP_REQUEST_USD", "COST_CAP_MONTH_USD",
+                 "COST_CAP_GLOBAL_MONTH_USD"):
+        assert name in src, f"{name}이 코드에 없다"
+        assert name in example, f"{name}이 .env.example에 없다"
+
+
+def test_request_list_is_summary_not_full_documents(client):
+    """목록은 요약만 — pool·candidates 전문을 실어 보내면 요청이 쌓일수록
+    사이드바 한 번에 수 MB가 나간다."""
+    from app.saas.store import get_saas_store
+    get_saas_store().put("lead_request", "ws-boram", "lr-big", {
+        "request_id": "lr-big", "title": "큰 요청", "status": "candidates_ready",
+        "intent": {"target_region": "일본"},
+        "pool": [{"company_id": f"c{i}", "junk": "x" * 500} for i in range(50)],
+        "candidates": [{"company_id": f"c{i}"} for i in range(30)]})
+    j = client.get("/saas/lead-requests", headers=H).json()
+    row = next(r for r in j["requests"] if r["request_id"] == "lr-big")
+    assert row["candidate_count"] == 30
+    assert "pool" not in row and "candidates" not in row

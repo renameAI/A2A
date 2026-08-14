@@ -23,6 +23,11 @@ type Seg = { label: string; why: string };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
 type KwRec = { query: string; score: number; why: string };
+type Usage = { month: string; workspace_usd: number; workspace_cap_usd: number;
+  global_usd: number; global_cap_usd: number; estimated: boolean };
+type ReqSummary = { request_id: string; title: string; status: string;
+  candidate_count: number; wave: number; target_region: string;
+  purpose: string };
 type ClarifyQ = { id: string; question: string; axis: string; why: string;
   options: { label: string; company_ids: string[] }[] };
 type Llm = { provider: "local" | "openai"; label: string; model: string;
@@ -200,6 +205,8 @@ function Workspace({ who }: { who: string }) {
   const [recs, setRecs] = useState<KwRec[]>([]);
   const [replied, setReplied] = useState<Set<string>>(new Set());
   const signOut = () => supabase?.auth.signOut();
+  const [reqs, setReqs] = useState<ReqSummary[]>([]);
+  const [usage, setUsage] = useState<Usage | null>(null);
   const [likedC, setLikedC] = useState<Set<string>>(new Set());
   const [dislikedC, setDislikedC] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
@@ -212,6 +219,73 @@ function Workspace({ who }: { who: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { api("/settings/llm").then(setLlm).catch(() => {}); }, []);
+  // 이번 달 얼마 썼는지 아무도 볼 수 없던 것을 헤더에 상시 노출한다.
+  // busy가 끝날 때마다 갱신 — 검색 한 번에 얼마가 빠지는지 보인다.
+  useEffect(() => {
+    if (busy) return;
+    api("/usage").then(setUsage).catch(() => {});
+  }, [busy]);
+
+  /** 서버에 다 있는데 돌아갈 화면이 없던 것을 고친다.
+   *  이전엔 새로고침 한 번에 승인된 프로필·후보·대화가 전부 사라졌다
+   *  (파일 헤더 주석은 복원한다고 써 있었지만 코드가 한 줄도 없었다). */
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { requests } = await api("/lead-requests");
+        if (!alive) return;
+        setReqs(requests ?? []);
+        const url = new URL(location.href);
+        const want = url.searchParams.get("r");
+        if (want && requests?.some((x: ReqSummary) => x.request_id === want))
+          await openRequest(want, { silent: true });
+      } catch { /* 목록 실패가 새 대화 시작을 막지 않는다 */ }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  /** 저장된 요청을 화면으로 되살린다. 대화 기록 자체는 서버에 없으므로
+   *  (메시지는 클라이언트 상태다) 무엇이 복원됐는지 정직하게 말한다. */
+  async function openRequest(rid: string, opts: { silent?: boolean } = {}) {
+    try {
+      const doc = await api(`/lead-requests/${rid}`);
+      setRequestId(rid);
+      setVersionId(doc.profile_version_id ?? null);
+      setCands(doc.candidates ?? []);
+      const fb = doc.feedback ?? {};
+      setLikedC(new Set(fb.liked ?? []));
+      setDislikedC(new Set(fb.disliked ?? []));
+      const u = new URL(location.href);
+      u.searchParams.set("r", rid);
+      history.replaceState(null, "", u.toString());
+      if (!opts.silent) setMsgs([]);
+      push({ who: "stamp",
+        text: `${doc.title || rid} 을(를) 불러왔습니다 — 후보 `
+          + `${(doc.candidates ?? []).length}곳 (${doc.wave ?? 1}차 검색까지)` });
+      if ((doc.clarify ?? []).length) askClarify(rid, doc.clarify);
+      else if ((doc.candidates ?? []).length)
+        push({ who: "agent",
+          text: "이어서 후보에 반응을 남기거나, 메일 초안을 만들 수 있어요. "
+            + "지난 대화 내용은 저장되지 않아 후보 목록부터 다시 보여드려요." });
+    } catch (e) {
+      push({ who: "agent", text: `불러오지 못했어요 — ${(e as Error).message}` });
+    }
+  }
+
+  /** 새 대화 — location.reload()는 상태를 통째로 버리는 대신 로그인 왕복까지
+   *  일으킨다. 필요한 것만 비운다. */
+  function newRequest() {
+    setRequestId(null); setVersionId(null); setSession(null);
+    setCands([]); setRecs([]); setQuestions([]);
+    setSaved(new Set()); setReplied(new Set());
+    setLikedC(new Set()); setDislikedC(new Set());
+    const u = new URL(location.href);
+    u.searchParams.delete("r");
+    history.replaceState(null, "", u.toString());
+    setMsgs([{ who: "agent",
+      text: "새로 시작할게요. 회사 소개를 붙여넣으면 프로필부터 만들어요." }]);
+  }
 
   async function toggleLlm() {
     if (!llm || busy) return;
@@ -376,6 +450,11 @@ function Workspace({ who }: { who: string }) {
         profile_version_id: vid, intent,
       });
       setRequestId(doc.request_id);
+      // 사이드바를 즉시 갱신 — 새로고침해도 돌아올 자리가 생긴다
+      api("/lead-requests").then((l) => setReqs(l.requests ?? [])).catch(() => {});
+      const u = new URL(location.href);
+      u.searchParams.set("r", doc.request_id);
+      history.replaceState(null, "", u.toString());
       push({ who: "stamp", text: "검색 조건을 확정했습니다" });
       push({ who: "agent", text: "검색 기준을 만들고 있어요…" });
       const b = await api(`/lead-requests/${doc.request_id}/search-brief`, undefined, "POST");
@@ -552,18 +631,24 @@ function Workspace({ who }: { who: string }) {
           <div className="brand">rename<em>.</em>
             <small>Lead 발굴 워크스페이스</small></div>
           <button className="btn-new" title="새 Lead Request"
-            onClick={() => location.reload()}>+</button>
+            onClick={newRequest}>+</button>
         </div>
         <div className="side-scroll">
           <div className="sec">
-            <div className="sec-title"><span className="tri">▾</span> 진행 중 Request</div>
-            {requestId ? (
-              <button className="chan active">
+            <div className="sec-title"><span className="tri">▾</span> Request</div>
+            {reqs.length === 0 && !requestId && (
+              <div className="empty">아직 없어요</div>)}
+            {reqs.map((r) => (
+              <button key={r.request_id} disabled={busy}
+                className={`chan ${r.request_id === requestId ? "active" : ""}`}
+                title={r.request_id}
+                onClick={() => openRequest(r.request_id)}>
                 <span className="hash">#</span>
-                <span className="nm">{requestId}</span>
-                {cands.length > 0 && <span className="badge">{cands.length}</span>}
+                <span className="nm">{r.title || r.request_id}</span>
+                {r.candidate_count > 0 &&
+                  <span className="badge">{r.candidate_count}</span>}
               </button>
-            ) : <div className="empty">아직 없어요</div>}
+            ))}
           </div>
           <div className="sec">
             <div className="sec-title"><span className="tri">▾</span> 저장한 Lead</div>
@@ -575,6 +660,14 @@ function Workspace({ who }: { who: string }) {
         <div className="side-foot">
           <span className="dot-live" />
           rename 에이전트 온라인 · {llm?.label ?? "…"}
+          {usage && (
+            <span className="usage" title={
+              `이번 달 ${usage.month} · 워크스페이스 $${usage.workspace_usd} / `
+              + `$${usage.workspace_cap_usd} · 전체 $${usage.global_usd} / `
+              + `$${usage.global_cap_usd} (선예약 추정치이며 실 청구액이 아닙니다)`}>
+              ${usage.workspace_usd.toFixed(2)}~
+            </span>
+          )}
           {isConfigured && (
             <button className="side-out" onClick={signOut}
               title={who}>로그아웃</button>

@@ -147,6 +147,31 @@ def set_llm(req: LlmToggle, user: SaasUser = Depends(current_user)):
     return _llm_state()
 
 
+@router.get("/usage")
+def usage(user: SaasUser = Depends(current_user)):
+    """이번 달 예약액과 캡 잔여 — 아무도 볼 수 없던 것을 보이게 한다.
+
+    정직 표기: 이 수치는 **선예약 추정치**의 합이지 실제 청구액이 아니다.
+    ESTIMATE_USD는 보수적 상한이라 실제보다 크게 잡힌다. 정산(실 토큰 수
+    반영)은 미구현이므로 화면도 '추정'이라고 말해야 한다.
+    """
+    import time
+
+    store = get_saas_store()
+    mk = time.strftime("%Y-%m")
+    mine = (store.get("cost_month", user.workspace_id, mk) or {}).get("usd", 0.0)
+    total = (store.get("cost_month", cost.GLOBAL_WS, mk) or {}).get("usd", 0.0)
+    return {
+        "month": mk,
+        "workspace_usd": round(float(mine), 4),
+        "workspace_cap_usd": cost.month_cap(),
+        "global_usd": round(float(total), 4),
+        "global_cap_usd": cost.global_month_cap(),
+        "request_cap_usd": cost.req_cap(),
+        "estimated": True,   # 선예약 추정 — 실 청구액 아님
+    }
+
+
 # ── 업로드 (IR덱 PDF) — 인증·크기·형식 검증 ─────────────────────────
 # /product/upload를 대체한다. 그쪽은 인증도, 크기 상한도, 형식 검증도 없어
 # 공개 프록시로 노출되면 누구나 서버 디스크를 채울 수 있었다(감사 확정 발견).
@@ -320,8 +345,23 @@ def create_request(req: LeadRequestCreate,
 
 
 @router.get("/lead-requests")
-def list_requests(user: SaasUser = Depends(current_user)):
-    return {"requests": get_saas_store().list("lead_request", user.workspace_id)}
+def list_requests(limit: int = 50, user: SaasUser = Depends(current_user)):
+    """사이드바용 **요약** 목록.
+
+    전문을 실어 보내지 않는다: 요청 하나에 pool(누적 후보)과 candidates가
+    통째로 들어 있어, 요청이 쌓이면 목록 한 번에 수 MB가 나간다. 목록에
+    필요한 것은 제목·상태·개수뿐이고, 상세는 /lead-requests/{rid}가 준다.
+    """
+    docs = get_saas_store().list("lead_request", user.workspace_id)[:limit]
+    return {"requests": [{
+        "request_id": d.get("request_id"),
+        "title": d.get("title", ""),
+        "status": d.get("status", ""),
+        "candidate_count": len(d.get("candidates") or []),
+        "wave": d.get("wave", 1),
+        "target_region": (d.get("intent") or {}).get("target_region", ""),
+        "purpose": (d.get("intent") or {}).get("purpose", "revenue"),
+    } for d in docs]}
 
 
 @router.get("/lead-requests/{rid}")
