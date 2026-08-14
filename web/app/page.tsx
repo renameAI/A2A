@@ -23,6 +23,13 @@ type Seg = { label: string; why: string };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
 type KwRec = { query: string; score: number; why: string };
+type ProfileDoc = {
+  basic: { name: string; country?: string; industry?: string };
+  description?: string;
+  problem_solved?: { value: string };
+  solution?: { value: string };
+  target_customer?: { value: string };
+};
 type Usage = { month: string; workspace_usd: number; workspace_cap_usd: number;
   global_usd: number; global_cap_usd: number; estimated: boolean };
 type ReqSummary = { request_id: string; title: string; status: string;
@@ -201,7 +208,10 @@ function Workspace({ who }: { who: string }) {
   const [versionId, setVersionId] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [cands, setCands] = useState<Cand[]>([]);
-  const [saved, setSaved] = useState<Set<string>>(new Set());
+  // 저장은 **스냅샷**이다 — Set에 id만 담고 cands에서 찾아 쓰면, 다음 웨이브에서
+  // 그 후보가 밀려났을 때 "이 회사 좋다"고 저장해둔 것이 정체불명 문자열로
+  // 바뀐다(감사 확정 high). 저장 시점의 후보를 통째로 들고 있는다.
+  const [saved, setSaved] = useState<Map<string, Cand>>(new Map());
   const [recs, setRecs] = useState<KwRec[]>([]);
   const [replied, setReplied] = useState<Set<string>>(new Set());
   const signOut = () => supabase?.auth.signOut();
@@ -278,7 +288,7 @@ function Workspace({ who }: { who: string }) {
   function newRequest() {
     setRequestId(null); setVersionId(null); setSession(null);
     setCands([]); setRecs([]); setQuestions([]);
-    setSaved(new Set()); setReplied(new Set());
+    setSaved(new Map()); setReplied(new Set());
     setLikedC(new Set()); setDislikedC(new Set());
     const u = new URL(location.href);
     u.searchParams.delete("r");
@@ -405,7 +415,7 @@ function Workspace({ who }: { who: string }) {
       const { job_id } = await api(`/onboarding-sessions/${sid}/run`, undefined, "POST");
       const res = (await waitJob(job_id)) as {
         needs_answers: boolean;
-        session: { current_questions: string[]; profile?: { basic: { name: string } } };
+        session: { current_questions: string[]; profile?: ProfileDoc };
       };
       if (res.needs_answers) {
         setQuestions(res.session.current_questions);
@@ -414,8 +424,16 @@ function Workspace({ who }: { who: string }) {
       } else {
         const name = res.session.profile?.basic?.name ?? "회사";
         push({
-          who: "agent", text: `${name} 프로필이 준비됐어요. 승인하면 리드 발굴을 시작할 수 있어요.`,
-          jsx: <button className="btn pri" onClick={() => approve(sid!)}>프로필 승인</button>,
+          who: "agent",
+          text: `${name} 프로필이 준비됐어요. 내용을 확인하고 승인해 주세요.`,
+          jsx: <ProfileCard profile={res.session.profile}
+            onApprove={() => approve(sid!)}
+            onFix={(note) => {
+              // 정정 요청은 대화 답변과 같은 경로로 흘려보낸다 —
+              // represent가 그 답을 반영해 프로필을 다시 만든다
+              push({ who: "user", text: note });
+              runOnboard(note);
+            }} />,
         });
       }
     } catch (e) {
@@ -751,7 +769,8 @@ function Workspace({ who }: { who: string }) {
                     ))}
                   </div>
                 )}
-                {c.ontology && <OntologyView ont={c.ontology} />}
+                {c.ontology && <OntologyView ont={c.ontology}
+                  sourceUrl={c.source_url} />}
                 <div className="reacts">
                   <button className={`react ${likedC.has(c.company_id) ? "on" : ""}`}
                     onClick={() => setLikedC((v) => {
@@ -773,18 +792,29 @@ function Workspace({ who }: { who: string }) {
                     rel="noreferrer">원문</a>
                   <button
                     className={`mini ${saved.has(c.company_id) ? "saved" : ""}`}
-                    onClick={() => {
+                    onClick={async () => {
                       const on = !saved.has(c.company_id);
                       setSaved((sv) => {
-                        const n = new Set(sv);
-                        on ? n.add(c.company_id) : n.delete(c.company_id);
+                        const n = new Map(sv);
+                        on ? n.set(c.company_id, c) : n.delete(c.company_id);
                         return n;
                       });
-                      // 결과 원장 — 저장은 사용자의 관련성 판단이고, 다음
-                      // 검색의 키워드 추천 가중이 된다 (실패해도 UI는 유지)
-                      if (requestId)
-                        api(`/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
-                          { saved: on }).catch(() => {});
+                      if (!requestId) return;
+                      try {
+                        await api(
+                          `/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
+                          { saved: on });
+                      } catch (e) {
+                        // 기록에 실패하면 토글을 되돌린다 — 저장됐다고 표시해
+                        // 놓고 서버엔 없으면 다음 추천 가중이 어긋난다
+                        setSaved((sv) => {
+                          const n = new Map(sv);
+                          on ? n.delete(c.company_id) : n.set(c.company_id, c);
+                          return n;
+                        });
+                        push({ who: "agent",
+                          text: `저장을 기록하지 못했어요 — ${(e as Error).message}` });
+                      }
                     }}>
                     {saved.has(c.company_id) ? "저장됨" : "저장"}
                   </button>
@@ -792,19 +822,30 @@ function Workspace({ who }: { who: string }) {
                     onClick={() => draftMail(c.company_id)}>메일 초안</button>
                   <button
                     className={`mini ${replied.has(c.company_id) ? "saved" : ""}`}
-                    onClick={() => {
+                    onClick={async () => {
                       const on = !replied.has(c.company_id);
                       setReplied((rv) => {
                         const n = new Set(rv);
                         on ? n.add(c.company_id) : n.delete(c.company_id);
                         return n;
                       });
-                      if (requestId)
-                        api(`/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
-                          { replied: on ? "yes" : "" }).catch(() => {});
-                      if (on)
-                        push({ who: "stamp",
+                      if (!requestId) return;
+                      try {
+                        await api(
+                          `/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
+                          { replied: on ? "yes" : "" });
+                        // 성공한 뒤에 알린다 — 실패했는데 "기록했습니다"는 거짓말
+                        if (on) push({ who: "stamp",
                           text: "답장을 기록했습니다 — 다음 검색의 키워드 추천에 반영됩니다" });
+                      } catch (e) {
+                        setReplied((rv) => {
+                          const n = new Set(rv);
+                          on ? n.delete(c.company_id) : n.add(c.company_id);
+                          return n;
+                        });
+                        push({ who: "agent",
+                          text: `답장을 기록하지 못했어요 — ${(e as Error).message}` });
+                      }
                     }}>
                     {replied.has(c.company_id) ? "답장 받음 ✓" : "답장 받음"}
                   </button>
@@ -873,13 +914,81 @@ function Workspace({ who }: { who: string }) {
         <h3>저장한 후보</h3>
         {saved.size === 0
           ? <div className="empty">후보를 저장하면 여기에 쌓여요</div>
-          : [...saved].map((cid) => {
-              const c = cands.find((x) => x.company_id === cid);
-              return <div className="box" key={cid}><b>{c?.name ?? cid}</b>
-                <a href={c?.source_url} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 12 }}>{c?.source_url}</a></div>;
-            })}
+          : [...saved.values()].map((c) => (
+              <div className="box" key={c.company_id}>
+                <b>{c.name_ko && c.name_ko !== c.name ? c.name_ko : c.name}</b>
+                {c.what && <div className="box-why">{c.what}</div>}
+                <a href={c.source_url} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 12 }}>{c.source_url}</a>
+                <button className="mini" style={{ marginTop: 6 }}
+                  onClick={() => draftMail(c.company_id)}>메일 초안</button>
+              </div>
+            ))}
       </aside>
+    </div>
+  );
+}
+
+/** 승인 전에 프로필 본문을 보여준다.
+ *
+ *  이전엔 회사 이름만 뜨고 "승인" 버튼이 있었다 — 대표가 자기 회사에 대해
+ *  엔진이 무엇을 이해했는지 못 본 채 승인했고, 그 프로필이 이후 모든 검색·
+ *  판단·메일의 전제가 됐다. 틀렸을 때 고칠 길도 없었다.
+ */
+function ProfileCard({ profile, onApprove, onFix }: {
+  profile?: ProfileDoc;
+  onApprove: () => void;
+  onFix: (note: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const [fixing, setFixing] = useState(false);
+  const [note, setNote] = useState("");
+  const rows: [string, string][] = [
+    ["회사", [profile?.basic?.name, profile?.basic?.country,
+              profile?.basic?.industry].filter(Boolean).join(" · ")],
+    ["소개", profile?.description ?? ""],
+    ["푸는 문제", profile?.problem_solved?.value ?? ""],
+    ["솔루션", profile?.solution?.value ?? ""],
+    ["타깃 고객", profile?.target_customer?.value ?? ""],
+  ];
+  return (
+    <div className="card" style={{ maxWidth: 620 }}>
+      <div className="card-head">엔진이 이해한 우리 회사
+        <button className="meta prof-toggle" onClick={() => setOpen((v) => !v)}>
+          {open ? "접기" : "펼치기"}</button>
+      </div>
+      {open && (
+        <div className="card-body">
+          {rows.filter(([, v]) => v).map(([k, v]) => (
+            <div className="prof-row" key={k}>
+              <span className="prof-k">{k}</span>
+              <span className="prof-v">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {fixing && (
+        <div className="card-body">
+          <input className="clar-free" value={note} autoFocus
+            placeholder="어디가 다른가요? (예: 타깃은 유통사가 아니라 호텔이에요)"
+            onChange={(e) => setNote(e.target.value)} />
+        </div>
+      )}
+      <div className="card-foot">
+        {fixing ? (
+          <button className="btn pri" disabled={!note.trim()}
+            onClick={() => { onFix(note.trim()); setFixing(false); setNote(""); }}>
+            이 내용으로 다시 만들기
+          </button>
+        ) : (
+          <>
+            <button className="btn pri" onClick={onApprove}>이대로 승인</button>
+            <button className="btn" onClick={() => setFixing(true)}>
+              이 부분이 달라요
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -935,7 +1044,7 @@ const SIGNAL_KO: Record<string, string> = {
 
 /** 기업마다 남는 판독. 접혀 있다가 펼치면 축과 근거 상태가 그대로 보인다 —
  *  판단 근거를 숨기지 않는 것이 judge와 같은 규율이다. */
-function OntologyView({ ont }: { ont: Ont }) {
+function OntologyView({ ont, sourceUrl }: { ont: Ont; sourceUrl: string }) {
   const [open, setOpen] = useState(false);
   const known = Object.entries(ont.axes).filter(([, a]) => a.status !== "unknown");
   if (!known.length) return null;
@@ -978,6 +1087,22 @@ function OntologyView({ ont }: { ont: Ont }) {
                         className="ct-v">{ct.value.replace(/^https?:\/\//, "").slice(0, 42)}</a>
                     : <span className="ct-v">{ct.value}</span>}
                   {ct.role_hint && <span className="ct-role">{ct.role_hint}</span>}
+                  {/* 출처 도메인 병기 — 접점이 후보 회사와 다른 도메인이면
+                      사용자가 눈으로 잡는다. 웹 스니펫은 우리가 통제하지 않는
+                      텍스트라 주입된 연락처가 섞일 수 있다(감사 확정 low). */}
+                  {(() => {
+                    const host = (u: string) => {
+                      try { return new URL(u).hostname.replace(/^www\./, ""); }
+                      catch { return ""; }
+                    };
+                    const src = host(sourceUrl);
+                    const val = host(ct.value);
+                    return val && src && val !== src
+                      ? <span className="ct-warn" title={
+                          `이 접점은 후보 출처(${src})와 다른 도메인(${val})입니다 — 확인하세요`}
+                        >≠ {src}</span>
+                      : null;
+                  })()}
                 </div>
               ))}
             </div>
