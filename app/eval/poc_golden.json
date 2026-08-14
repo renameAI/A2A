@@ -1,0 +1,107 @@
+{
+  "_doc": [
+    "B3 — innovation_receptivity 축 3태 보정 골든셋.",
+    "설계 근거 docs/BENCH_POC.md. ITONICS 스타트업 readiness·IBM EEIMM의",
+    "governance 축: PoC 파트너 판정의 핵심 질문은 '외부와 함께 실험하는 구조가",
+    "있는가'다. B2와 같은 3태 프로토콜(2507.16199) — 자료에 구조가 있으면 값",
+    "일치, 없으면 unknown이 정답. 핵심 트랩: '혁신적인 제품' 같은 수사(rhetoric)는",
+    "협업 구조가 아니다. 혁신을 말하는 회사와 혁신 구조를 가진 회사는 다르다."
+  ],
+  "cases": [
+    {
+      "id": "P01", "lang": "ko",
+      "material": {
+        "name": "한국남부발전",
+        "what": "화력·신재생 발전소를 운영하는 발전 공기업이다.",
+        "signal": "매년 에너지 스타트업 실증사업을 공모해 발전소 현장을 테스트베드로 개방한다. 올해 3기 모집이 진행 중이다."
+      },
+      "gold": {"receptivity": "stated", "anchor": ["실증", "테스트베드", "공모"]}
+    },
+    {
+      "id": "P02", "lang": "ja",
+      "material": {
+        "name": "森永乳業株式会社",
+        "what": "유제품·기능성 식품을 제조하는 대형 식품 기업이다.",
+        "signal": "オープンイノベーションプログラム「Morinaga Accelerator」を通じてスタートアップとの共同開発を募集している。"
+      },
+      "gold": {"receptivity": "stated", "anchor": ["オープンイノベーション", "Accelerator", "共同開発", "액셀러레이터", "오픈이노베이션", "공동 개발", "공동개발"]}
+    },
+    {
+      "id": "P03", "lang": "ko",
+      "material": {
+        "name": "대한제분",
+        "what": "밀가루와 곡물 가공품을 생산한다.",
+        "signal": "곰표 브랜드 콜라보레이션으로 수제맥주·의류 등 이업종 협업 상품을 다수 출시해 왔다."
+      },
+      "gold": {"receptivity": "stated", "anchor": ["콜라보", "협업"]},
+      "note": "공식 프로그램은 없지만 반복된 이업종 협업 실적은 수용 구조의 증거다"
+    },
+    {
+      "id": "P04", "lang": "ko",
+      "material": {
+        "name": "동일방직",
+        "what": "면방적사와 직물을 생산하는 섬유 제조사다.",
+        "signal": "국내 3개 공장에서 연 2만 톤의 원사를 생산한다."
+      },
+      "gold": {"receptivity": "absent"},
+      "note": "생산 규모 서술뿐 — 협업 구조의 증거가 없다"
+    },
+    {
+      "id": "P05", "lang": "ko",
+      "material": {
+        "name": "이노베이트푸드",
+        "what": "혁신적인 대체육 제품을 만드는 푸드테크 기업이다.",
+        "signal": "혁신을 핵심 가치로 삼아 창의적인 제품 개발에 매진하고 있다."
+      },
+      "gold": {"receptivity": "absent"},
+      "note": "핵심 트랩 — '혁신' 수사는 협업 구조가 아니다. 회사명에 이노베이트가 있어도 마찬가지"
+    },
+    {
+      "id": "P06", "lang": "en",
+      "material": {
+        "name": "Siam Cement Group",
+        "what": "태국 최대 건자재·화학 기업이다.",
+        "signal": "Its corporate venture arm, AddVentures, invests in industrial tech startups and runs pilot projects with SCG business units."
+      },
+      "gold": {"receptivity": "stated", "anchor": ["AddVentures", "venture", "pilot", "CVC", "벤처", "파일럿", "실증"]}
+    },
+    {
+      "id": "P07", "lang": "ja",
+      "material": {
+        "name": "有限会社田中鉄工所",
+        "what": "정밀 금속 가공을 하는 소규모 공장이다.",
+        "signal": "創業以来、大手メーカーの下請けとして安定した加工品質を提供してきた。"
+      },
+      "gold": {"receptivity": "absent"},
+      "note": "하청 관계는 수직 거래지 실험 협업 구조가 아니다"
+    },
+    {
+      "id": "P08", "lang": "ko",
+      "material": {
+        "name": "부산테크노파크",
+        "what": "지역 산업 육성을 지원하는 공공기관이다.",
+        "signal": "지역 제조기업과 스타트업을 연결하는 스마트제조 실증 지원사업을 운영하며, 참여 기업에 실증 비용을 지원한다."
+      },
+      "gold": {"receptivity": "stated", "anchor": ["실증"]}
+    },
+    {
+      "id": "P09", "lang": "en",
+      "material": {
+        "name": "Grandview Retail Partners",
+        "what": "미국 중서부 슈퍼마켓 체인을 운영한다.",
+        "signal": "The chain operates 85 stores and is known for competitive private-label pricing."
+      },
+      "gold": {"receptivity": "absent"}
+    },
+    {
+      "id": "P10", "lang": "ko",
+      "material": {
+        "name": "세종스마트팜",
+        "what": "수직농장 설비를 만든다.",
+        "signal": ""
+      },
+      "gold": {"receptivity": "absent"},
+      "note": "빈 자료"
+    }
+  ]
+}
