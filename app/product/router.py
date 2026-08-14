@@ -63,7 +63,7 @@ def _submit(background: BackgroundTasks, fn: Callable[[], dict]) -> dict:
 
 @router.get("/jobs/{job_id}")
 def product_job(job_id: str):
-    job = job_store.get(job_id)
+    job = job_store.get(job_id, "__legacy__")
     if job is None:
         raise EngineError(404, "not_found", f"job {job_id} 없음")
     # A2A Task lifecycle 상태 매핑은 a2a 모듈에 단일 정의 (product·전송계층 공유).

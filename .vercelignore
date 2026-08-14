@@ -1,0 +1,21 @@
+# 엔진 배포에 필요한 것만 올린다 — 학습 산출물·데이터셋·프론트는 제외.
+web/
+tests/
+training/
+runs/
+dataset/
+judge_cases/
+judge_cases_exaone/
+docs/
+book/
+examples/
+scripts/
+solutions/
+interview_agent/
+cache/
+audit/
+uploads/
+pages/
+data/
+*.db
+.venv/

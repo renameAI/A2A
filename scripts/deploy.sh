@@ -80,55 +80,45 @@ db() {
 }
 
 engine() {
-  [ -n "$GCP_PROJECT" ] || { bad "GCP_PROJECT 필요"; exit 1; }
-  echo "→ Cloud Run 배포 ($SERVICE / $GCP_REGION)"
-
-  # 환경변수는 **파일 하나로** 넘긴다. 이유 두 가지:
-  # ① --set-env-vars를 여러 번 쓰면 마지막 것만 남는다. gcloud 문서 그대로:
-  #    "All existing environment variables will be removed first." 플래그를
-  #    반복하면 앞의 값이 전부 날아가 배포가 조용히 반쪽이 된다.
-  # ② 키를 커맨드라인에 실으면 같은 머신의 `ps`에 그대로 보인다.
-  local envf
-  envf=$(mktemp -t a2a-env)
-  chmod 600 "$envf"
-  trap 'rm -f "$envf"' RETURN INT TERM
-  cat > "$envf" <<YAML
-LLM_PROVIDER: "openai"
-SAAS_AUTH: "supabase"
-SAAS_STORE: "supabase"
-SUPABASE_URL: "${SUPABASE_URL:?SUPABASE_URL 필요}"
-SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY 필요}"
-SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_KEY:?SUPABASE_SERVICE_KEY 필요}"
-OPENAI_API_KEY: "${OPENAI_API_KEY:?OPENAI_API_KEY 필요}"
-TAVILY_API_KEY: "${TAVILY_API_KEY:?TAVILY_API_KEY 필요}"
-SAAS_ALLOWED_USERS: "${SAAS_ALLOWED_USERS:?SAAS_ALLOWED_USERS 필요}"
-COST_CAP_REQUEST_USD: "${COST_CAP_REQUEST_USD:-5}"
-COST_CAP_MONTH_USD: "${COST_CAP_MONTH_USD:-100}"
-COST_CAP_GLOBAL_MONTH_USD: "${COST_CAP_GLOBAL_MONTH_USD:-50}"
-YAML
-
-  # max-instances=1: job 폴링이 인스턴스 로컬 메모리를 쓰므로 스케일아웃하면
-  # 폴링이 다른 인스턴스에 붙어 '결과 없음'이 된다 (스펙 Architecture).
+  # 엔진도 Vercel에 올린다 (Cloud Run 아님).
   #
-  # --no-cpu-throttling: 검색·판독은 BackgroundTasks로 응답 이후에 돈다.
-  # 기본값(요청 처리 중에만 CPU 할당)이면 202를 돌려준 직후 CPU가 회수돼
-  # job이 몇 분씩 멈췄다가 폴링이 들어올 때만 찔끔 진행한다 — 사용자에겐
-  # '영원히 도는 스피너'로 보인다.
-  # --min-instances 1: 스케일다운으로 인스턴스가 사라지면 진행 중이던 job과
-  # 그 원장(/tmp)이 함께 증발한다. 콜드스타트 제거는 부수 효과.
-  gcloud run deploy "$SERVICE" \
-    --project "$GCP_PROJECT" --region "$GCP_REGION" \
-    --source . --allow-unauthenticated \
-    --max-instances 1 --min-instances 1 --no-cpu-throttling \
-    --memory 1Gi --timeout 900 \
-    --env-vars-file "$envf"
-  rm -f "$envf"
+  # 근거: 실측상 GPT API 기준 job 최대 129초로 Vercel Fluid(300초) 안에
+  # 들어간다. 이전에 "22.7분이라 불가"로 판단했던 것은 로컬 EXAONE 수치를
+  # 섞은 오류였다(모델별 분리: API 최대 129s / 로컬 최대 1365s).
+  #
+  # 서버리스 조건은 시간이 아니라 **상태**였고, job 원장을 SaasStore로
+  # 옮겨(V1) 해결했다 — 폴링이 어느 인스턴스에 붙어도 같은 원장을 본다.
+  echo "→ Vercel 엔진 배포"
+  local envf
+  envf=$(mktemp -t a2a-env); chmod 600 "$envf"
+  trap 'rm -f "$envf"' RETURN INT TERM
+
+  # env는 Vercel 프로젝트에 저장하고 실패하면 중단한다 — 키가 빠진 채
+  # 뜨면 readyz가 503으로 알려주긴 하지만, 배포 자체를 막는 편이 낫다.
+  for kv in "LLM_PROVIDER=openai" "SAAS_AUTH=supabase" "SAAS_STORE=supabase" \
+            "LOG_FORMAT=json" \
+            "SUPABASE_URL=${SUPABASE_URL:?SUPABASE_URL 필요}" \
+            "SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY 필요}" \
+            "SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:?SUPABASE_SERVICE_KEY 필요}" \
+            "OPENAI_API_KEY=${OPENAI_API_KEY:?OPENAI_API_KEY 필요}" \
+            "TAVILY_API_KEY=${TAVILY_API_KEY:?TAVILY_API_KEY 필요}" \
+            "SAAS_ALLOWED_USERS=${SAAS_ALLOWED_USERS:?SAAS_ALLOWED_USERS 필요}" \
+            "COST_CAP_REQUEST_USD=${COST_CAP_REQUEST_USD:-5}" \
+            "COST_CAP_MONTH_USD=${COST_CAP_MONTH_USD:-100}" \
+            "COST_CAP_GLOBAL_MONTH_USD=${COST_CAP_GLOBAL_MONTH_USD:-50}"; do
+    local name="${kv%%=*}" value="${kv#*=}"
+    printf '%s' "$value" | vercel env add "$name" production --force --yes \
+      >/dev/null 2>&1 && ok "env $name" \
+      || { bad "env $name 설정 실패 — 중단"; exit 1; }
+  done
+
+  vercel deploy --prod --yes
   local url
-  url=$(gcloud run services describe "$SERVICE" --project "$GCP_PROJECT" \
-        --region "$GCP_REGION" --format 'value(status.url)')
-  ok "엔진 URL: $url"
-  echo "  스모크: curl -s -o /dev/null -w '%{http_code}\\n' $url/saas/settings/llm  # 401이 정상(무토큰)"
-  echo "$url" > .engine_url
+  url=$(vercel inspect --json 2>/dev/null | python3 -c \
+    'import json,sys;print(json.load(sys.stdin).get("url",""))' 2>/dev/null || true)
+  [ -n "$url" ] && { echo "https://$url" > .engine_url; ok "엔진 URL: https://$url"; } \
+    || warn "엔진 URL 자동 추출 실패 — vercel ls 로 확인해 .engine_url에 적으세요"
+  echo "  스모크: curl -s <URL>/healthz  ·  curl -s <URL>/readyz"
 }
 
 web() {

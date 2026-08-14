@@ -308,3 +308,76 @@ def test_record_run_to_recommend_roundtrip(tmp_path, monkeypatch):
                         exclude_rid="lr-new")
     assert recs, "왕복이 끊겼다 — 쓴 키를 읽지 못한다"
     assert recs[0]["query"] == "일본 식품 수입사 회사소개"
+
+
+# ── 5. job 원장이 인스턴스를 넘는가 (V1 — 서버리스 대응) ──────────────
+
+class TestJobLedgerCrossInstance:
+    """서버리스에서는 /search를 처리한 인스턴스와 폴링을 받는 인스턴스가 다르다.
+    job 원장이 프로세스 메모리·인스턴스 로컬 파일에 있으면 폴링이 아예 못 찾는다
+    — 기능이 성립하지 않는다. 별도 JobStore 인스턴스로 그 상황을 재현한다."""
+
+    def _stores(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SAAS_STORE", "local")
+        monkeypatch.setenv("SAAS_DB_PATH", str(tmp_path / "s.db"))
+        import app.saas.store as sm
+        sm._store = None
+        from app.jobs import JobStore
+        return JobStore(), JobStore()      # 서로 다른 '인스턴스'
+
+    def test_other_instance_sees_completed_job(self, tmp_path, monkeypatch):
+        a, b = self._stores(tmp_path, monkeypatch)
+        job, _ = a.create(ws="ws-1")
+        a.run(job, lambda: {"candidates": ["A사"]})
+        seen = b.get(job.job_id, "ws-1")
+        assert seen is not None, "다른 인스턴스가 job을 못 본다"
+        assert seen.status.value == "done"
+        assert seen.result == {"candidates": ["A사"]}
+
+    def test_other_instance_sees_progress_mid_run(self, tmp_path, monkeypatch):
+        """실행 중 진행 로그가 원장에 흘러야 폴링이 '작업 중'만 보지 않는다."""
+        import app.jobs as jm
+        monkeypatch.setattr(jm, "_FLUSH_EVERY", 0.0)   # 매 줄 flush(테스트)
+        a, b = self._stores(tmp_path, monkeypatch)
+        job, _ = a.create(ws="ws-1")
+        observed = {}
+
+        def work():
+            from app import progress
+            progress.log("검색", "웹 수집 시작")
+            progress.log("검색", "실존 기업 3곳 추출")
+            other = b.get(job.job_id, "ws-1")
+            observed["status"] = other.status.value
+            observed["msgs"] = [e.get("message") for e in other.log.entries]
+            return {"ok": True}
+
+        a.run(job, work)
+        assert observed["status"] == "running"
+        assert any("3곳 추출" in (m or "") for m in observed["msgs"]), \
+            f"진행 로그가 원장에 없다: {observed['msgs']}"
+
+    def test_workspace_isolation_across_instances(self, tmp_path, monkeypatch):
+        a, b = self._stores(tmp_path, monkeypatch)
+        job, _ = a.create(ws="ws-1")
+        a.run(job, lambda: {"secret": "보람의 후보"})
+        assert b.get(job.job_id, "ws-2") is None, "남의 워크스페이스에서 보인다"
+        assert b.get(job.job_id, "ws-1") is not None
+
+    def test_stale_running_job_reaped_on_read(self, tmp_path, monkeypatch):
+        """인스턴스가 조용히 사라지면 '영원한 running'이 남는다 — 조회 시점에
+        수확한다(서버리스엔 '재시작'이라는 시점이 없다)."""
+        import time
+
+        import app.jobs as jm
+        a, b = self._stores(tmp_path, monkeypatch)
+        job, _ = a.create(ws="ws-1")
+        job.status = job.status.__class__.running
+        a._put(job)
+        # 갱신 시각을 과거로 밀어 죽은 실행을 흉내낸다
+        st = jm._store()
+        d = st.get("job", "ws-1", job.job_id)
+        d["updated"] = time.time() - jm._STALE_AFTER - 10
+        st.put("job", "ws-1", job.job_id, d)
+        seen = b.get(job.job_id, "ws-1")
+        assert seen.status.value == "error"
+        assert "중단" in seen.error["message"]

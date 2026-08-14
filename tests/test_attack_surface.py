@@ -69,22 +69,19 @@ def test_saas_requires_auth(client):
 
 
 def test_job_scoped_to_workspace(client, monkeypatch):
-    """다른 워크스페이스의 job은 보이지 않는다 — job_id 추측 난이도는
-    접근 제어가 아니다.
+    """다른 워크스페이스의 job은 보이지 않는다.
 
-    실제 job을 돌리지 않고 소유권 기록만 세운다. 이 테스트가 검증하는 것은
-    '조회 시 소유자를 대조하는가'이지 job 실행이 아니다(이전 판은 여기서
-    실 LLM을 호출해 테스트가 멈췄다).
+    job 문서가 소유 워크스페이스 아래 저장되므로, 조회에 ws가 필요해
+    구조적으로 격리된다(별도 소유권 대조 문서 없이). 실제 job을 돌리지 않고
+    원장만 세운다 — 이 테스트가 검증하는 것은 조회 스코프이지 실행이 아니다.
     """
     monkeypatch.setenv("SAAS_ALLOWED_USERS", "boram,mallory")
     from app.jobs import store as job_store
-    from app.saas.store import get_saas_store
 
-    job, _ = job_store.create()
+    job, _ = job_store.create(ws="ws-boram")
     job.status = job.status.__class__.done
     job.result = {"candidates": ["보람의 후보 목록"]}
-    get_saas_store().put("job_owner", "ws-boram", job.job_id,
-                         {"job_id": job.job_id, "workspace_id": "ws-boram"})
+    job_store._put(job)
 
     r = client.get(f"/saas/jobs/{job.job_id}", headers={"X-Dev-User": "boram"})
     assert r.status_code == 200 and r.json()["result"]["candidates"]

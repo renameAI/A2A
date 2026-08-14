@@ -243,7 +243,7 @@ def _evict_terminal_meta() -> None:
     if len(_task_meta) <= _META_CAP:
         return
     for jid in list(_task_meta):
-        job = job_store.get(jid)
+        job = job_store.get(jid, "__legacy__")
         if job is not None and job.status in _TERMINAL:
             _task_meta.pop(jid, None)
             _canceled.discard(jid)
@@ -340,7 +340,7 @@ def _task_id_from(params, req_id) -> str:
 
 def _handle_tasks_get(params, req_id):
     task_id = _task_id_from(params, req_id)
-    job = job_store.get(task_id)
+    job = job_store.get(task_id, "__legacy__")
     if job is None:
         raise RpcError(TASK_NOT_FOUND, f"Task {task_id} 없음")
     return _ok(req_id, task_from_job(job))
@@ -348,7 +348,7 @@ def _handle_tasks_get(params, req_id):
 
 def _handle_tasks_cancel(params, req_id):
     task_id = _task_id_from(params, req_id)
-    job = job_store.get(task_id)
+    job = job_store.get(task_id, "__legacy__")
     if job is None:
         raise RpcError(TASK_NOT_FOUND, f"Task {task_id} 없음")
     # 이미 취소 마킹된 Task의 재취소는 멱등 (A2A-3) — 표시상태 canceled와

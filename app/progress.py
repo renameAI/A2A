@@ -28,6 +28,10 @@ class RunLog:
         # entries에 줄로 쌓지 않고 제자리 교체하는 이유: 토큰 단위로 append하면
         # 로그가 수천 줄로 폭주하고, 폴링 페이로드도 매번 전체 로그를 재전송한다.
         self.live: dict | None = None
+        # 줄이 더해질 때 호출되는 훅 — JobStore가 원장 flush를 건다.
+        # 여기 두는 이유: 진행 로그의 발생 지점이 여기뿐이라, 폴링이 다른
+        # 인스턴스에서도 진행을 보려면 이 순간에 흘려보내야 한다.
+        self.on_add = None
 
     @property
     def elapsed(self) -> float:
@@ -56,6 +60,13 @@ class RunLog:
             if status:
                 entry["status"] = status
             self.entries.append(entry)
+        # 락 밖에서 호출한다 — 훅이 저장소 I/O를 하므로 락을 들고 있으면
+        # 다른 스레드의 로그 기록이 그 동안 막힌다.
+        if self.on_add is not None:
+            try:
+                self.on_add()
+            except Exception:                        # noqa: BLE001
+                pass   # flush 실패가 작업을 막지 않는다
 
     def current_node(self) -> str | None:
         with self._lock:

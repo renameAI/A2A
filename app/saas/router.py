@@ -51,10 +51,10 @@ def _submit(background: BackgroundTasks, fn, user: "SaasUser | None" = None) -> 
     제어가 아니다. 결과에는 후보 목록·인사이트·메일 초안이 들어 있으므로
     소유 워크스페이스를 남기고 조회 시 대조한다.
     """
-    job, _ = job_store.create()
-    if user is not None:
-        get_saas_store().put("job_owner", user.workspace_id, job.job_id,
-                             {"job_id": job.job_id, "workspace_id": user.workspace_id})
+    # job 문서를 소유 워크스페이스 아래 만든다 — 조회에 ws가 필요하므로
+    # 남의 job은 구조적으로 보이지 않는다(별도 소유권 대조 문서가 불필요).
+    ws = user.workspace_id if user is not None else "__legacy__"
+    job, _ = job_store.create(ws=ws)
     background.add_task(job_store.run, job, fn)
     return {"job_id": job.job_id}
 
@@ -66,10 +66,7 @@ def get_job(job_id: str, user: SaasUser = Depends(current_user)):
     프론트는 이 경로만 쓴다. /product/jobs/{id}는 인증이 없어 공개 프록시로
     노출되면 남의 검색 결과가 읽힌다(감사 확정 발견).
     """
-    store = get_saas_store()
-    if store.get("job_owner", user.workspace_id, job_id) is None:
-        raise EngineError(404, "not_found", f"job {job_id} 없음")
-    job = job_store.get(job_id)
+    job = job_store.get(job_id, user.workspace_id)
     if job is None:
         raise EngineError(404, "not_found", f"job {job_id} 없음")
     return {"job_id": job.job_id, "status": job.status,
