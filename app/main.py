@@ -241,8 +241,11 @@ def readyz():
         problems.append("SAAS_ALLOWED_USERS 비어 있음 — 전원 거부 상태")
     if s.llm_provider == "openai" and not s.openai_api_key:
         problems.append("OPENAI_API_KEY 없음")
-    if not getattr(s, "tavily_api_key", ""):
-        problems.append("TAVILY_API_KEY 없음")
+    # Settings에는 tavily 필드가 없다 — 커넥터가 os.environ을 직접 읽는다.
+    # getattr(s, "tavily_api_key", "")로 보면 **항상** 빈 문자열이라
+    # readyz가 영원히 503이 된다(실측: 키를 넣고도 503). 같은 출처를 본다.
+    if not os.environ.get("TAVILY_API_KEY", ""):
+        problems.append("TAVILY_API_KEY 없음 — 검색 없이 후보를 만들 수 없습니다")
     if problems:
         return JSONResponse(status_code=503, content={"ok": False,
                                                       "problems": problems})
