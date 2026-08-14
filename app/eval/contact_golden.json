@@ -1,0 +1,235 @@
+{
+  "_doc": [
+    "B2 — 접점(ContactPath)·결정구조(decision_structure) 골든셋.",
+    "설계 근거 docs/BENCH_CONTACTS.md. 핵심 위험은 분류 오류가 아니라 환각이다:",
+    "자료에 없는 '공식 사이트 문의 폼'을 회사 규모로 짐작해 만드는 순간 사용자는",
+    "존재하지 않는 문을 두드린다. 반대 방향(2507.16199) — 자료에 있는데 안 뽑는",
+    "과잉회피도 함께 잰다. decision_structure는 3태 보정: 자료에 있으면 값 일치,",
+    "없으면 unknown이 정답이다."
+  ],
+  "cases": [
+    {
+      "id": "C01",
+      "lang": "ja",
+      "material": {
+        "name": "株式会社鈴商",
+        "what": "세계의 식품을 일본에 공급하는 식품 수입 상사다.",
+        "signal": "海外ブランドの新規取扱に関する問い合わせは公式サイトのフォーム(https://www.suzusho.co.jp/contact)で受け付けている。"
+      },
+      "gold": {
+        "contacts": [
+          {
+            "value_anchor": "suzusho.co.jp/contact",
+            "role_hint_anchor": ""
+          }
+        ],
+        "decision_structure": "absent"
+      }
+    },
+    {
+      "id": "C02",
+      "lang": "ja",
+      "material": {
+        "name": "国分グループ本社株式会社",
+        "what": "식품·주류의 전국 도매와 물류를 담당한다.",
+        "signal": "新規ブランドの商談は商品統括部が窓口となり、年2回の定期商談会で採否を決定する。"
+      },
+      "gold": {
+        "contacts": [
+          {
+            "value_anchor": "商品統括部",
+            "role_hint_anchor": "商品統括部"
+          }
+        ],
+        "decision_structure": "stated",
+        "decision_anchor": [
+          "商談会",
+          "상담회"
+        ]
+      }
+    },
+    {
+      "id": "C03",
+      "lang": "ko",
+      "material": {
+        "name": "대상무역",
+        "what": "동남아시아산 식자재를 수입해 급식업체에 공급한다.",
+        "signal": "신규 공급사 등록 문의는 구매팀 이메일(sourcing@daesangtrade.co.kr)로 받는다."
+      },
+      "gold": {
+        "contacts": [
+          {
+            "value_anchor": "sourcing@daesangtrade.co.kr",
+            "role_hint_anchor": "구매팀"
+          }
+        ],
+        "decision_structure": "absent"
+      },
+      "note": "창구=구매팀이지만 결정 주체는 자료에 없다 (C08과 같은 원칙)"
+    },
+    {
+      "id": "C04",
+      "lang": "ko",
+      "material": {
+        "name": "한빛식품유통",
+        "what": "수도권 대형마트에 신선식품을 납품한다.",
+        "signal": "작년 매출 800억 원을 기록했으며 물류센터 2곳을 운영한다."
+      },
+      "gold": {
+        "contacts": [],
+        "decision_structure": "absent"
+      },
+      "note": "환각 트랩 — 규모가 있으니 문의 폼이 있겠지, 로 만들면 실패"
+    },
+    {
+      "id": "C05",
+      "lang": "en",
+      "material": {
+        "name": "Pacific Rim Distributors",
+        "what": "미국 서부에서 아시아 식품을 유통한다.",
+        "signal": "New vendor inquiries go through the Vendor Relations team at vendors@pacrimdist.com. Final listing decisions are made by the quarterly category review board."
+      },
+      "gold": {
+        "contacts": [
+          {
+            "value_anchor": "vendors@pacrimdist.com",
+            "role_hint_anchor": "Vendor Relations"
+          }
+        ],
+        "decision_structure": "stated",
+        "decision_anchor": [
+          "category review board",
+          "리뷰",
+          "심의회",
+          "심사"
+        ]
+      }
+    },
+    {
+      "id": "C06",
+      "lang": "ja",
+      "material": {
+        "name": "株式会社トニーエンタープライズ",
+        "what": "음식료품을 거래하는 전문 상사다.",
+        "signal": ""
+      },
+      "gold": {
+        "contacts": [],
+        "decision_structure": "absent"
+      },
+      "note": "빈 자료 — 아무것도 만들면 안 된다"
+    },
+    {
+      "id": "C07",
+      "lang": "ko",
+      "material": {
+        "name": "미소바이오",
+        "what": "기능성 원료를 제조한다.",
+        "signal": "홈페이지(www.misobio.co.kr)에서 제품 카탈로그를 내려받을 수 있다."
+      },
+      "gold": {
+        "contacts": [],
+        "decision_structure": "absent"
+      },
+      "note": "환각 트랩 — 홈페이지 존재 ≠ 접촉 경로. 카탈로그 다운로드는 문의 창구가 아니다"
+    },
+    {
+      "id": "C08",
+      "lang": "ja",
+      "material": {
+        "name": "四国乳業株式会社",
+        "what": "시코쿠 지역의 유제품을 생산한다.",
+        "signal": "取引に関するお問い合わせは営業本部(088-600-XXXX)まで。工場見学の申し込みは総務部が担当する。"
+      },
+      "gold": {
+        "contacts": [
+          {
+            "value_anchor": "088-600",
+            "role_hint_anchor": "営業本部"
+          }
+        ],
+        "decision_structure": "absent"
+      },
+      "note": "총무부(공장 견학)는 거래 접점이 아니다 — 관련 없는 접점을 거르는지. 영업본부가 창구라는 사실만으론 결정 구조(누가 채택을 정하나)는 미상"
+    },
+    {
+      "id": "C09",
+      "lang": "ko",
+      "material": {
+        "name": "동서엔지니어링",
+        "what": "공장 자동화 설비를 설계·시공한다.",
+        "signal": "협력업체 등록은 상시 접수하며, 등록 심사는 구매위원회가 분기별로 진행한다. 접수처: 협력사 포털(partner.dseng.co.kr)"
+      },
+      "gold": {
+        "contacts": [
+          {
+            "value_anchor": "partner.dseng.co.kr",
+            "role_hint_anchor": ""
+          }
+        ],
+        "decision_structure": "stated",
+        "decision_anchor": "구매위원회"
+      }
+    },
+    {
+      "id": "C10",
+      "lang": "en",
+      "material": {
+        "name": "Nordfrost Logistics GmbH",
+        "what": "유럽 냉동 물류망을 운영한다.",
+        "signal": "The company operates 40 cold storage facilities across Germany and the Benelux region."
+      },
+      "gold": {
+        "contacts": [],
+        "decision_structure": "absent"
+      },
+      "note": "환각 트랩 — 시설 규모 서술뿐, 접점도 결정 구조도 없다"
+    },
+    {
+      "id": "C11",
+      "lang": "ko",
+      "material": {
+        "name": "제이엠상사",
+        "what": "일본 소비재를 병행수입해 온라인으로 판다.",
+        "signal": "대표가 직접 상품 소싱과 계약을 결정하는 1인 운영 구조다. 제안은 인스타그램 DM으로 받는다."
+      },
+      "gold": {
+        "contacts": [
+          {
+            "value_anchor": "인스타그램 DM",
+            "role_hint_anchor": "대표"
+          }
+        ],
+        "decision_structure": "stated",
+        "decision_anchor": [
+          "대표"
+        ]
+      },
+      "note": "비정형 채널(DM)도 자료에 있으면 접점이다 — 형식 편향 검출"
+    },
+    {
+      "id": "C12",
+      "lang": "ja",
+      "material": {
+        "name": "丸紅食料株式会社",
+        "what": "식품 원료를 수출입하는 종합상사 계열사다.",
+        "signal": "新規サプライヤーの採用は、品質保証部の監査を経て調達戦略会議で決定される。窓口は調達企画課(procurement@marubeni-foods.example.jp)。"
+      },
+      "gold": {
+        "contacts": [
+          {
+            "value_anchor": "procurement@marubeni-foods.example.jp",
+            "role_hint_anchor": "調達企画課"
+          }
+        ],
+        "decision_structure": "stated",
+        "decision_anchor": [
+          "調達戦略会議",
+          "조달전략회의",
+          "전략회의"
+        ]
+      },
+      "note": "창구(조달기획과)와 결정 주체(조달전략회의)가 다르다 — 이 구분이 role_hint와 decision_structure를 나누는 이유"
+    }
+  ]
+}
