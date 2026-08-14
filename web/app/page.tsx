@@ -66,6 +66,7 @@ export default function Page() {
   const [cands, setCands] = useState<Cand[]>([]);
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [recs, setRecs] = useState<KwRec[]>([]);
+  const [replied, setReplied] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyInput, setKeyInput] = useState("");
@@ -429,16 +430,41 @@ export default function Page() {
                     rel="noreferrer">원문</a>
                   <button
                     className={`mini ${saved.has(c.company_id) ? "saved" : ""}`}
-                    onClick={() => setSaved((sv) => {
-                      const n = new Set(sv);
-                      if (n.has(c.company_id)) n.delete(c.company_id);
-                      else n.add(c.company_id);
-                      return n;
-                    })}>
+                    onClick={() => {
+                      const on = !saved.has(c.company_id);
+                      setSaved((sv) => {
+                        const n = new Set(sv);
+                        on ? n.add(c.company_id) : n.delete(c.company_id);
+                        return n;
+                      });
+                      // 결과 원장 — 저장은 사용자의 관련성 판단이고, 다음
+                      // 검색의 키워드 추천 가중이 된다 (실패해도 UI는 유지)
+                      if (requestId)
+                        api(`/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
+                          { saved: on }).catch(() => {});
+                    }}>
                     {saved.has(c.company_id) ? "저장됨" : "저장"}
                   </button>
                   <button className="mini"
                     onClick={() => draftMail(c.company_id)}>메일 초안</button>
+                  <button
+                    className={`mini ${replied.has(c.company_id) ? "saved" : ""}`}
+                    onClick={() => {
+                      const on = !replied.has(c.company_id);
+                      setReplied((rv) => {
+                        const n = new Set(rv);
+                        on ? n.add(c.company_id) : n.delete(c.company_id);
+                        return n;
+                      });
+                      if (requestId)
+                        api(`/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
+                          { replied: on ? "yes" : "" }).catch(() => {});
+                      if (on)
+                        push({ who: "stamp",
+                          text: "답장을 기록했습니다 — 다음 검색의 키워드 추천에 반영됩니다" });
+                    }}>
+                    {replied.has(c.company_id) ? "답장 받음 ✓" : "답장 받음"}
+                  </button>
                 </div>
               </div>
             </div>

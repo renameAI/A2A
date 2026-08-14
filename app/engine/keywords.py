@@ -89,17 +89,55 @@ def record_run(store, workspace_id: str, rid: str, *,
     store.put("keyword_run", workspace_id, rid + "::" + (segment or "_"), entry)
 
 
+# 결과 신뢰도 계층 — Hu-Koren-Volinsky(2008)의 c=1+αr 등급 가중을 이산화한 것.
+# 암묵 신호는 선호가 아니라 신뢰도다: 발견(추출 생존)=기본 1, 저장=사용자의
+# 관련성 판단(+2), 초안=노력 투자(+4), 답장=시장의 확인(+8 — 유일한 외부 검증).
+# '답장 없음'은 감점하지 않는다 — 지연 피드백(아직 안 온 것)과 부정을 구분할
+# 수 없고, HKV의 원칙(미관측≠부정)이 여기서도 성립한다.
+OUTCOME_WEIGHTS = {"saved": 2.0, "drafted": 4.0, "replied": 8.0}
+
+
+def outcome_weight(o: dict) -> float:
+    """결과 한 건의 추가 신뢰도. 계층은 누적이다 — 답장까지 갔으면
+    저장·초안도 거쳤다는 뜻이므로 합산이 곧 단조성이다."""
+    w = 0.0
+    if o.get("saved"):
+        w += OUTCOME_WEIGHTS["saved"]
+    if o.get("drafted"):
+        w += OUTCOME_WEIGHTS["drafted"]
+    if o.get("replied") == "yes":
+        w += OUTCOME_WEIGHTS["replied"]
+    return w
+
+
 def recommend(store, workspace_id: str, current_queries: list[str], *,
               current_ontologies: list | None = None,
               exclude_rid: str = "", limit: int = 5) -> list[dict]:
     """키워드가 겹치는 과거 요청에서, 이번에 안 쓴 성과 있는 검색어를 추천한다.
 
     반환 항목의 why는 UI에 그대로 보여줄 근거다 — 추천의 이유를 감추지 않는다.
+    결과 원장(outcome)이 있으면 '많이 찾힌 검색어'가 아니라 '실제로 통한
+    검색어'가 위로 온다 — 저장·초안·답장이 그 검색어의 신뢰도를 올린다.
     """
     runs = [r for r in store.list("keyword_run", workspace_id)
             if not r.get("request_id", "").startswith(exclude_rid or "\0")]
     if not runs:
         return []
+    # 검색어 → 그 검색어가 찾은 회사들의 결과 신뢰도 합 + 답장 수(why 표기용)
+    ow: dict[str, float] = defaultdict(float)
+    replies: dict[str, int] = defaultdict(int)
+    drafts: dict[str, int] = defaultdict(int)
+    for o in store.list("outcome", workspace_id):
+        if o.get("request_id", "").startswith(exclude_rid or "\0"):
+            continue
+        q = (o.get("found_by") or "").strip()
+        if not q:
+            continue
+        ow[q] += outcome_weight(o)
+        if o.get("replied") == "yes":
+            replies[q] += 1
+        if o.get("drafted"):
+            drafts[q] += 1
 
     # 비교면 선택 — 온톨로지가 있으면 축을, 없으면(첫 검색 전) 검색어를 쓴다
     cur_ax = axis_tokens(current_ontologies or [])
@@ -123,8 +161,13 @@ def recommend(store, workspace_id: str, current_queries: list[str], *,
         for q, n in (run.get("yield_by_query") or {}).items():
             if n <= 0 or q.strip() in cur_q:
                 continue     # 성과 0이거나 이미 쓰는 검색어는 추천하지 않는다
-            scored[q] += sim * n
-            reasons[q].append(f"{run.get('segment') or '이전 검색'}에서 {n}곳")
+            scored[q] += sim * (n + ow.get(q, 0.0))
+            why = f"{run.get('segment') or '이전 검색'}에서 {n}곳"
+            if replies.get(q):
+                why += f" · 답장 {replies[q]}건"
+            elif drafts.get(q):
+                why += f" · 초안 {drafts[q]}건"
+            reasons[q].append(why)
         # 그 건의 기업들이 스스로 파생한 검색어 — 실적 대신 그 건의 수확량을 쓴다
         kept = run.get("companies_kept", 0)
         for q in run.get("derived_keywords", []):

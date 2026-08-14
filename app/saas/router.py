@@ -400,6 +400,34 @@ def run_search(rid: str, body: SearchIn | None = None,
         progress.log("검색", f"온톨로지 판독 {len(onts)}곳 "
                              f"({len(companies) - len(onts)}곳 실패)")
 
+        # 실전 스니펫 캡처 (B5) — 골든셋의 손제작 스니펫엔 실전 노이즈(HTML
+        # 잔재·잘린 문장)가 없다. 실제 히트와 추출 결과를 로그로 남겨,
+        # scripts/augment_golden_from_log.py 가 골든 케이스 후보로 변환한다.
+        # 라벨은 사람이 확정한다 — 모델 출력을 골드로 쓰면 순환 논증이다.
+        try:
+            import json as _json
+            from pathlib import Path as _P
+            log_p = _P("dataset/snippet_log.jsonl")
+            log_p.parent.mkdir(exist_ok=True)
+            kept_by_url = {c["url"]: c for c in companies}
+            with log_p.open("a", encoding="utf-8") as f:
+                for h in hits:
+                    seg, q = src_of.get(h["url"], ("", ""))
+                    c = kept_by_url.get(h["url"])
+                    f.write(_json.dumps({
+                        "request_id": rid, "segment": seg, "query": q,
+                        "url": h.get("url", ""), "title": h.get("title", ""),
+                        "snippet": (h.get("content") or h.get("snippet") or "")[:800],
+                        "extracted": bool(c),
+                        "extraction": ({"name": c["name"], "what": c["what"],
+                                        "signal": c["signal"]} if c else None),
+                        "ontology_signals": [
+                            {"category": x["category"], "evidence": x["evidence"]}
+                            for x in (onts.get(h["url"], {}).get("signals") or [])],
+                    }, ensure_ascii=False) + "\n")
+        except OSError as e:
+            progress.log("검색", f"⚠ 스니펫 로그 실패({type(e).__name__}) — 검색은 계속")
+
         records = []
         for i, c in enumerate(companies):
             desc = c["what"] or c["signal"]
@@ -472,6 +500,45 @@ def run_search(rid: str, body: SearchIn | None = None,
 
 # ── Insight · Compose V2 (이슈 #6-E) ────────────────────────────────
 
+def _record_outcome(store, ws: str, rid: str, cid: str, cand: dict,
+                    **fields) -> dict:
+    """결과 원장 upsert — 어떤 검색어(found_by)·업종(segment)이 이 회사를
+    데려왔는지를 결과와 함께 남긴다. 이 연결이 없으면 '통한 검색어'를 알 수 없다."""
+    key = f"{rid}::{cid}"
+    o = store.get("outcome", ws, key) or {
+        "request_id": rid, "company_id": cid,
+        "segment": cand.get("segment", ""),
+        "found_by": cand.get("found_by", ""),
+        "saved": False, "drafted": False, "replied": ""}
+    o.update(fields)
+    store.put("outcome", ws, key, o)
+    return o
+
+
+class OutcomeIn(BaseModel):
+    """사용자가 명시하는 결과. drafted는 받지 않는다 — compose 성공이 곧
+    사실이므로 서버가 자동 기록한다(사용자 신고보다 정확하다)."""
+    saved: "bool | None" = None
+    replied: "Literal['yes', 'no', ''] | None" = None
+
+
+@router.post("/lead-requests/{rid}/candidates/{cid}/outcome")
+def set_outcome(rid: str, cid: str, body: OutcomeIn,
+                user: SaasUser = Depends(current_user)):
+    store = get_saas_store()
+    doc, _, _ = _load_request(store, user, rid)
+    cand = next((c for c in doc.get("candidates", [])
+                 if c["company_id"] == cid), None)
+    if cand is None:
+        raise EngineError(404, "not_found", f"후보 {cid} 없음")
+    fields = {}
+    if body.saved is not None:
+        fields["saved"] = body.saved
+    if body.replied is not None:
+        fields["replied"] = body.replied
+    return _record_outcome(store, user.workspace_id, rid, cid, cand, **fields)
+
+
 @router.post("/lead-requests/{rid}/candidates/{cid}/insight", status_code=202)
 def make_insight(rid: str, cid: str, background: BackgroundTasks,
                  user: SaasUser = Depends(current_user)):
@@ -536,6 +603,8 @@ def make_drafts(rid: str, cid: str, background: BackgroundTasks,
             language=intent.outreach_language or "ko"))
         store.put("email_draft", user.workspace_id, cid,
                   res.model_dump(mode="json"))
+        # 초안 생성은 서버가 아는 사실 — 결과 원장에 자동 기록 (B4)
+        _record_outcome(store, user.workspace_id, rid, cid, cand, drafted=True)
         return res.model_dump(mode="json")
 
     return _submit(background, _run)
