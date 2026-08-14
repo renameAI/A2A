@@ -1,0 +1,399 @@
+{
+  "_doc": [
+    "타이밍 신호 추출 골든셋 (B1) — 설계 근거는 docs/BENCH_SIGNALS.md.",
+    "방법론: Frontiers 2026 (frai.2026.1797435) — 이벤트 추출 평가는 (category,",
+    "evidence) 튜플 매칭 micro P/R/F1. evidence는 soft-matching: 예측 evidence가",
+    "anchor(원문 핵심 구절)를 포함하면 매치. FaithJudge(2505.04847)에서 충실도",
+    "축을 가져와 '예측 evidence가 원문에 실재하는가'를 별도 측정한다.",
+    "hard negative가 핵심이다: '보유한다'(상태)와 '개설했다'(사건), '1950년",
+    "창업'(연혁)과 '지난달 개설'(최근 사건)을 구분 못 하면 신호 축은 소음이 된다."
+  ],
+  "cases": [
+    {
+      "id": "S01",
+      "lang": "ja",
+      "material": {
+        "name": "株式会社山田物流",
+        "what": "간토 지역의 식품 저온 물류를 담당하는 물류 회사다.",
+        "signal": "2026年3月、埼玉県に第3温度帯対応の新物流センターを開設した。"
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "expansion",
+            "anchor": "新物流センターを開設",
+            "has_date": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "S02",
+      "lang": "ja",
+      "material": {
+        "name": "東洋機械工業株式会社",
+        "what": "산업용 프레스 기계를 제조한다.",
+        "signal": "シリーズB調達で30億円を確保したと発表。調達資金は海外展開に充てる。"
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "investment",
+            "anchor": "30億円を確保",
+            "has_date": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "S03",
+      "lang": "ko",
+      "material": {
+        "name": "한서메디텍",
+        "what": "치과용 임플란트 부품을 제조한다.",
+        "signal": "지난달 베트남 호치민에 첫 해외 법인을 설립했고, 현지 영업 인력을 채용 중이다."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "expansion",
+            "anchor": "해외 법인을 설립",
+            "has_date": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "S04",
+      "lang": "ko",
+      "material": {
+        "name": "그린팜푸드",
+        "what": "친환경 냉동 간편식을 생산한다.",
+        "signal": "신임 CTO로 전 CJ제일제당 연구소장을 영입했다."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "leadership",
+            "anchor": "CTO",
+            "has_date": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "S05",
+      "lang": "en",
+      "material": {
+        "name": "Nordic Battery Components AS",
+        "what": "리튬이온 배터리용 음극재를 생산한다.",
+        "signal": "The company announced a joint development agreement with a major German automaker in June 2026."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "partnership",
+            "anchor": "joint development agreement",
+            "has_date": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "S06",
+      "lang": "ja",
+      "material": {
+        "name": "西日本食品卸株式会社",
+        "what": "규슈 지역 슈퍼마켓에 식품을 도매한다.",
+        "signal": "健康志向カテゴリーの新規取扱ブランドを公式サイトで募集している。"
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "procurement",
+            "anchor": "新規取扱ブランド",
+            "has_date": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "S07",
+      "lang": "ko",
+      "material": {
+        "name": "대명건설산업",
+        "what": "중부권 아파트 리모델링을 시공한다.",
+        "signal": "외벽 단열재 협력업체 정기 입찰 공고를 냈다. 접수는 이달 말까지."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "procurement",
+            "anchor": "입찰 공고",
+            "has_date": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "S08",
+      "lang": "en",
+      "material": {
+        "name": "Meridian Health Systems",
+        "what": "미국 중서부에서 12개 병원을 운영한다.",
+        "signal": "Meridian launched an AI-assisted radiology reading service across three of its hospitals."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "new_offering",
+            "anchor": "AI-assisted radiology",
+            "has_date": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "S09",
+      "lang": "ko",
+      "material": {
+        "name": "서진유통",
+        "what": "수도권 편의점에 음료·스낵을 공급한다.",
+        "signal": "실적 부진으로 인천 물류 거점을 폐쇄하고 인력을 20% 감축한다고 밝혔다."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "cost_cutting",
+            "anchor": "거점을 폐쇄",
+            "has_date": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "S10",
+      "lang": "ja",
+      "material": {
+        "name": "北陸精密株式会社",
+        "what": "자동차용 정밀 단조 부품을 만든다.",
+        "signal": "富山工場を拡張し、月産能力を1.5倍に引き上げた。また、EV向け新製品ラインを立ち上げた。"
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "expansion",
+            "anchor": "工場を拡張",
+            "has_date": false
+          },
+          {
+            "category": "new_offering",
+            "anchor": "新製品ライン",
+            "has_date": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "S11",
+      "lang": "ko",
+      "material": {
+        "name": "코스모스제약",
+        "what": "제네릭 의약품을 생산한다.",
+        "signal": "작년 매출 1,200억 원을 기록했고, 올해 상장을 준비하며 주관사를 선정했다."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "investment",
+            "anchor": "상장을 준비",
+            "has_date": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "S12",
+      "lang": "en",
+      "material": {
+        "name": "Baltic Grain Traders OÜ",
+        "what": "발트해 연안에서 곡물을 수출입한다.",
+        "signal": "The firm is seeking new suppliers of organic oats for its 2027 contracts, per a notice on its procurement page."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "procurement",
+            "anchor": "seeking new suppliers",
+            "has_date": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "N01",
+      "lang": "ko",
+      "material": {
+        "name": "동아포장",
+        "what": "식품용 연포장재를 생산한다.",
+        "signal": "전국 3곳에 물류센터를 보유하고 있으며 거래처는 200여 곳이다."
+      },
+      "gold": {
+        "signals": []
+      },
+      "note": "hard negative — 보유(상태)는 개설(사건)이 아니다"
+    },
+    {
+      "id": "N02",
+      "lang": "ja",
+      "material": {
+        "name": "株式会社中村商店",
+        "what": "주류·조미료를 도매한다.",
+        "signal": "1952年創業。地域の飲食店との長い取引関係を持つ。"
+      },
+      "gold": {
+        "signals": []
+      },
+      "note": "hard negative — 창업 연혁은 최근 사건이 아니다"
+    },
+    {
+      "id": "N03",
+      "lang": "en",
+      "material": {
+        "name": "Cascade Analytics",
+        "what": "소매업 수요예측 SaaS를 만든다.",
+        "signal": "The platform integrates with major ERP systems and serves clients in 14 countries."
+      },
+      "gold": {
+        "signals": []
+      },
+      "note": "hard negative — 통합 '상태'와 고객 분포는 사건이 아니다"
+    },
+    {
+      "id": "N04",
+      "lang": "ko",
+      "material": {
+        "name": "부산씨푸드",
+        "what": "수산물을 가공·수출한다.",
+        "signal": ""
+      },
+      "gold": {
+        "signals": []
+      },
+      "note": "빈 자료 — 아무것도 만들면 안 된다"
+    },
+    {
+      "id": "N05",
+      "lang": "ko",
+      "material": {
+        "name": "미래로지스",
+        "what": "3PL 물류 대행을 한다.",
+        "signal": "화주 확대를 위해 노력하고 있으며 서비스 품질 향상에 힘쓰고 있다."
+      },
+      "gold": {
+        "signals": []
+      },
+      "note": "hard negative — 의지 표명은 관측된 사건이 아니다"
+    },
+    {
+      "id": "S13",
+      "lang": "ja",
+      "material": {
+        "name": "四国乳業株式会社",
+        "what": "시코쿠 지역의 유제품을 생산한다.",
+        "signal": "大手コンビニチェーンとPB商品の供給契約を締結。来春から全国販売される。"
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "partnership",
+            "anchor": "供給契約を締結",
+            "has_date": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "S14",
+      "lang": "ko",
+      "material": {
+        "name": "테크브릿지",
+        "what": "스마트팩토리 설비 데이터 플랫폼을 만든다.",
+        "signal": "산업통상자원부 스마트제조 실증사업의 공급기업으로 선정됐다. 실증 파트너 제조사를 모집 중이다."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "partnership",
+            "anchor": "실증사업의 공급기업으로 선정",
+            "has_date": false
+          },
+          {
+            "category": "procurement",
+            "anchor": "파트너 제조사를 모집",
+            "has_date": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "S15",
+      "lang": "en",
+      "material": {
+        "name": "Andes AgroExport SA",
+        "what": "남미산 과일을 수출한다.",
+        "signal": "After its CEO retired in May, the new leadership announced plans to open a distribution hub in Rotterdam."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "leadership",
+            "anchor": "CEO retired",
+            "has_date": true
+          },
+          {
+            "category": "expansion",
+            "anchor": "distribution hub in Rotterdam",
+            "has_date": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "N06",
+      "lang": "ja",
+      "material": {
+        "name": "株式会社佐藤園",
+        "what": "시즈오카의 녹차를 재배·판매한다.",
+        "signal": "毎年、新茶の季節には直営店で試飲会を開催している。"
+      },
+      "gold": {
+        "signals": []
+      },
+      "note": "hard negative — 매년 반복되는 관행은 타이밍 신호가 아니다"
+    },
+    {
+      "id": "S16",
+      "lang": "ko",
+      "material": {
+        "name": "휴먼바이오틱스",
+        "what": "마이크로바이옴 기반 건강기능식품 원료를 개발한다.",
+        "signal": "일본 판매 파트너십 체결을 위해 오사카 건강식품 전시회에 참가한다고 공지했다."
+      },
+      "gold": {
+        "signals": [
+          {
+            "category": "other",
+            "anchor": "전시회에 참가",
+            "has_date": false,
+            "alt": [
+              "expansion",
+              "partnership"
+            ]
+          }
+        ]
+      },
+      "note": "전시 참가 — PredictLeads는 attends_event를 Expansion 그룹에 두지만 체결 목적이면 partnership 독해도 성립. 판정 불가 케이스는 복수 허용(SAGE의 preference rule 부재 시 관행)"
+    }
+  ]
+}
