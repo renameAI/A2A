@@ -7,7 +7,8 @@
  * 복원한다 (saas.html의 메모리 상태 소실 문제 해소).
  */
 import { useEffect, useRef, useState } from "react";
-import { authHeaders, DEV_USER, isConfigured, supabase } from "./supabase";
+import { authHeaders, DEV_USER, isConfigured, isMisconfigured, supabase }
+  from "./supabase";
 
 type Msg = { who: "agent" | "user" | "stamp"; text: string; jsx?: React.ReactNode };
 type Cand = { company_id: string; name: string; name_ko?: string;
@@ -83,6 +84,22 @@ export default function Gate() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // 설정 누락을 dev 폴백으로 덮지 않는다 — 배포 사고를 화면이 말한다
+  if (isMisconfigured) return (
+    <div className="login">
+      <div className="login-box">
+        <div className="login-brand">rename<em>.</em></div>
+        <p className="login-msg">
+          인증 설정이 빠진 채 배포됐어요.<br />
+          <b>NEXT_PUBLIC_SUPABASE_URL</b>과 <b>NEXT_PUBLIC_SUPABASE_ANON_KEY</b>를
+          Vercel 프로젝트 환경변수에 넣고 다시 배포해 주세요.
+        </p>
+        <p className="login-note">
+          이 화면은 인증 없이 서비스가 뜨는 것을 막기 위한 것입니다.
+        </p>
+      </div>
+    </div>
+  );
   if (ready) return <Workspace who={who || (isConfigured ? "" : DEV_USER)} />;
   return (
     <div className="login">

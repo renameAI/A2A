@@ -72,19 +72,36 @@ db() {
 engine() {
   [ -n "$GCP_PROJECT" ] || { bad "GCP_PROJECT 필요"; exit 1; }
   echo "→ Cloud Run 배포 ($SERVICE / $GCP_REGION)"
+
+  # 환경변수는 **파일 하나로** 넘긴다. 이유 두 가지:
+  # ① --set-env-vars를 여러 번 쓰면 마지막 것만 남는다. gcloud 문서 그대로:
+  #    "All existing environment variables will be removed first." 플래그를
+  #    반복하면 앞의 값이 전부 날아가 배포가 조용히 반쪽이 된다.
+  # ② 키를 커맨드라인에 실으면 같은 머신의 `ps`에 그대로 보인다.
+  local envf
+  envf=$(mktemp -t a2a-env)
+  chmod 600 "$envf"
+  trap 'rm -f "$envf"' RETURN INT TERM
+  cat > "$envf" <<YAML
+LLM_PROVIDER: "openai"
+SAAS_AUTH: "supabase"
+SAAS_STORE: "supabase"
+SUPABASE_URL: "${SUPABASE_URL:?SUPABASE_URL 필요}"
+SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY 필요}"
+SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_KEY:?SUPABASE_SERVICE_KEY 필요}"
+OPENAI_API_KEY: "${OPENAI_API_KEY:?OPENAI_API_KEY 필요}"
+TAVILY_API_KEY: "${TAVILY_API_KEY:?TAVILY_API_KEY 필요}"
+SAAS_ALLOWED_USERS: "${SAAS_ALLOWED_USERS:?SAAS_ALLOWED_USERS 필요}"
+YAML
+
   # max-instances=1: job 폴링이 인스턴스 로컬 메모리를 쓰므로 스케일아웃하면
   # 폴링이 다른 인스턴스에 붙어 '결과 없음'이 된다 (스펙 Architecture).
   gcloud run deploy "$SERVICE" \
     --project "$GCP_PROJECT" --region "$GCP_REGION" \
     --source . --allow-unauthenticated \
     --max-instances 1 --memory 1Gi --timeout 900 \
-    --set-env-vars "LLM_PROVIDER=openai,SAAS_AUTH=supabase,SAAS_STORE=supabase" \
-    --set-env-vars "SUPABASE_URL=${SUPABASE_URL:?SUPABASE_URL 필요}" \
-    --set-env-vars "SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY 필요}" \
-    --set-env-vars "SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY:?SUPABASE_SERVICE_KEY 필요}" \
-    --set-env-vars "OPENAI_API_KEY=${OPENAI_API_KEY:?OPENAI_API_KEY 필요}" \
-    --set-env-vars "TAVILY_API_KEY=${TAVILY_API_KEY:?TAVILY_API_KEY 필요}" \
-    --set-env-vars "SAAS_ALLOWED_USERS=${SAAS_ALLOWED_USERS:?SAAS_ALLOWED_USERS 필요}"
+    --env-vars-file "$envf"
+  rm -f "$envf"
   local url
   url=$(gcloud run services describe "$SERVICE" --project "$GCP_PROJECT" \
         --region "$GCP_REGION" --format 'value(status.url)')
@@ -99,15 +116,35 @@ web() {
   [ -n "$engine_url" ] || { bad "ENGINE_URL 미상 — engine 먼저 배포하거나 ENGINE_URL 설정"; exit 1; }
   echo "→ Vercel 배포 (ENGINE_URL=$engine_url)"
   cd web
-  # env는 Vercel 프로젝트에 저장한다 — 빌드마다 넘기면 누락 시 조용히 dev 모드가 된다
+
+  # env는 Vercel 프로젝트에 저장하고, **실패하면 배포를 중단한다.**
+  # 조용히 넘기면 안 되는 이유: NEXT_PUBLIC_SUPABASE_* 가 없으면 프론트의
+  # isConfigured가 false가 되어 로그인 게이트가 통째로 사라지고 X-Dev-User
+  # 폴백으로 뜬다. 배포 실패보다 '인증 없이 뜬 프로덕션'이 훨씬 나쁘다.
   for kv in "ENGINE_URL=$engine_url" \
-            "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL:?}" \
-            "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:?}"; do
-    printf '%s' "${kv#*=}" | vercel env add "${kv%%=*}" production --force >/dev/null 2>&1 || true
+            "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL:?SUPABASE_URL 필요}" \
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY 필요}"; do
+    local name="${kv%%=*}" value="${kv#*=}"
+    if printf '%s' "$value" | vercel env add "$name" production --force --yes \
+         >/dev/null 2>&1; then
+      ok "env $name 설정"
+    else
+      bad "env $name 설정 실패 — 배포 중단 (인증 없이 뜨는 것을 막는다)"
+      cd ..; exit 1
+    fi
   done
+
+  # 빌드 전에 실제로 저장됐는지 되읽어 확인한다 — add가 0으로 끝나도
+  # 스코프가 달랐거나 프로젝트 링크가 다른 곳이면 값이 없을 수 있다.
+  local have
+  have=$(vercel env ls production 2>/dev/null | grep -c "NEXT_PUBLIC_SUPABASE" || true)
+  [ "${have:-0}" -ge 2 ] || { bad "NEXT_PUBLIC_SUPABASE_* 확인 실패 — 중단"; cd ..; exit 1; }
+
   vercel deploy --prod --yes
   cd ..
-  ok "웹 배포 완료 — Supabase Auth의 Redirect URLs에 이 도메인을 추가하세요"
+  ok "웹 배포 완료"
+  warn "Supabase Auth → URL Configuration → Redirect URLs 에 이 도메인을 추가하세요"
+  warn "추가 전에는 매직링크가 localhost로 돌아와 로그인이 안 됩니다"
 }
 
 case "${1:-check}" in

@@ -16,6 +16,15 @@ const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
 export const isConfigured = Boolean(URL && ANON);
 
+/** 프로덕션 빌드인데 Supabase 설정이 없는 상태.
+ *
+ * 이때 dev 폴백으로 넘어가면 로그인 화면이 통째로 사라진 채 배포된다.
+ * 서버가 여전히 401을 주므로 데이터가 새지는 않지만, 사용자는 "왜 아무것도
+ * 안 되는지" 모르는 화면을 본다. 이 저장소의 규칙대로 조용한 대체 대신
+ * 명시적 실패를 택한다 (auth.py의 fail-closed와 같은 문법). */
+export const isMisconfigured =
+  process.env.NODE_ENV === "production" && !isConfigured;
+
 export const supabase: SupabaseClient | null = isConfigured
   ? createClient(URL, ANON, {
       auth: { persistSession: true, autoRefreshToken: true },
