@@ -1,7 +1,11 @@
-"""SaaS 인증 (이슈 #6-B) — Firebase ID 토큰 검증, key-ready.
+"""SaaS 인증 (이슈 #6-B) — 토큰 검증, key-ready.
 
 모드는 SAAS_AUTH 하나로 고정한다 (조용한 대체 없음 — llm.py get_extractor와
 같은 규칙):
+- supabase: Authorization: Bearer <Supabase access token>을 GoTrue
+  /auth/v1/user로 검증한다. JWT 서명을 직접 검증하지 않고 발급자에게 되묻는
+  이유는 (1) 의존성이 안 늘고 (2) 폐기·차단된 세션이 즉시 반영되기 때문이다.
+  대신 왕복 비용이 있어 짧은 TTL 캐시를 둔다.
 - firebase: Authorization: Bearer <ID 토큰>을 firebase-admin으로 검증.
   자격증명(GOOGLE_APPLICATION_CREDENTIALS 또는 ADC)이 없으면 기동 시 즉시 실패.
 - dev: X-Dev-User 헤더를 uid로 신뢰 — 로컬 개발·테스트 전용. 프로덕션 컨테이너에
@@ -45,6 +49,44 @@ def _authorize(uid: str, email: str) -> None:
                                  "관리자에게 접근 요청하세요.")
 
 
+# 토큰 → (uid, email, 만료시각). GoTrue 왕복을 매 요청 하지 않기 위한 캐시.
+# TTL이 짧은 이유: 세션 폐기가 늦게 반영되면 접근 차단이 늦어진다.
+_TOKEN_TTL = 60.0
+_token_cache: "dict[str, tuple[str, str, float]]" = {}
+
+
+def _verify_supabase(token: str) -> "tuple[str, str]":
+    import json
+    import time
+    import urllib.error
+    import urllib.request
+
+    hit = _token_cache.get(token)
+    now = time.time()
+    if hit and hit[2] > now:
+        return hit[0], hit[1]
+    url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    anon = os.environ.get("SUPABASE_ANON_KEY", "")
+    if not url or not anon:
+        raise HTTPException(500, "SAAS_AUTH=supabase인데 SUPABASE_URL 또는 "
+                                 "SUPABASE_ANON_KEY가 없습니다")
+    req = urllib.request.Request(
+        f"{url}/auth/v1/user",
+        headers={"apikey": anon, "Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            u = json.load(r)
+    except urllib.error.HTTPError as e:
+        raise HTTPException(401, f"토큰 검증 실패({e.code})") from e
+    uid, email = u.get("id", ""), (u.get("email") or "")
+    if not uid:
+        raise HTTPException(401, "토큰에 사용자 식별자가 없습니다")
+    if len(_token_cache) > 500:      # 무한 증식 방지 — 캐시는 편의지 저장소가 아니다
+        _token_cache.clear()
+    _token_cache[token] = (uid, email, now + _TOKEN_TTL)
+    return uid, email
+
+
 _firebase_ready = False
 
 
@@ -63,6 +105,12 @@ def current_user(authorization: str = Header(default=""),
                  x_dev_user: str = Header(default="")) -> SaasUser:
     """FastAPI 의존성 — 라우터에서 Depends(current_user)로 사용."""
     mode = _mode()
+    if mode == "supabase":
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(401, "Authorization: Bearer <Supabase 토큰> 필요")
+        uid, email = _verify_supabase(authorization.removeprefix("Bearer ").strip())
+        _authorize(uid, email)
+        return SaasUser(uid=uid, email=email, workspace_id=f"ws-{uid}")
     if mode == "firebase":
         if not authorization.startswith("Bearer "):
             raise HTTPException(401, "Authorization: Bearer <Firebase ID 토큰> 필요")
@@ -79,4 +127,5 @@ def current_user(authorization: str = Header(default=""),
         _authorize(x_dev_user, email)   # dev 모드도 허용 목록을 거친다
         return SaasUser(uid=x_dev_user, email=email,
                         workspace_id=f"ws-{x_dev_user}")
-    raise HTTPException(500, f"SAAS_AUTH={mode} — firebase|dev만 지원 (조용한 대체 없음)")
+    raise HTTPException(500, f"SAAS_AUTH={mode} — supabase|firebase|dev만 지원 "
+                             "(조용한 대체 없음)")

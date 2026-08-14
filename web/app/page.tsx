@@ -1,12 +1,13 @@
 "use client";
 /* rename. Lead 발굴 워크스페이스 — saas.html 이식 1차 (이슈 #6-F).
  *
- * 배선: /api → Next rewrites → 엔진 /saas. 인증은 dev 헤더(로컬)이며
- * SAAS_AUTH=firebase 전환 시 이 파일의 authHeaders()만 Firebase SDK 토큰으로
- * 바뀐다. 상태는 서버(SaasStore)가 원본 — 새로고침 시 /saas/lead-requests로
+ * 배선: /api → Next rewrites → 엔진 /saas. 인증은 supabase.ts가 담당한다 —
+ * Supabase env가 있으면 매직링크 세션 토큰, 없으면 로컬 dev 헤더.
+ * 상태는 서버(SaasStore)가 원본 — 새로고침 시 /saas/lead-requests로
  * 복원한다 (saas.html의 메모리 상태 소실 문제 해소).
  */
 import { useEffect, useRef, useState } from "react";
+import { authHeaders, DEV_USER, isConfigured, supabase } from "./supabase";
 
 type Msg = { who: "agent" | "user" | "stamp"; text: string; jsx?: React.ReactNode };
 type Cand = { company_id: string; name: string; name_ko?: string;
@@ -26,10 +27,6 @@ type ClarifyQ = { id: string; question: string; axis: string; why: string;
 type Llm = { provider: "local" | "openai"; label: string; model: string;
   ready: { local: boolean; openai: boolean } };
 
-const DEV_USER = "boram";
-function authHeaders(): Record<string, string> {
-  return { "X-Dev-User": DEV_USER, "Content-Type": "application/json" };
-}
 
 /** body 유무로 메서드를 추측하지 않는다 — /run·/search처럼 본문 없는 POST가
  *  GET으로 나가 404가 났다(실측). 메서드는 호출자가 명시한다. */
@@ -37,7 +34,7 @@ async function api(path: string, body?: unknown, method: "GET" | "POST" = "GET")
   const m = body !== undefined ? "POST" : method;
   const r = await fetch(`/api/saas${path}`, {
     method: m,
-    headers: authHeaders(),
+    headers: await authHeaders(),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
@@ -46,9 +43,16 @@ async function api(path: string, body?: unknown, method: "GET" | "POST" = "GET")
   return j;
 }
 
+/** 업로드는 multipart라 Content-Type을 브라우저가 정해야 한다 — 헤더에서 뺀다. */
+async function uploadHeaders(): Promise<Record<string, string>> {
+  const h = await authHeaders();
+  delete (h as Record<string, string>)["Content-Type"];
+  return h;
+}
+
 async function pollJob(jobId: string): Promise<Record<string, unknown>> {
   for (;;) {
-    const r = await fetch(`/api/product/jobs/${jobId}`, { headers: authHeaders() });
+    const r = await fetch(`/api/product/jobs/${jobId}`, { headers: await authHeaders() });
     const j = await r.json();
     if (j.status === "done") return j.result;
     if (j.status === "error") throw Object.assign(
@@ -57,7 +61,70 @@ async function pollJob(jobId: string): Promise<Record<string, unknown>> {
   }
 }
 
-export default function Page() {
+/** 로그인 게이트. Supabase 미설정이면 통과(로컬 dev) — 설정 여부를 화면이
+ *  드러내므로 '인증이 조용히 사라진' 상태가 생기지 않는다. */
+export default function Gate() {
+  const [ready, setReady] = useState(!isConfigured);
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [err, setErr] = useState("");
+  const [who, setWho] = useState("");
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setWho(data.session?.user?.email ?? "");
+      setReady(Boolean(data.session));
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, sess) => {
+      setWho(sess?.user?.email ?? "");
+      setReady(Boolean(sess));
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  if (ready) return <Workspace who={who || (isConfigured ? "" : DEV_USER)} />;
+  return (
+    <div className="login">
+      <div className="login-box">
+        <div className="login-brand">rename<em>.</em></div>
+        <div className="login-sub">Lead 발굴 워크스페이스</div>
+        {sent ? (
+          <p className="login-msg">
+            <b>{email}</b>으로 로그인 링크를 보냈어요.<br />
+            메일의 링크를 열면 이 화면이 자동으로 넘어갑니다.
+          </p>
+        ) : (
+          <>
+            <input className="login-input" type="email" value={email}
+              placeholder="회사 이메일" autoFocus
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()} />
+            <button className="btn pri login-btn" onClick={send}>
+              로그인 링크 받기
+            </button>
+            <p className="login-note">
+              비밀번호 없이 메일 링크로 들어옵니다. 허용된 계정만 접근할 수 있어요.
+            </p>
+          </>
+        )}
+        {err && <p className="login-err">{err}</p>}
+      </div>
+    </div>
+  );
+
+  async function send() {
+    if (!supabase || !email.trim()) return;
+    setErr("");
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: window.location.origin },
+    });
+    error ? setErr(error.message) : setSent(true);
+  }
+}
+
+function Workspace({ who }: { who: string }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
@@ -69,6 +136,7 @@ export default function Page() {
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [recs, setRecs] = useState<KwRec[]>([]);
   const [replied, setReplied] = useState<Set<string>>(new Set());
+  const signOut = () => supabase?.auth.signOut();
   const [likedC, setLikedC] = useState<Set<string>>(new Set());
   const [dislikedC, setDislikedC] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
@@ -130,7 +198,7 @@ export default function Page() {
       // rewrites 프록시는 큰 multipart에서 500이 난다(실측 35MB) —
       // 스트리밍 Route Handler(app/api/upload/route.ts)를 쓴다.
       const r = await fetch("/api/upload", {
-        method: "POST", headers: { "X-Dev-User": DEV_USER }, body: fd });
+        method: "POST", headers: await uploadHeaders(), body: fd });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         throw new Error(j?.error?.message || `${f.name} 업로드 실패 (PDF만 가능)`);
@@ -398,6 +466,10 @@ export default function Page() {
         <div className="side-foot">
           <span className="dot-live" />
           rename 에이전트 온라인 · {llm?.label ?? "…"}
+          {isConfigured && (
+            <button className="side-out" onClick={signOut}
+              title={who}>로그아웃</button>
+          )}
         </div>
       </aside>
 
