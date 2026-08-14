@@ -14,6 +14,7 @@ Phase 2: 합성 = LLM 1회(저렴·캐시), 검색 = 벡터DB(OpenSearch) + 온�
 from ..errors import NoStrongCandidate
 from ..schemas import (CandidateOut, PoolChoice, RetrieveDirection,
                        RetrieveRequest, RetrieveResponse)
+from .prompts import HARD_RULES
 from .common import industry_adjacent, infer_stage, overlap, profile_pain_text
 from .pool import CandidateRecord, get_pool
 
@@ -94,15 +95,23 @@ QUERY_SYSTEM = """당신은 B2B 리드 발굴의 검색 전략가다. 주어진 
 **기업을 찾는** 웹 검색어를 만든다.
 
 핵심 원칙 — 우리는 **회사**를 찾지 주제 해설을 찾지 않는다:
-- 나쁜 검색어: "에너지 음료 카페인 부작용" → 블로그·뉴스 기사가 나온다
-- 좋은 검색어: "일본 건강음료 수입 유통사 회사소개" → 실제 기업 페이지가 나온다
-- 업종을 가리키는 명사(유통사·수입사·제조사·운영사·에이전시)와 기업 페이지를
-  뜻하는 말(회사소개·공식·기업정보·취급 브랜드)을 반드시 넣는다.
-- 현지어를 섞는다. 일본이면 일본어(株式会社·卸·輸入), 베트남이면 영어를 함께 쓴다.
+- 주제어만 넣으면 그 주제를 다룬 기사·블로그가 나온다. 그 일을 **하는 주체**를
+  가리키는 명사를 반드시 넣어라. 그 명사는 상대의 상에서 읽어낸다 —
+  유통·수입·제조·시공·운영·위탁·조달·연구·에이전시 중 무엇이든,
+  아래 예시에 있는 단어를 그대로 베끼지 말고 이 건에 맞는 것을 골라라.
+- 기업 페이지를 뜻하는 말(회사소개·공식 사이트·기업정보·사업영역)을 함께 넣는다.
+- 현지어를 섞는다. 일본이면 일본어(株式会社 등), 그 외 지역은 현지어와 영어를 함께.
 - 상대의 '문제'만 검색하면 그 문제를 다룬 기사가 나온다 — 문제를 겪는 **주체**를 검색한다.
 
+원칙이 업종마다 어떻게 달라지는지 (베끼는 게 아니라 변환하는 법을 보여주는 예시):
+- 정밀부품 조달처를 찾을 때 → "대만 정밀 감속기 제조사 기업정보 사업영역"
+- 병원 도입처를 찾을 때 → "일본 의료법인 영상진단 도입 병원 공식 사이트"
+- 시공 파트너를 찾을 때 → "베트남 호텔 인테리어 시공사 회사소개 시공실적"
+업종이 바뀌면 주체 명사와 신호어가 통째로 바뀐다. 이 건의 상대상을 다시 읽어라.
+
 검색어 4개를 만든다. 각각 다른 각도로 — ① 업종+지역 기업 목록 ② 현지어 업종명
-③ 취급·모집 신호(파트너 모집·신규 브랜드 도입) ④ 협회·디렉터리·전시 참가사."""
+③ 이 업종에서 '거래를 시작하려는' 신호(파트너·조달·도입·입찰·채용 공고 등,
+   업종에 맞는 것으로) ④ 협회·디렉터리·전시 참가사."""
 
 QUERY_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -114,20 +123,25 @@ QUERY_SCHEMA = {
 
 
 def _fallback_queries(req: RetrieveRequest) -> list[str]:
-    """LLM 없이도 최소한 '기업'을 겨냥한다 — 이전 하드코딩(호텔 전용
-    'renovation partner'·'facility manager')은 다른 업종에서 완전히 빗나갔다."""
+    """LLM 없이도 최소한 '기업'을 겨냥한다.
+
+    업종 명사를 넣지 않는다 — 호텔 전용 'renovation partner'를 유통 전용
+    '유통사 OR 수입사'로 갈아끼우면 같은 오버피팅을 반복할 뿐이다(제조·의료·
+    SaaS 건에서 똑같이 빗나간다). 업종은 intent/profile이 이미 담고 있으므로
+    그 값을 그대로 쓰고, 고정어는 업종과 무관한 '기업 페이지 표지'만 붙인다."""
     p = req.requester_profile
     region = req.intent.target_region or ""
     ttype = req.intent.target_type or p.target_customer.value or ""
     ind = req.intent.target_industry or p.basic.industry or ""
     return [q.strip() for q in (
         f"{region} {ttype} 회사소개",
-        f"{region} {ind} 유통사 OR 수입사 기업정보",
-        f"{region} {ttype} 파트너 모집",
+        f"{region} {ind} 기업정보 공식 사이트",
+        f"{region} {ind} 협회 회원사 명단",
     ) if q.strip() and q.strip() != region]
 
 
-def build_search_brief(req: RetrieveRequest) -> "SearchBrief":
+def build_search_brief(req: RetrieveRequest,
+                       segment: str | None = None) -> "SearchBrief":
     """상대상 생성 공개 래퍼 (이슈 #6-D, §6.3) — 검색 시작 전에 사용자가 확인하고,
     웹 검색 쿼리의 씨앗이 된다.
 
@@ -139,12 +153,16 @@ def build_search_brief(req: RetrieveRequest) -> "SearchBrief":
     from ..schemas import SearchBrief
     from .llm import get_extractor
     synth = synthesize_counterpart(req)
+    seg = (segment or "").strip()
     try:
         data = get_extractor(get_settings()).extract_json(
             QUERY_SYSTEM,
             f"[이상적 상대의 상]\n{synth}\n\n"
             f"[지역] {req.intent.target_region or '미지정'}\n"
-            f"[상대 유형] {req.intent.target_type or '미지정'}",
+            f"[상대 유형] {req.intent.target_type or '미지정'}"
+            + (f"\n[이번에 찾을 상대 업종] {seg}\n"
+               f"검색어 4개 전부 이 업종에 한정한다. 다른 업종은 섞지 마라."
+               if seg else ""),
             QUERY_SCHEMA, deep=False, allow_foreign=True)
         queries = [q for q in data.get("queries", []) if q.strip()]
     except Exception as e:            # 검색어 생성 실패로 전체를 죽이지 않는다
@@ -427,3 +445,66 @@ def retrieve(req: RetrieveRequest,
     return RetrieveResponse(candidates=candidates, synthesized_counterpart=synth,
                             scorer_latency_ms=e9_ms, api_latency_ms=api_ms,
                             weak_fallback=weak_fallback)
+
+
+# ── 상대 업종 제안 (사용자에게 되묻기) ──────────────────────────────
+# 왜 되묻는가: 상대 업종을 LLM이 혼자 정하면 어떤 프롬프트를 써도 추측이 남고,
+# 그 추측이 빗나가면 검색 전체가 헛돈다(호텔·음료 오버피팅의 실제 원인). 게다가
+# 한 회사가 노릴 상대 업종은 원래 하나가 아니다 — 건강음료 제조사는 식품 유통사
+# 뿐 아니라 호텔·기내식·면세 채널로도 팔린다. 추측을 없애고 복수 선택을 받는다.
+SEGMENT_SYSTEM = HARD_RULES + """
+
+당신은 B2B 리드 발굴의 시장 전략가다. 요청 기업이 접근할 만한 **상대 업종**
+후보를 제시한다. 사용자가 이 중에서 고를 것이므로, 고를 값어치가 있게 만든다.
+
+규율:
+- 서로 **거래 구조가 다른** 경로여야 한다. 판단 기준: 계약 상대·구매 결정자·
+  단가·물량이 다르면 다른 경로다. 이 넷이 같으면 이름이 달라도 같은 경로다
+  (예: '전문 소매점'과 '편의점'과 '백화점 식품관'은 전부 소매 채널 하나다).
+- 반드시 **최소 3개의 서로 다른 거래 구조**를 포함한다. 예를 들어 직접 파는 경로,
+  누군가를 거쳐 파는 경로, 남의 제품에 재료·부품으로 들어가는 경로, 기관·대량
+  수요처에 납품하는 경로는 서로 다른 구조다. 이 목록을 그대로 베끼지 말고
+  이 회사·이 시장에서 실제로 성립하는 구조를 찾아라.
+- 뻔한 정공법 1~2개, 덜 뻔하지만 근거 있는 경로 2~3개를 섞는다. 사용자가 몰랐던
+  경로를 찾아주는 것이 이 단계의 값어치다.
+- why는 '왜 이 업종이 이 회사를 살 만한가'를 한 문장으로. 일반론 금지.
+- 근거가 자료에 없으면 만들지 마라. 확신이 없는 경로는 why에 '추정'이라 밝힌다.
+- 지역이 지정돼 있으면 그 지역의 유통 구조를 반영한다.
+
+5개를 제시한다."""
+
+SEGMENT_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["segments"],
+    "properties": {"segments": {
+        "type": "array", "minItems": 3, "maxItems": 6,
+        "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["label", "why"],
+            "properties": {"label": {"type": "string"},
+                           "why": {"type": "string"}}},
+    }},
+}
+
+
+def propose_segments(req: RetrieveRequest) -> list[dict]:
+    """상대 업종 후보 — 실패해도 검색을 죽이지 않는다(빈 목록이면 UI가 자유 입력)."""
+    from ..config import get_settings
+    from .llm import get_extractor
+    p = req.requester_profile
+    try:
+        data = get_extractor(get_settings()).extract_json(
+            SEGMENT_SYSTEM,
+            f"[요청 기업] {p.basic.name} ({p.basic.country} · {p.basic.industry})\n"
+            f"{p.description}\n"
+            f"솔루션: {p.solution.value}\n"
+            f"기존 타겟: {p.target_customer.value}\n"
+            f"[지역] {req.intent.target_region or '미지정'}\n"
+            f"[사용자가 적은 상대 유형] {req.intent.target_type or '미지정'}",
+            SEGMENT_SCHEMA, deep=False, allow_foreign=True)
+        return [{"label": s["label"].strip(), "why": s["why"].strip()}
+                for s in data.get("segments", []) if s.get("label", "").strip()]
+    except Exception as e:
+        from .. import progress
+        progress.log("검색", f"⚠ 업종 후보 생성 실패({type(e).__name__}) — 직접 입력")
+        return []

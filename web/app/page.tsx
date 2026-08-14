@@ -9,8 +9,14 @@
 import { useEffect, useRef, useState } from "react";
 
 type Msg = { who: "agent" | "user" | "stamp"; text: string; jsx?: React.ReactNode };
-type Cand = { company_id: string; name: string; source_url: string;
-  pain_signal: string; retrieval_score: number; weak: boolean };
+type Cand = { company_id: string; name: string; name_ko?: string;
+  what?: string; signal?: string; source_url: string;
+  pain_signal: string; retrieval_score: number; weak: boolean;
+  segment?: string; found_by?: string; ontology?: Ont | null };
+type Ont = { axes: Record<string, { value: string; status: string }>;
+  search_keywords: string[]; confirmed_ratio?: number };
+type Seg = { label: string; why: string };
+type KwRec = { query: string; score: number; why: string };
 type Llm = { provider: "local" | "openai"; label: string; model: string;
   ready: { local: boolean; openai: boolean } };
 
@@ -55,6 +61,7 @@ export default function Page() {
   const [requestId, setRequestId] = useState<string | null>(null);
   const [cands, setCands] = useState<Cand[]>([]);
   const [saved, setSaved] = useState<Set<string>>(new Set());
+  const [recs, setRecs] = useState<KwRec[]>([]);
   const [llm, setLlm] = useState<Llm | null>(null);
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyInput, setKeyInput] = useState("");
@@ -213,7 +220,7 @@ export default function Page() {
             </div>
             <div className="card-foot">
               <button className="btn pri"
-                onClick={() => runSearch(doc.request_id)}>이 기준으로 검색</button>
+                onClick={() => askSegments(doc.request_id)}>상대 업종 고르기</button>
             </div>
           </div>
         ),
@@ -222,15 +229,54 @@ export default function Page() {
     finally { setBusy(false); }
   }
 
-  async function runSearch(rid: string) {
+  /** 업종을 엔진이 정하지 않고 사용자에게 되묻는다.
+   *  한 회사가 노릴 상대 업종은 원래 여러 개이고, 어느 쪽이 맞는지는 이 시장을
+   *  아는 사람이 안다. 추측을 선택으로 바꾸는 단계다. */
+  async function askSegments(rid: string) {
     setBusy(true);
     push({ who: "stamp", text: "검색 기준을 승인했습니다" });
-    push({ who: "agent", text: "웹에서 후보를 모으고 있어요…" });
+    push({ who: "agent", text: "어느 업종을 상대로 찾을지 정해볼게요…" });
     try {
-      const s = await api(`/lead-requests/${rid}/search`, undefined, "POST");
-      const res = (await pollJob(s.job_id)) as { candidates: Cand[] };
+      const r = await api(`/lead-requests/${rid}/segments`, undefined, "POST");
+      const res = (await pollJob(r.job_id)) as
+        { segments: Seg[]; keyword_recommendations: KwRec[] };
+      if (!res.segments.length) {
+        push({ who: "agent", text: "업종 후보를 만들지 못했어요. 기준 그대로 검색할게요." });
+        await runSearch(rid, [], []);
+        return;
+      }
+      push({
+        who: "agent",
+        text: "이 중에서 찾을 업종을 고르세요. 여러 개 골라도 되고, 업종마다 따로 검색해요.",
+        jsx: <SegmentPicker segments={res.segments} recs={res.keyword_recommendations}
+          onSubmit={(segs, qs) => runSearch(rid, segs, qs)} />,
+      });
+    } catch (e) { push({ who: "agent", text: (e as Error).message }); }
+    finally { setBusy(false); }
+  }
+
+  async function runSearch(rid: string, segments: string[], extra: string[]) {
+    setBusy(true);
+    push({ who: "user", text: segments.length
+      ? segments.join(" · ") : "기준 그대로 검색" });
+    push({ who: "agent", text: segments.length > 1
+      ? `${segments.length}개 업종을 각각 검색하고 있어요…`
+      : "웹에서 후보를 모으고 있어요…" });
+    try {
+      const s2 = await api(`/lead-requests/${rid}/search`,
+        { segments, extra_queries: extra });
+      const res = (await pollJob(s2.job_id)) as
+        { candidates: Cand[]; keyword_recommendations: KwRec[] };
       setCands(res.candidates);
-      push({ who: "agent", text: `후보 ${res.candidates.length}곳이에요. 저장한 후보만 메일 초안으로 이어져요.` });
+      setRecs(res.keyword_recommendations || []);
+      const bySeg = new Map<string, number>();
+      for (const c of res.candidates)
+        bySeg.set(c.segment || "", (bySeg.get(c.segment || "") ?? 0) + 1);
+      const brk = [...bySeg.entries()].filter(([k]) => k)
+        .map(([k, n]) => `${k} ${n}곳`).join(" · ");
+      push({ who: "agent", text: `후보 ${res.candidates.length}곳이에요.`
+        + (brk ? ` (${brk})` : "")
+        + " 저장한 후보만 메일 초안으로 이어져요." });
     } catch (e) {
       const code = (e as { payload?: { code?: string } }).payload?.code;
       push({ who: "agent", text: code === "cost_cap"
@@ -361,46 +407,41 @@ export default function Page() {
               </div>
             </div>
           ))}
-          {cands.length > 0 && (
-            <div className="msg them">
+          {cands.map((c, i) => (
+            <div className="msg them" key={c.company_id}>
               <div className="ava agent">r.</div>
               <div className="body">
-                <div className="card" style={{ maxWidth: 680 }}>
-                  <div className="card-head">후보 {cands.length}곳
-                    <span className="meta">회사명을 누르면 원문</span></div>
-                  <div className="card-body">
-                    {cands.map((c, i) => (
-                      <div className="cand-row" key={c.company_id}>
-                        <div className="rank">{i + 1}위</div>
-                        <div className="cand-main">
-                          <div className="cand-name">
-                            <a href={c.source_url} target="_blank" rel="noreferrer">
-                              {c.name}</a>
-                            {c.weak && <span className="chip ask"> 임계 미만</span>}
-                          </div>
-                          <div className="cand-why">{c.pain_signal.slice(0, 120)}</div>
-                        </div>
-                        <div style={{ display: "flex", gap: 5, flex: "none" }}>
-                          <button
-                            className={`mini ${saved.has(c.company_id) ? "saved" : ""}`}
-                            onClick={() => setSaved((s) => {
-                              const n = new Set(s);
-                              if (n.has(c.company_id)) n.delete(c.company_id);
-                              else n.add(c.company_id);
-                              return n;
-                            })}>
-                            {saved.has(c.company_id) ? "저장됨" : "저장"}
-                          </button>
-                          <button className="mini"
-                            onClick={() => draftMail(c.company_id)}>메일 초안</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                <div className="who">rename 에이전트<span className="tag">앱</span></div>
+                <div className="bubble">
+                  <b>{i + 1}위 · {c.name_ko && c.name_ko !== c.name
+                    ? c.name_ko : c.name}</b>
+                  {c.name_ko && c.name_ko !== c.name && (
+                    <span className="orig"> {c.name}</span>)}
+                  {c.segment && <span className="chip seg">{c.segment}</span>}
+                  {c.weak && <span className="chip ask">임계 미만</span>}
+                  {"\n"}{c.what || c.pain_signal.slice(0, 140)}
+                  {c.signal ? `\n\n관측된 신호 — ${c.signal}` : ""}
+                </div>
+                {c.ontology && <OntologyView ont={c.ontology} />}
+                <div className="cand-acts">
+                  <a className="mini" href={c.source_url} target="_blank"
+                    rel="noreferrer">원문</a>
+                  <button
+                    className={`mini ${saved.has(c.company_id) ? "saved" : ""}`}
+                    onClick={() => setSaved((sv) => {
+                      const n = new Set(sv);
+                      if (n.has(c.company_id)) n.delete(c.company_id);
+                      else n.add(c.company_id);
+                      return n;
+                    })}>
+                    {saved.has(c.company_id) ? "저장됨" : "저장"}
+                  </button>
+                  <button className="mini"
+                    onClick={() => draftMail(c.company_id)}>메일 초안</button>
                 </div>
               </div>
             </div>
-          )}
+          ))}
           <div ref={bottom} />
         </div>
         <div className="composer">
@@ -469,6 +510,99 @@ export default function Page() {
                   style={{ fontSize: 12 }}>{c?.source_url}</a></div>;
             })}
       </aside>
+    </div>
+  );
+}
+
+const AXIS_KO: Record<string, string> = {
+  value_chain_position: "가치사슬 위치", offering: "내놓는 것",
+  demand_side: "필요로 하는 것", customer_base: "상대하는 고객",
+  geography_scope: "지리 범위", scale_signal: "규모 신호",
+  entry_path: "거래 시작 경로", differentiator: "구별되는 점",
+};
+
+/** 기업마다 남는 판독. 접혀 있다가 펼치면 축과 근거 상태가 그대로 보인다 —
+ *  판단 근거를 숨기지 않는 것이 judge와 같은 규율이다. */
+function OntologyView({ ont }: { ont: Ont }) {
+  const [open, setOpen] = useState(false);
+  const known = Object.entries(ont.axes).filter(([, a]) => a.status !== "unknown");
+  if (!known.length) return null;
+  return (
+    <div className="ont">
+      <button className="ont-toggle" onClick={() => setOpen((v) => !v)}>
+        {open ? "▾" : "▸"} 판독 {known.length}/{Object.keys(ont.axes).length}축
+        {ont.confirmed_ratio !== undefined &&
+          <span className="ont-ratio">근거 확인 {Math.round(ont.confirmed_ratio * 100)}%</span>}
+      </button>
+      {open && (
+        <div className="ont-body">
+          {known.map(([k, a]) => (
+            <div className="ont-row" key={k}>
+              <span className={`ont-st ${a.status}`}>
+                {a.status === "confirmed" ? "확인" : "추정"}</span>
+              <span className="ont-k">{AXIS_KO[k] ?? k}</span>
+              <span className="ont-v">{a.value}</span>
+            </div>
+          ))}
+          {ont.search_keywords.length > 0 && (
+            <div className="ont-kw">이런 회사를 더 찾는 검색어 —{" "}
+              {ont.search_keywords.join(" · ")}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 업종 다중 선택 + 과거 실적 기반 키워드 추천.
+ *  추천이 비어 있으면 그 자리를 비운다 — 이력이 없는데 그럴듯한 키워드를
+ *  지어내면 추천이 아니라 또 하나의 추측이다. */
+function SegmentPicker({ segments, recs, onSubmit }: {
+  segments: Seg[]; recs: KwRec[];
+  onSubmit: (segs: string[], extra: string[]) => void;
+}) {
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [kws, setKws] = useState<Set<string>>(new Set());
+  const [done, setDone] = useState(false);
+  const toggle = (set: Set<string>, fn: (s: Set<string>) => void, v: string) => {
+    const n = new Set(set); n.has(v) ? n.delete(v) : n.add(v); fn(n);
+  };
+  return (
+    <div className="card" style={{ maxWidth: 620 }}>
+      <div className="card-head">상대 업종<span className="meta">여러 개 선택 가능</span></div>
+      <div className="card-body">
+        {segments.map((sg) => (
+          <button key={sg.label} disabled={done}
+            className={`seg-opt ${picked.has(sg.label) ? "on" : ""}`}
+            onClick={() => toggle(picked, setPicked, sg.label)}>
+            <span className="seg-lb">{sg.label}</span>
+            <span className="seg-why">{sg.why}</span>
+          </button>
+        ))}
+        {recs.length > 0 && (
+          <div className="rec">
+            <div className="rec-head">비슷한 기업을 찾았던 검색어</div>
+            {recs.map((r) => (
+              <button key={r.query} disabled={done}
+                className={`rec-opt ${kws.has(r.query) ? "on" : ""}`}
+                onClick={() => toggle(kws, setKws, r.query)}>
+                <span className="rec-q">{r.query}</span>
+                <span className="rec-why">{r.why}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="card-foot">
+        <button className="btn pri" disabled={done || picked.size === 0}
+          onClick={() => { setDone(true); onSubmit([...picked], [...kws]); }}>
+          {picked.size ? `${picked.size}개 업종으로 검색` : "업종을 고르세요"}
+        </button>
+        <button className="btn" disabled={done}
+          onClick={() => { setDone(true); onSubmit([], [...kws]); }}>
+          업종 안 나누고 검색
+        </button>
+      </div>
     </div>
   );
 }

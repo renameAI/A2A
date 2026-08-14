@@ -44,13 +44,18 @@ EXTRACT_SYSTEM = HARD_RULES + """
 - 회사명은 페이지 제목이 아니라 **그 회사의 실제 상호**다. 제목이 기사 헤드라인이면
   그 항목은 버린다. 상호를 알 수 없으면 버린다 — 추측해서 만들지 마라.
 - 같은 회사가 여러 번 나오면 한 번만 남긴다.
-- 요청 기업이 찾는 상대(유통사·수입사·운영사 등)에 해당하지 않으면 버린다.
+- 요청 기업이 찾는 상대([상대상]에 적힌 역할)에 해당하지 않으면 버린다.
+  그 역할은 건마다 다르다 — 제조사일 수도, 병원일 수도, 시공사일 수도 있다.
 - 조건에 맞는 기업이 하나도 없으면 빈 배열을 반환한다. **억지로 채우지 마라.**
 
 각 기업에 대해:
-- name: 실제 상호 (원어 유지)
+- name: 실제 상호 (원어 유지 — 번역하면 검색·연락 때 못 찾는다)
+- name_ko: 한국어 표기. 외국 상호는 **독음**을 쓴다(株式会社鈴商 → 스즈쇼).
+  이미 한국 회사면 name과 같게. 대표가 원어만 보면 어떤 회사인지 모른다.
 - what: 그 회사가 무엇을 하는지 한 문장 (검색 결과에 있는 내용만)
-- signal: 요청 기업과 연결될 만한 관측된 신호. 없으면 빈 문자열.
+- signal: 요청 기업과 연결될 만한 **관측된 신호**. what을 되풀이하지 마라 —
+  what에 없는 새 정보(거래 실적·모집/입찰 공고·최근 움직임 등 업종에 맞는 것)만
+  쓴다. 없으면 빈 문자열 — 억지로 만들지 마라.
 - url: 근거가 된 검색 결과의 URL (반드시 입력에 있던 것 그대로)"""
 
 EXTRACT_SCHEMA = {
@@ -61,9 +66,10 @@ EXTRACT_SCHEMA = {
             "type": "array", "maxItems": 30,
             "items": {
                 "type": "object", "additionalProperties": False,
-                "required": ["name", "what", "signal", "url"],
+                "required": ["name", "name_ko", "what", "signal", "url"],
                 "properties": {
                     "name": {"type": "string"},
+                    "name_ko": {"type": "string"},
                     "what": {"type": "string"},
                     "signal": {"type": "string"},
                     "url": {"type": "string"},
@@ -97,6 +103,12 @@ def extract_companies(extractor, hits: list[dict], counterpart: str,
         if not name or name in seen or url not in valid_urls:
             continue
         seen.add(name)
-        out.append({"name": name, "what": c.get("what", ""),
-                    "signal": c.get("signal", ""), "url": url})
+        what = (c.get("what") or "").strip()
+        sig = (c.get("signal") or "").strip()
+        # 신호가 설명을 되풀이하면 버린다 — 화면에 같은 문장이 두 번 뜨고
+        # 검색 점수도 중복 가중돼 왜곡된다(실측: 같은 문장 3회 반복).
+        if sig and (sig in what or what in sig):
+            sig = ""
+        out.append({"name": name, "name_ko": (c.get("name_ko") or name).strip(),
+                    "what": what, "signal": sig, "url": url})
     return out

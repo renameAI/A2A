@@ -351,3 +351,40 @@ button{font:inherit;cursor:pointer;border:none;background:none}
 @media (max-width:900px){
   .chat-head .topic{display:none}
 }
+
+/* 후보 메시지 — 기업 하나당 말풍선 하나 (표 대신 대화) */
+.bubble .orig{font-weight:500;font-size:12.5px;color:var(--txt-3);margin-left:5px}
+.bubble .chip{margin-left:6px;vertical-align:1px}
+.cand-acts{display:flex;gap:5px;margin-top:6px}
+.cand-acts .mini{text-decoration:none;display:inline-flex;align-items:center}
+
+/* 업종 선택 · 키워드 추천 · 기업 온톨로지 */
+.chip.seg{background:var(--blue-soft);color:var(--blue);border-color:#BCCFFB}
+.seg-opt{display:block;width:100%;text-align:left;border:1px solid var(--line);
+  border-radius:9px;padding:9px 12px;margin-bottom:6px;background:var(--white)}
+.seg-opt:hover{border-color:#B9C0CC}
+.seg-opt.on{border-color:var(--coral);background:var(--coral-soft)}
+.seg-opt:disabled{opacity:.55}
+.seg-lb{display:block;font-weight:700;font-size:13.5px}
+.seg-why{display:block;font-size:12.5px;color:var(--txt-2);margin-top:2px;line-height:1.5}
+.rec{margin-top:12px;border-top:1px solid var(--line-soft);padding-top:10px}
+.rec-head{font-size:11.5px;font-weight:700;color:var(--txt-2);
+  text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px}
+.rec-opt{display:block;width:100%;text-align:left;border:1px solid var(--line);
+  border-radius:7px;padding:6px 10px;margin-bottom:5px;background:var(--white)}
+.rec-opt.on{border-color:var(--blue);background:var(--blue-soft)}
+.rec-q{display:block;font-size:13px;font-family:var(--mono)}
+.rec-why{display:block;font-size:11.5px;color:var(--txt-3);margin-top:1px}
+.ont{margin-top:5px}
+.ont-toggle{font-size:12px;color:var(--txt-2);padding:2px 0;display:flex;
+  align-items:center;gap:7px}
+.ont-toggle:hover{color:var(--txt)}
+.ont-ratio{font-size:11px;color:var(--txt-3)}
+.ont-body{border-left:2px solid var(--line);padding:4px 0 2px 10px;margin-top:3px}
+.ont-row{display:flex;gap:8px;font-size:12.5px;padding:2px 0;align-items:baseline}
+.ont-st{flex:none;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:4px}
+.ont-st.confirmed{background:var(--green-soft);color:var(--green)}
+.ont-st.assumed{background:var(--amber-soft);color:var(--amber)}
+.ont-k{flex:none;width:82px;color:var(--txt-2);font-weight:600}
+.ont-v{color:var(--txt);min-width:0}
+.ont-kw{font-size:11.5px;color:var(--txt-3);margin-top:6px;font-family:var(--mono)}

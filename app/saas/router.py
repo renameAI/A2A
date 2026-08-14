@@ -13,11 +13,12 @@ from ..jobs import store as job_store
 from ..config import get_settings
 from ..engine.candidate_adapter import candidate_record_from_profile
 from ..engine.candidate_extract import extract_companies, filter_company_hits
+from ..engine import keywords as kw
 from ..engine.candidate_insight import build_insight
 from ..engine.compose_lead import compose_lead
 from ..engine.llm import get_extractor
 from ..engine.represent import represent
-from ..engine.retrieve import build_search_brief, retrieve
+from ..engine.retrieve import build_search_brief, retrieve, propose_segments
 from ..errors import EngineError, ProfileBelowMinimum
 from ..schemas import (Asset, BasicInfo, CandidateInsight, ComposeLeadRequest,
                        DialogueTurn, Intent, PoolChoice, Profile, ProvField,
@@ -275,47 +276,129 @@ def make_brief(rid: str, background: BackgroundTasks,
     return _submit(background, _run)
 
 
-@router.post("/lead-requests/{rid}/search", status_code=202)
-def run_search(rid: str, background: BackgroundTasks,
-               user: SaasUser = Depends(current_user)):
-    """웹 수집 → 얇은 후보 → 기존 Retrieve 재랭킹 (§6.2 순서 전환).
+@router.post("/lead-requests/{rid}/segments", status_code=202)
+def suggest_segments(rid: str, background: BackgroundTasks,
+                     user: SaasUser = Depends(current_user)):
+    """상대 업종 후보를 제안한다 — 사용자가 고른다.
 
-    수집 단계 후보는 검색 스니펫 기반 얇은 프로필이다 — prospect Represent
-    (LLM 리서치)는 사용자가 고른 상위 후보의 /research에서만 수행해 비용을
-    아낀다 (§6.4 '연락처·리서치는 상위 후보 확정 이후').
+    왜 되묻는가: 상대 업종을 엔진이 혼자 정하면 그 추측이 검색 전체의 전제가 되고,
+    빗나가도 사용자는 왜 엉뚱한 게 나왔는지 모른다. 게다가 한 회사가 노릴 상대
+    업종은 원래 여러 개다. 추측을 선택으로 바꾼다.
+    """
+    store = get_saas_store()
+    doc, profile, intent = _load_request(store, user, rid)
+
+    def _run() -> dict:
+        cost.reserve(store, user.workspace_id, rid, "synth")
+        segs = propose_segments(RetrieveRequest(
+            requester_profile=profile, intent=intent,
+            direction=RetrieveDirection.sell_outreach,
+            pool=PoolChoice.both, k=intent.lead_count or 30))
+        doc["segments"] = segs
+        store.put("lead_request", user.workspace_id, rid, doc)
+        # 과거 실적 기반 키워드 추천 — 이력이 없으면 빈 목록(지어내지 않는다)
+        recs = kw.recommend(store, user.workspace_id,
+                            doc.get("search_brief", {}).get("query_hypotheses", []),
+                            exclude_rid=rid)
+        return {"segments": segs, "keyword_recommendations": recs}
+
+    return _submit(background, _run)
+
+
+class SearchIn(BaseModel):
+    """사용자가 고른 상대 업종. 비우면 업종을 나누지 않고 한 번만 검색한다."""
+    segments: list[str] = []
+    extra_queries: list[str] = []   # 추천 키워드 중 사용자가 채택한 것
+
+
+@router.post("/lead-requests/{rid}/search", status_code=202)
+def run_search(rid: str, body: SearchIn | None = None,
+               background: BackgroundTasks = None,
+               user: SaasUser = Depends(current_user)):
+    """웹 수집 → 기업 추출 → 온톨로지 판독 → 재랭킹 (§6.2 순서 전환).
+
+    업종별로 나눠 도는 이유: 상대 업종을 하나로 좁히면 그 추측이 빗나갔을 때 검색
+    전체가 헛돈다. 사용자가 고른 업종마다 검색어를 따로 만들어 돌리고, 후보에
+    어느 업종에서 나왔는지를 붙여 돌려준다 — 어느 경로가 유망한지를 결과가 말한다.
     """
     store = get_saas_store()
     doc, profile, intent = _load_request(store, user, rid)
     if not doc.get("search_brief"):
         raise EngineError(409, "invalid_state", "search-brief 먼저 확정하세요")
     settings = get_settings()
+    segments = [s.strip() for s in (body.segments if body else []) if s.strip()]
+    extra = [q.strip() for q in (body.extra_queries if body else []) if q.strip()]
 
     def _run() -> dict:
         from ..connectors.tavily import search as web_search
+        from ..engine.company_ontology import confirmed_ratio, read_company
         from .. import progress
         doc["status"] = "discovering"
+        doc["segments_selected"] = segments
         store.put("lead_request", user.workspace_id, rid, doc)
-        queries = doc["search_brief"]["query_hypotheses"]
-        cost.reserve(store, user.workspace_id, rid, "tavily", count=len(queries))
-        hits, seen = [], set()
-        for q in queries:
-            for h in web_search(q, settings):
-                if h["url"] not in seen:
+        extractor = get_extractor(settings)
+        base_q = doc["search_brief"]["query_hypotheses"]
+
+        # ① 업종마다 검색어를 따로 만든다 (업종 미선택이면 브리프 검색어 1벌)
+        plans: list[tuple[str, list[str]]] = []
+        if segments:
+            cost.reserve(store, user.workspace_id, rid, "synth", count=len(segments))
+            for seg in segments:
+                b = build_search_brief(RetrieveRequest(
+                    requester_profile=profile, intent=intent,
+                    direction=RetrieveDirection.sell_outreach,
+                    pool=PoolChoice.both, k=intent.lead_count or 30), segment=seg)
+                plans.append((seg, b.query_hypotheses))
+        else:
+            plans.append(("", base_q))
+        if extra:
+            plans.append(("추천 키워드", extra))
+
+        # ② 업종별 수집 — 어느 검색어가 어느 히트를 데려왔는지 추적한다
+        hits, seen, src_of = [], set(), {}
+        total_q = sum(len(qs) for _, qs in plans)
+        cost.reserve(store, user.workspace_id, rid, "tavily", count=total_q)
+        for seg, qs in plans:
+            for q in qs:
+                for h in web_search(q, settings):
+                    if h["url"] in seen:
+                        continue
                     seen.add(h["url"])
+                    src_of[h["url"]] = (seg, q)
                     hits.append(h)
-        progress.log("검색", f"웹 수집 {len(hits)}건 (쿼리 {len(queries)}개, 중복 제거)")
-        # ① 도메인 필터 — 블로그·위키·SNS·쇼핑몰은 기업 페이지가 아니다
+            progress.log("검색", f"{seg or '기본'} — 검색어 {len(qs)}개")
+        progress.log("검색", f"웹 수집 {len(hits)}건 (중복 제거)")
+
         hits, dropped = filter_company_hits(hits)
         if dropped:
             progress.log("검색", f"비기업 도메인 {dropped}건 제외 (블로그·위키·SNS 등)")
-        # ② 기업 추출 — 검색 히트를 그대로 후보로 쓰면 기사 제목이 회사명이 된다
         cost.reserve(store, user.workspace_id, rid, "insight")
         companies = extract_companies(
-            get_extractor(settings), hits,
-            doc["search_brief"]["synthesized_counterpart"],
+            extractor, hits, doc["search_brief"]["synthesized_counterpart"],
             requester_name=profile.basic.name)
-        progress.log("검색", f"실존 기업 {len(companies)}곳 추출 "
-                             f"(히트 {len(hits)}건 중)")
+        progress.log("검색", f"실존 기업 {len(companies)}곳 추출 (히트 {len(hits)}건 중)")
+
+        # ③ 온톨로지 판독 — 기업마다 구조가 남아야 다음 검색이 이 판독을 물려받는다
+        cost.reserve(store, user.workspace_id, rid, "insight", count=len(companies))
+        onts: dict[str, dict] = {}
+        for c in companies:
+            try:
+                ont = read_company(extractor, c,
+                                   region=intent.target_region or "")
+            except Exception as e:
+                # 판독 실패를 빈 축으로 덮지 않는다 — 없는 것은 없는 채로 남긴다
+                progress.log("검색", f"⚠ {c['name']} 온톨로지 판독 실패({type(e).__name__})")
+                continue
+            d = ont.model_dump(mode="json")
+            d["confirmed_ratio"] = confirmed_ratio(ont)
+            onts[c["url"]] = d
+            store.put("company_ontology", user.workspace_id,
+                      f"{rid}::{c['url']}", {**d, "name": c["name"],
+                                             "name_ko": c.get("name_ko", ""),
+                                             "request_id": rid})
+        progress.log("검색", f"온톨로지 판독 {len(onts)}곳 "
+                             f"({len(companies) - len(onts)}곳 실패)")
+
         records = []
         for i, c in enumerate(companies):
             desc = c["what"] or c["signal"]
@@ -331,27 +414,57 @@ def run_search(rid: str, background: BackgroundTasks,
                 target_customer=ProvField(value="", provenance=Provenance.ask))
             records.append(candidate_record_from_profile(
                 f"web-{rid}-{i+1:02d}", thin, c["url"],
-                pain_signal=f"{c['what']} {c['signal']}".strip()))
+                pain_signal=" ".join(x for x in (c["what"], c["signal"]) if x)))
         result = retrieve(RetrieveRequest(
             requester_profile=profile, intent=intent,
             direction=RetrieveDirection.sell_outreach, pool=PoolChoice.both,
             k=min(intent.lead_count or 30, 30), allow_weak=True),
             candidate_records=records)
         by_id = {r.company_id: r for r in records}
+        by_cid = {f"web-{rid}-{i+1:02d}": c for i, c in enumerate(companies)}
+
+        def _url(cid: str) -> str:
+            r = by_id.get(cid)
+            return next((t for t in r.tags if t.startswith("http")), "") if r else ""
+
         doc["candidates"] = [
             {**c.model_dump(mode="json"),
              "name": by_id[c.company_id].profile.basic.name
              if c.company_id in by_id else c.company_id,
-             "source_url": next((t for t in by_id[c.company_id].tags
-                                 if t.startswith("http")), "")
-             if c.company_id in by_id else "",
+             "name_ko": by_cid.get(c.company_id, {}).get("name_ko", ""),
+             "what": by_cid.get(c.company_id, {}).get("what", ""),
+             "signal": by_cid.get(c.company_id, {}).get("signal", ""),
+             "source_url": _url(c.company_id),
+             "segment": src_of.get(_url(c.company_id), ("", ""))[0],
+             "found_by": src_of.get(_url(c.company_id), ("", ""))[1],
+             "ontology": onts.get(_url(c.company_id)),
              "pain_signal": by_id[c.company_id].pain_points
              if c.company_id in by_id else ""}
             for c in result.candidates]
+
+        # ④ 원장 — 어느 검색어가 실제로 기업을 데려왔나. 다음 요청이 물려받는다.
+        kept_urls = {c["url"] for c in companies}
+        for seg, qs in plans:
+            y = {q: sum(1 for u, (sg, qq) in src_of.items()
+                        if qq == q and u in kept_urls) for q in qs}
+            # 온톨로지도 **그 업종이 데려온 기업의 것만** 기록한다. 전체를 양쪽에
+            # 넣으면 편의점 경로가 수입사의 판독을 자기 실적으로 주장하게 되고,
+            # 다음 요청의 추천이 그 거짓 근거 위에 쌓인다(실측: 두 업종 축토큰 85개 동일).
+            seg_urls = [u for u in kept_urls
+                        if u in onts and src_of.get(u, ("", ""))[0] == seg]
+            kw.record_run(store, user.workspace_id, rid, segment=seg,
+                          queries=qs, yield_by_query=y,
+                          kept=sum(y.values()),
+                          ontologies=[onts[u] for u in seg_urls])
+
         doc["status"] = "candidates_ready"
         store.put("lead_request", user.workspace_id, rid, doc)
         return {"candidates": doc["candidates"],
-                "synthesized_counterpart": result.synthesized_counterpart}
+                "synthesized_counterpart": result.synthesized_counterpart,
+                "keyword_recommendations": kw.recommend(
+                    store, user.workspace_id,
+                    [q for _, qs in plans for q in qs],
+                    current_ontologies=list(onts.values()), exclude_rid=rid)}
 
     return _submit(background, _run)
 

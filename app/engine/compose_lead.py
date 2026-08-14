@@ -20,7 +20,10 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
 - CTA는 과하지 않게 하나만 (예: 30분 온라인 소개).
 - 지정 언어로 쓰되, 회사명 등 고유명사는 원어 유지.
 - claim_trace: 본문의 구체적 주장(수치·고유명사·사실 서술이 든 문장)마다
-  그 근거가 된 인사이트 항목을 짝지어 기록한다."""
+  그 근거가 된 인사이트 항목을 짝지어 기록한다.
+- subject_ko / body_ko: 작성한 메일의 **한국어 대역**. 보내는 사람이 내용을
+  확인하고 승인해야 하므로, 읽을 수 없는 메일을 그대로 내보내면 안 된다.
+  지정 언어가 한국어면 subject·body와 같게 쓴다."""
 
 COMPOSE_LEAD_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -31,11 +34,14 @@ COMPOSE_LEAD_SCHEMA = {
             "items": {
                 "type": "object", "additionalProperties": False,
                 "required": ["variant_label", "subject", "body",
+                             "subject_ko", "body_ko",
                              "call_to_action", "claims"],
                 "properties": {
                     "variant_label": {"type": "string"},
                     "subject": {"type": "string"},
                     "body": {"type": "string"},
+                    "subject_ko": {"type": "string"},
+                    "body_ko": {"type": "string"},
                     "call_to_action": {"type": "string"},
                     "claims": {
                         "type": "array",
@@ -81,6 +87,8 @@ def compose_lead(extractor, req: ComposeLeadRequest) -> ComposeLeadResponse:
             variant_label=d["variant_label"],
             subject=d["subject"],
             body=d["body"],
+            subject_ko=d.get("subject_ko") or d["subject"],
+            body_ko=d.get("body_ko") or d["body"],
             call_to_action=d["call_to_action"],
             claim_trace=[ClaimTrace(claim=c["claim"], fit_reason_ref=c["evidence"])
                          for c in d.get("claims", [])],

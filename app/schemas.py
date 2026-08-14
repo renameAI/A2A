@@ -103,6 +103,30 @@ class VerdictType(str, Enum):
     na = "na"                  # 이 거래엔 해당 없는 축 (미검증과 구분)
 
 
+# ── 기업 온톨로지 (engine/company_ontology.py) ──────────────────────
+
+class OntologyAxis(BaseModel):
+    """축 하나의 판독 — judge와 같은 문법으로 value와 status를 분리한다.
+
+    분리하는 이유: "확인해보니 그런 접점이 없다"와 "확인을 못 했다"는 후속 행동이
+    다르다. 전자는 그 경로를 접고, 후자는 더 알아본다.
+    """
+    value: str
+    status: AxisStatus
+
+
+class CompanyOntology(BaseModel):
+    """후보 기업마다 남는 구조화된 판독.
+
+    자유 문장(what/signal)과 달리 기계가 다시 쓸 수 있다 — 유사 기업 비교, 검색어
+    파생, 재검색 확장이 전부 이 축 위에서 일어난다. 그래서 업종 어휘를 코드가
+    알 필요가 없다(하드코딩 제거의 실제 수단).
+    """
+    axes: dict[str, OntologyAxis] = {}
+    search_keywords: list[str] = []
+    source_url: str = ""
+
+
 class RiskType(str, Enum):            # 리스크 3분류 (가이드 §4)
     precondition = "precondition"
     profitability = "profitability"
@@ -498,6 +522,10 @@ class LeadEmailDraft(BaseModel):
     variant_label: str
     subject: str
     body: str
+    # 한국어 대역 — 읽을 수 없는 메일을 승인할 수는 없다. 지정 언어가
+    # 한국어면 subject·body와 같다.
+    subject_ko: str = ""
+    body_ko: str = ""
     call_to_action: str
     claim_trace: list[ClaimTrace] = []
     sources_used: list[str] = []
