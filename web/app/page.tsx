@@ -21,6 +21,8 @@ type Seg = { label: string; why: string };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
 type KwRec = { query: string; score: number; why: string };
+type ClarifyQ = { id: string; question: string; axis: string; why: string;
+  options: { label: string; company_ids: string[] }[] };
 type Llm = { provider: "local" | "openai"; label: string; model: string;
   ready: { local: boolean; openai: boolean } };
 
@@ -67,6 +69,8 @@ export default function Page() {
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [recs, setRecs] = useState<KwRec[]>([]);
   const [replied, setReplied] = useState<Set<string>>(new Set());
+  const [likedC, setLikedC] = useState<Set<string>>(new Set());
+  const [dislikedC, setDislikedC] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyInput, setKeyInput] = useState("");
@@ -271,7 +275,8 @@ export default function Page() {
       const s2 = await api(`/lead-requests/${rid}/search`,
         { segments, extra_queries: extra });
       const res = (await pollJob(s2.job_id)) as
-        { candidates: Cand[]; keyword_recommendations: KwRec[] };
+        { candidates: Cand[]; keyword_recommendations: KwRec[];
+          clarify: ClarifyQ[] };
       setCands(res.candidates);
       setRecs(res.keyword_recommendations || []);
       const bySeg = new Map<string, number>();
@@ -279,15 +284,55 @@ export default function Page() {
         bySeg.set(c.segment || "", (bySeg.get(c.segment || "") ?? 0) + 1);
       const brk = [...bySeg.entries()].filter(([k]) => k)
         .map(([k, n]) => `${k} ${n}곳`).join(" · ");
-      push({ who: "agent", text: `후보 ${res.candidates.length}곳이에요.`
+      push({ who: "agent", text: `일단 ${res.candidates.length}곳 찾았어요.`
         + (brk ? ` (${brk})` : "")
-        + " 저장한 후보만 메일 초안으로 이어져요." });
+        + " 후보마다 '이런 곳 더/아니에요'로 알려주시면 더 정확해져요." });
+      askClarify(rid, res.clarify);
     } catch (e) {
       const code = (e as { payload?: { code?: string } }).payload?.code;
       push({ who: "agent", text: code === "cost_cap"
         ? (e as Error).message
         : `후보를 찾지 못했어요 — ${(e as Error).message}` });
     } finally { setBusy(false); }
+  }
+
+  /** 관측된 갈림에서 나온 질문을 던진다 — 라벨링 대신 대화로 좁힌다.
+   *  질문이 없어도 반응·확정 카드는 띄운다 (멀티턴의 손잡이). */
+  function askClarify(rid: string, qs: ClarifyQ[]) {
+    push({
+      who: "agent",
+      text: qs.length
+        ? "몇 가지만 확인할게요 — 답해주시면 다음 검색이 좁혀져요."
+        : "방향이 맞는지 후보에 반응을 남겨주세요. 충분하면 확정할게요.",
+      jsx: <ClarifyCard qs={qs}
+        onRefine={(answers) => refine(rid, answers, false)}
+        onDone={() => refine(rid, [], true)} />,
+    });
+  }
+
+  async function refine(rid: string, answers: string[], done: boolean) {
+    setBusy(true);
+    push({ who: "user", text: done ? "이 정도면 확정"
+      : (answers.join(" · ") || "반응 반영해서 다시") });
+    if (!done) push({ who: "agent", text: "답을 반영해 더 찾고 있어요…" });
+    try {
+      const r = await api(`/lead-requests/${rid}/refine`, {
+        answers, liked: [...likedC], disliked: [...dislikedC], done });
+      const res = (await pollJob(r.job_id)) as {
+        candidates: Cand[]; clarify: ClarifyQ[]; final: boolean;
+        wave: number; new_found?: number; note?: string };
+      setCands(res.candidates);
+      if (res.final) {
+        push({ who: "stamp", text: "후보를 확정했습니다" });
+        push({ who: "agent",
+          text: `최종 ${res.candidates.length}곳이에요. 저장한 후보만 메일 초안으로 이어져요.` });
+      } else {
+        push({ who: "agent",
+          text: res.note ?? `${res.new_found ?? 0}곳을 새로 찾아 다시 정렬했어요 (${res.wave}차).` });
+        askClarify(rid, res.clarify);
+      }
+    } catch (e) { push({ who: "agent", text: (e as Error).message }); }
+    finally { setBusy(false); }
   }
 
   async function draftMail(cid: string) {
@@ -425,6 +470,22 @@ export default function Page() {
                   </div>
                 )}
                 {c.ontology && <OntologyView ont={c.ontology} />}
+                <div className="reacts">
+                  <button className={`react ${likedC.has(c.company_id) ? "on" : ""}`}
+                    onClick={() => setLikedC((v) => {
+                      const n = new Set(v);
+                      n.has(c.company_id) ? n.delete(c.company_id)
+                        : (n.add(c.company_id), dislikedC.delete(c.company_id));
+                      return n;
+                    })}>👍 이런 곳 더</button>
+                  <button className={`react ${dislikedC.has(c.company_id) ? "on" : ""}`}
+                    onClick={() => setDislikedC((v) => {
+                      const n = new Set(v);
+                      n.has(c.company_id) ? n.delete(c.company_id)
+                        : (n.add(c.company_id), likedC.delete(c.company_id));
+                      return n;
+                    })}>👋 아니에요</button>
+                </div>
                 <div className="cand-acts">
                   <a className="mini" href={c.source_url} target="_blank"
                     rel="noreferrer">원문</a>
@@ -645,6 +706,55 @@ function OntologyView({ ont }: { ont: Ont }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** 명확화 질문 카드 — 선택지는 전부 실제 후보를 인용한 것만 온다(서버 집행).
+ *  질문이 비어도 '다시 찾기/확정' 손잡이는 남는다 — 멀티턴의 최소 단위. */
+function ClarifyCard({ qs, onRefine, onDone }: {
+  qs: ClarifyQ[];
+  onRefine: (answers: string[]) => void;
+  onDone: () => void;
+}) {
+  const [picked, setPicked] = useState<Map<string, string>>(new Map());
+  const [free, setFree] = useState("");
+  const [used, setUsed] = useState(false);
+  return (
+    <div className="card" style={{ maxWidth: 600 }}>
+      {qs.map((q) => (
+        <div className="clar-q" key={q.id}>
+          <div className="clar-title">{q.question}</div>
+          <div className="clar-opts">
+            {q.options.map((o) => (
+              <button key={o.label} disabled={used}
+                className={`clar-opt ${picked.get(q.id) === o.label ? "on" : ""}`}
+                onClick={() => setPicked((m) => {
+                  const n = new Map(m);
+                  n.get(q.id) === o.label ? n.delete(q.id) : n.set(q.id, o.label);
+                  return n;
+                })}>
+                {o.label}
+                <span className="clar-n">{o.company_ids.length}곳</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="clar-q">
+        <input className="clar-free" disabled={used} value={free}
+          placeholder="직접 조건 추가 (예: 냉장 물류가 되는 곳만)"
+          onChange={(e) => setFree(e.target.value)} />
+      </div>
+      <div className="card-foot">
+        <button className="btn pri" disabled={used}
+          onClick={() => { setUsed(true);
+            onRefine([...picked.values(), ...(free.trim() ? [free.trim()] : [])]); }}>
+          반영해서 다시 찾기
+        </button>
+        <button className="btn" disabled={used}
+          onClick={() => { setUsed(true); onDone(); }}>이 정도면 확정</button>
+      </div>
     </div>
   );
 }
