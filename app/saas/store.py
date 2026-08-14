@@ -59,7 +59,8 @@ class LocalSaasStore:
                 (kind, ws, doc_id)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def list(self, kind: str, ws: str, limit: "int | None" = None) -> list[dict]:
+    def list(self, kind: str, ws: str,
+             limit: "int | None" = None) -> "list[dict]":
         sql = "SELECT body FROM docs WHERE kind=? AND ws=? ORDER BY updated DESC"
         args: tuple = (kind, ws)
         if limit is not None:
@@ -147,7 +148,8 @@ class FirestoreSaasStore:
         snap = self._doc(kind, ws, doc_id).get()
         return snap.to_dict() if snap.exists else None
 
-    def list(self, kind: str, ws: str, limit: "int | None" = None) -> list[dict]:
+    def list(self, kind: str, ws: str,
+             limit: "int | None" = None) -> "list[dict]":
         col = self._db.collection("saas").document(ws).collection(kind)
         q = col.order_by("_updated", direction=self._fs.Query.DESCENDING)
         if limit is not None:
@@ -263,7 +265,8 @@ class SupabaseSaasStore:
                    f"&workspace_id=eq.{_q(ws)}&doc_id=eq.{_q(doc_id)}&limit=1")
         return rows[0]["body"] if rows else None
 
-    def list(self, kind: str, ws: str, limit: "int | None" = None) -> list[dict]:
+    def list(self, kind: str, ws: str,
+             limit: "int | None" = None) -> "list[dict]":
         url = (f"/{self.TABLE}?select=body&kind=eq.{_q(kind)}"
                f"&workspace_id=eq.{_q(ws)}&order=updated_at.desc")
         if limit is not None:

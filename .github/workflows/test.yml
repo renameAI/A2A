@@ -33,6 +33,7 @@ jobs:
             tests/test_router_guards.py \
             tests/test_failure_honesty.py \
             tests/test_deletion.py \
+            tests/test_core_modules.py \
             tests/test_supabase_store.py \
             tests/test_clarify.py \
             tests/test_outcome_loop.py \

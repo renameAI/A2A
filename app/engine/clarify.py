@@ -125,8 +125,14 @@ def generate_questions(extractor, candidates: list[dict], counterpart: str,
             + ("\n".join(f"- {a}" for a in asked) or "없음"),
             CLARIFY_SCHEMA, deep=False, allow_foreign=True)
         return validate_questions(data.get("questions", []), candidates, asked)
-    except Exception:
-        return []          # 질문 실패가 검색을 막으면 안 된다
+    except Exception as e:                       # noqa: BLE001
+        # 질문 실패가 검색을 막으면 안 되지만, 조용히 빈 배열을 돌려주면
+        # "갈림이 없어서 질문이 없다"(정직한 상태)와 "생성이 죽었다"(사고)가
+        # 화면에서 구분되지 않는다(감사 확정 medium). 로그로 갈라놓는다.
+        from .. import progress
+        progress.log("검색", f"⚠ 명확화 질문 생성 실패({type(e).__name__}) — "
+                             f"질문 없이 진행합니다")
+        return []
 
 
 # ── 피드백 재랭킹 (결정=코드) ───────────────────────────────────────
