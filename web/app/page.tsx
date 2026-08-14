@@ -16,6 +16,8 @@ type Cand = { company_id: string; name: string; name_ko?: string;
 type Ont = { axes: Record<string, { value: string; status: string }>;
   search_keywords: string[]; confirmed_ratio?: number };
 type Seg = { label: string; why: string };
+type Draft = { subject: string; body: string;
+  subject_ko?: string; body_ko?: string; warnings: string[] };
 type KwRec = { query: string; score: number; why: string };
 type Llm = { provider: "local" | "openai"; label: string; model: string;
   ready: { local: boolean; openai: boolean } };
@@ -293,23 +295,11 @@ export default function Page() {
       const i = await api(`/lead-requests/${requestId}/candidates/${cid}/insight`, undefined, "POST");
       await pollJob(i.job_id);
       const c = await api(`/lead-requests/${requestId}/candidates/${cid}/compose`, undefined, "POST");
-      const res = (await pollJob(c.job_id)) as {
-        drafts: { subject: string; body: string; warnings: string[] }[] };
+      const res = (await pollJob(c.job_id)) as { drafts: Draft[] };
       const d = res.drafts[0];
       push({
         who: "agent", text: "초안이에요. 발송은 직접 하셔야 해요.",
-        jsx: (
-          <div className="card">
-            <div className="mail-sub">{d.subject}</div>
-            <div className="mail-body">{d.body}</div>
-            {d.warnings.map((w, k) => (
-              <div className="mail-note" key={k}><b>제외됨</b> {w}</div>))}
-            <div className="card-foot">
-              <button className="btn coral"
-                onClick={() => navigator.clipboard.writeText(d.body)}>본문 복사</button>
-            </div>
-          </div>
-        ),
+        jsx: <MailDraft d={d} />,
       });
     } catch (e) { push({ who: "agent", text: (e as Error).message }); }
     finally { setBusy(false); }
@@ -510,6 +500,41 @@ export default function Page() {
                   style={{ fontSize: 12 }}>{c?.source_url}</a></div>;
             })}
       </aside>
+    </div>
+  );
+}
+
+/** 메일 초안. 원문과 한국어 대역을 탭으로 오간다 —
+ *  읽을 수 없는 메일을 승인해 보낼 수는 없다. 대역이 원문과 같으면
+ *  (지정 언어가 한국어인 경우) 탭 자체를 띄우지 않는다. */
+function MailDraft({ d }: { d: Draft }) {
+  const hasKo = !!d.body_ko && d.body_ko !== d.body;
+  const [ko, setKo] = useState(hasKo);   // 기본은 읽을 수 있는 쪽
+  const sub = ko && hasKo ? (d.subject_ko || d.subject) : d.subject;
+  const body = ko && hasKo ? (d.body_ko || d.body) : d.body;
+  return (
+    <div className="card">
+      {hasKo && (
+        <div className="mail-tabs">
+          <button className={`mail-tab ${ko ? "on" : ""}`}
+            onClick={() => setKo(true)}>한국어 대역</button>
+          <button className={`mail-tab ${!ko ? "on" : ""}`}
+            onClick={() => setKo(false)}>보낼 원문</button>
+          {ko && <span className="mail-hint">이건 확인용이에요. 보내는 건 원문입니다.</span>}
+        </div>
+      )}
+      <div className="mail-sub">{sub}</div>
+      <div className="mail-body">{body}</div>
+      {d.warnings.map((w, k) => (
+        <div className="mail-note" key={k}><b>제외됨</b> {w}</div>))}
+      <div className="card-foot">
+        <button className="btn coral"
+          onClick={() => navigator.clipboard.writeText(d.body)}>원문 복사</button>
+        {hasKo && (
+          <button className="btn"
+            onClick={() => navigator.clipboard.writeText(d.body_ko!)}>대역 복사</button>
+        )}
+      </div>
     </div>
   );
 }

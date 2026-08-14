@@ -388,3 +388,10 @@ button{font:inherit;cursor:pointer;border:none;background:none}
 .ont-k{flex:none;width:82px;color:var(--txt-2);font-weight:600}
 .ont-v{color:var(--txt);min-width:0}
 .ont-kw{font-size:11.5px;color:var(--txt-3);margin-top:6px;font-family:var(--mono)}
+
+/* 메일 초안 — 원문 / 한국어 대역 */
+.mail-tabs{display:flex;align-items:center;gap:4px;padding:9px 16px 0}
+.mail-tab{font-size:12.5px;font-weight:700;color:var(--txt-2);padding:4px 10px;
+  border-radius:6px}
+.mail-tab.on{background:var(--coral-soft);color:var(--coral)}
+.mail-hint{font-size:11.5px;color:var(--txt-3);margin-left:auto}
