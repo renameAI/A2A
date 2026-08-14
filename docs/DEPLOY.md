@@ -103,3 +103,54 @@ scripts/deploy.sh all       # db → engine → web
 - 엔진: `gcloud run services update-traffic a2a-engine --to-revisions=<이전>=100`
 - DB: 마이그레이션은 전진만 한다. 되돌릴 일이 생기면 새 마이그레이션을 쓴다
   (down 스크립트를 두면 프로덕션에서 실수로 데이터가 날아간다)
+
+
+## 프로덕션 (2026-08-14 배포 완료)
+
+| | |
+|---|---|
+| 웹 | https://rename-lead.vercel.app (Vercel `rename/rename-lead`) |
+| 엔진 | https://a2a-engine.vercel.app (Vercel `rename/a2a-engine`) |
+| DB·Auth | Supabase `khcfayglwybetstvulxo` (ap-southeast-1) |
+
+### 왜 Cloud Run이 아니라 Vercel인가
+
+초기 판단은 "job이 최대 22.7분이라 서버리스 불가"였는데 **틀렸다**. 그 수치는
+로컬 EXAONE(Ollama) 것이었다. 모델별로 가르면:
+
+| 모델 | 건수 | 최대 | p95 | 중앙값 |
+|---|---|---|---|---|
+| GPT API (프로덕션) | 36 | **129.2s** | 82.5s | 8.9s |
+| EXAONE 로컬 | 10 | 1365.3s | 1114.3s | 554.5s |
+
+가장 무거운 경로(검색 — 기업 7곳 추출 + 온톨로지 7곳 판독)조차 129초로
+Vercel Fluid 기본 300초 안에 들어간다.
+
+서버리스의 진짜 제약은 시간이 아니라 **상태**였고, job 원장을 SaasStore로
+옮겨(V1) 해결했다. 인스턴스가 달라도 같은 원장을 본다.
+
+### Supabase Auth 리다이렉트 (Management API로 설정)
+
+CLI에 auth 설정 명령이 없어 Management API를 썼다. `supabase config push`는
+로컬 config.toml 전체를 밀어넣어 의도치 않은 설정까지 덮으므로 쓰지 않는다.
+
+```bash
+TOKEN=$(security find-generic-password -s "Supabase CLI" -w | \
+  python3 -c "import base64,sys; print(base64.b64decode(sys.stdin.read().strip().split('base64:')[1]).decode())")
+curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "https://api.supabase.com/v1/projects/<REF>/config/auth" \
+  -d '{"site_url":"https://rename-lead.vercel.app",
+       "uri_allow_list":"https://rename-lead.vercel.app/**,https://*-rename.vercel.app/**,http://localhost:3200/**"}'
+```
+
+허용목록 밖 `emailRedirectTo`는 **거부가 아니라 site_url로 대체**된다
+(Supabase 설계 — 오픈 리다이렉트 방지). 즉 200 응답이 곧 그 URL로 간다는
+뜻이 아니다.
+
+### 알려진 한계
+
+- `vercel.json`의 `memory`는 Active CPU 과금에서 무시된다(빌드 경고). 유효한
+  것은 `maxDuration`뿐.
+- 업로드·스니펫 로그는 서버리스 파일시스템에 쓰이므로 호출 간 유지되지 않는다.
+  업로드는 같은 호출 안에서 파싱까지 끝나야 한다 — 현재 온보딩 흐름은 그렇다.
+- 이메일 레이트리밋: 같은 주소로 60초에 1회.
