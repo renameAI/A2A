@@ -115,6 +115,43 @@ class OntologyAxis(BaseModel):
     status: AxisStatus
 
 
+class SignalCategory(str, Enum):
+    """타이밍 신호의 유형 — PredictLeads 뉴스이벤트 택소노미(11그룹 37카테고리)의
+    그룹 층을 차용했다. 카테고리는 업종 어휘가 아니라 **기업에 일어나는 사건의
+    유형**이라 어느 업종에나 성립한다(축 원칙과 같은 이유로 하드코딩이 아니다).
+
+    왜 필요한가: "이 회사가 맞는가"만 판정하고 "지금이 맞는가"를 안 봤다.
+    Unify·Bombora·11x가 전부 이 축 위에 서 있다 — 확장·투자·채용 같은 사건이
+    '구매 창'이 열리는 순간이다."""
+    expansion = "expansion"          # 신규 거점·시설 확장·인력 증원
+    investment = "investment"        # 자금 조달·상장·실적 발표
+    leadership = "leadership"        # 경영진 영입·교체
+    new_offering = "new_offering"    # 신제품·신규 사업·통합 출시
+    partnership = "partnership"      # 신규 계약·제휴 (수용성의 직접 증거)
+    procurement = "procurement"      # 조달·입찰·파트너 모집 공고 (가장 직접적)
+    cost_cutting = "cost_cutting"    # 감원·거점 축소 — 부정 신호도 신호다
+    other = "other"
+
+
+class TimingSignal(BaseModel):
+    """관측된 사건 하나. evidence는 자료에 있는 문장 그대로 — 인용 계약과 같은
+    규율이다. 사건이 없으면 이 목록이 비는 것이 정직한 상태다."""
+    category: SignalCategory
+    evidence: str
+    observed_at: str = ""            # 자료에 날짜가 있으면 그대로, 없으면 빈 문자열
+
+
+class ContactPath(BaseModel):
+    """공개된 접촉 경로 하나 — 자료에 실제로 나온 것만.
+
+    role_hint는 MEDDIC의 역할 구분을 스니펫 수준으로 낮춘 것이다. 검색 결과만으로
+    Economic Buyer를 특정하는 것은 불가능하므로(그건 리서치 단계 일), 여기서는
+    자료에 드러난 부서·직함 힌트(商品部·구매팀·마케팅 담당)만 적는다."""
+    channel: str                     # 예: 문의 폼 / 대표 메일 / 전화 / 파트너 모집 페이지
+    value: str                       # URL·주소·번호 — 자료에 있는 그대로
+    role_hint: str = ""              # 자료에 드러난 담당 부서·직함. 없으면 빈 문자열
+
+
 class CompanyOntology(BaseModel):
     """후보 기업마다 남는 구조화된 판독.
 
@@ -125,6 +162,9 @@ class CompanyOntology(BaseModel):
     axes: dict[str, OntologyAxis] = {}
     search_keywords: list[str] = []
     source_url: str = ""
+    # 구조화 확장 (2026-08): 축이 '상태'라면 signals는 '사건', contacts는 '문'이다.
+    signals: list[TimingSignal] = []
+    contacts: list[ContactPath] = []
 
 
 class RiskType(str, Enum):            # 리스크 3분류 (가이드 §4)
@@ -254,6 +294,11 @@ class Intent(BaseModel):
     lead_count: Optional[int] = None
     outreach_language: Optional[str] = None
     call_to_action: Optional[str] = None
+    # 발굴 목적 — 매출 파이프라인(revenue)과 PoC 파트너(poc)는 다른 질문이다.
+    # 매출은 "살 여력이 있나", PoC는 "같이 실험할 구조·의지가 있나"(ITONICS
+    # readiness·IBM EEIMM의 governance 축). 목적이 다르면 업종 제안·검색어·
+    # 온톨로지 판독의 강조점이 달라진다.
+    purpose: Literal["revenue", "poc"] = "revenue"
 
 
 class SearchBrief(BaseModel):

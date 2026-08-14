@@ -14,7 +14,9 @@ type Cand = { company_id: string; name: string; name_ko?: string;
   pain_signal: string; retrieval_score: number; weak: boolean;
   segment?: string; found_by?: string; ontology?: Ont | null };
 type Ont = { axes: Record<string, { value: string; status: string }>;
-  search_keywords: string[]; confirmed_ratio?: number };
+  search_keywords: string[]; confirmed_ratio?: number;
+  signals?: { category: string; evidence: string; observed_at: string }[];
+  contacts?: { channel: string; value: string; role_hint: string }[] };
 type Seg = { label: string; why: string };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
@@ -412,6 +414,15 @@ export default function Page() {
                   {"\n"}{c.what || c.pain_signal.slice(0, 140)}
                   {c.signal ? `\n\n관측된 신호 — ${c.signal}` : ""}
                 </div>
+                {(c.ontology?.signals ?? []).length > 0 && (
+                  <div className="sig-badges">
+                    {c.ontology!.signals!.slice(0, 3).map((sg, i) => (
+                      <span className={`sig-cat ${sg.category}`} key={i}
+                        title={sg.evidence}>
+                        {SIGNAL_KO[sg.category] ?? sg.category}</span>
+                    ))}
+                  </div>
+                )}
                 {c.ontology && <OntologyView ont={c.ontology} />}
                 <div className="cand-acts">
                   <a className="mini" href={c.source_url} target="_blank"
@@ -544,6 +555,13 @@ const AXIS_KO: Record<string, string> = {
   demand_side: "필요로 하는 것", customer_base: "상대하는 고객",
   geography_scope: "지리 범위", scale_signal: "규모 신호",
   entry_path: "거래 시작 경로", differentiator: "구별되는 점",
+  decision_structure: "누가 정하나", innovation_receptivity: "외부 협업 구조",
+};
+
+const SIGNAL_KO: Record<string, string> = {
+  expansion: "확장", investment: "투자", leadership: "경영진",
+  new_offering: "신규 사업", partnership: "제휴", procurement: "조달·모집",
+  cost_cutting: "축소", other: "기타",
 };
 
 /** 기업마다 남는 판독. 접혀 있다가 펼치면 축과 근거 상태가 그대로 보인다 —
@@ -569,6 +587,32 @@ function OntologyView({ ont }: { ont: Ont }) {
               <span className="ont-v">{a.value}</span>
             </div>
           ))}
+          {(ont.signals ?? []).length > 0 && (
+            <div className="ont-sig-list">
+              {ont.signals!.map((sg, i) => (
+                <div className="ont-sig" key={i}>
+                  <span className={`sig-cat ${sg.category}`}>
+                    {SIGNAL_KO[sg.category] ?? sg.category}</span>
+                  <span className="sig-ev">{sg.evidence}</span>
+                  {sg.observed_at && <span className="sig-at">{sg.observed_at}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {(ont.contacts ?? []).length > 0 && (
+            <div className="ont-ct-list">
+              {ont.contacts!.map((ct, i) => (
+                <div className="ont-ct" key={i}>
+                  <span className="ct-ch">{ct.channel}</span>
+                  {/^https?:/.test(ct.value)
+                    ? <a href={ct.value} target="_blank" rel="noreferrer"
+                        className="ct-v">{ct.value.replace(/^https?:\/\//, "").slice(0, 42)}</a>
+                    : <span className="ct-v">{ct.value}</span>}
+                  {ct.role_hint && <span className="ct-role">{ct.role_hint}</span>}
+                </div>
+              ))}
+            </div>
+          )}
           {ont.search_keywords.length > 0 && (
             <div className="ont-kw">이런 회사를 더 찾는 검색어 —{" "}
               {ont.search_keywords.join(" · ")}</div>
@@ -638,10 +682,22 @@ function BriefForm({ onSubmit }:
   const [ttype, setTtype] = useState("독립 호텔");
   const [notes, setNotes] = useState("객실 리노베이션과 운영 개선");
   const [count, setCount] = useState(10);
+  const [purpose, setPurpose] = useState<"revenue" | "poc">("revenue");
   return (
     <div className="card">
       <div className="card-head">Lead Request</div>
       <div className="card-body">
+        {/* 목적이 다르면 판정 축이 다르다 — 매출은 "살 여력", PoC는 "실험할 구조" */}
+        <div className="purpose-row">
+          <button className={`purpose-opt ${purpose === "revenue" ? "on" : ""}`}
+            onClick={() => setPurpose("revenue")}>
+            <b>매출 리드</b><span>실제 구매·조달로 이어질 상대</span>
+          </button>
+          <button className={`purpose-opt ${purpose === "poc" ? "on" : ""}`}
+            onClick={() => setPurpose("poc")}>
+            <b>PoC 파트너</b><span>같이 실증·실험할 구조가 있는 상대</span>
+          </button>
+        </div>
         <div className="frm">
           <label>지역<input value={region}
             onChange={(e) => setRegion(e.target.value)} /></label>
@@ -656,7 +712,7 @@ function BriefForm({ onSubmit }:
       <div className="card-foot">
         <button className="btn pri" onClick={() => onSubmit({
           value_props: ["revenue_growth"], target_region: region,
-          target_type: ttype, notes, lead_count: count,
+          target_type: ttype, notes, lead_count: count, purpose,
         })}>이 조건으로 후보 찾기</button>
       </div>
     </div>

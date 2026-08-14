@@ -384,7 +384,8 @@ def run_search(rid: str, body: SearchIn | None = None,
         for c in companies:
             try:
                 ont = read_company(extractor, c,
-                                   region=intent.target_region or "")
+                                   region=intent.target_region or "",
+                                   purpose=intent.purpose)
             except Exception as e:
                 # 판독 실패를 빈 축으로 덮지 않는다 — 없는 것은 없는 채로 남긴다
                 progress.log("검색", f"⚠ {c['name']} 온톨로지 판독 실패({type(e).__name__})")

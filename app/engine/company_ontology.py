@@ -14,7 +14,8 @@ judge에서 가져온 두 번째 원칙 — status와 value의 분리. "확인�
 "확인을 못 했다"는 다른 사실이다. 검색 스니펫만 보고 만드는 판독이므로 대부분의
 축은 assumed로 시작하고, 나중 단계(research)가 confirmed로 승격시킨다.
 """
-from ..schemas import AxisStatus, CompanyOntology, OntologyAxis
+from ..schemas import (AxisStatus, CompanyOntology, ContactPath, OntologyAxis,
+                       SignalCategory, TimingSignal)
 from .prompts import HARD_RULES
 
 # 축의 정의 — 이 목록이 유일한 '하드코딩'이고, 의도적이다. 업종 어휘가 아니라
@@ -41,6 +42,17 @@ AXES: list[tuple[str, str]] = [
      "없으면 없다고 쓴다."),
     ("differentiator",
      "남과 구별되는 점. 자료에서 읽히지 않으면 unknown."),
+    # MEDDIC의 역할 구분(Champion/Economic/Technical Buyer)을 스니펫 수준으로
+    # 낮춘 축 — 검색 결과로 특정인을 짚는 건 불가능하니 '어떤 부서·직급이
+    # 정하는 구조인가'까지만 판독한다. Gartner 실측: 기업 구매엔 6~10명이 관여.
+    ("decision_structure",
+     "구매·제휴를 누가 정하는 구조인가 — 자료에 드러난 담당 부서·직함·"
+     "의사결정 방식(예: 상품부가 정기 상담회로 선정). 사람 이름이 아니라 구조."),
+    # ITONICS 스타트업 readiness·IBM EEIMM의 governance 축 — PoC 파트너 판정의
+    # 핵심 질문. 매출 발굴에서도 '외부와 일해 본 구조'는 진입 난이도 신호다.
+    ("innovation_receptivity",
+     "외부 파트너·신기술과 함께 일하는 구조가 있는가 — 오픈이노베이션 프로그램·"
+     "CVC·액셀러레이터·실증 사업·과거 협업 사례. 자료에 없으면 unknown."),
 ]
 
 _AXIS_DOC = "\n".join(f"- {k}: {d}" for k, d in AXES)
@@ -61,6 +73,21 @@ ONTOLOGY_SYSTEM = HARD_RULES + f"""
 - status가 confirmed이면 그 근거가 제시된 자료 안에 문자 그대로 있어야 한다.
   자료에 없는데 상식으로 아는 것은 confirmed가 아니라 assumed다.
 
+signals: 자료에 나온 **최근 사건**만 골라 유형을 붙인다.
+- category: expansion(거점·시설·인력 확장) / investment(자금·상장·실적) /
+  leadership(경영진 변화) / new_offering(신제품·신사업) / partnership(신규
+  계약·제휴) / procurement(조달·입찰·파트너 모집 공고 — 가장 직접적인 신호) /
+  cost_cutting(감원·축소 — 부정 신호도 신호다) / other
+- evidence: 자료에 있는 문장을 그대로 옮긴다. 요약하거나 보태지 마라.
+- observed_at: 자료에 날짜가 있으면 그대로, 없으면 빈 문자열.
+- 사건이 없으면 빈 배열. **비어 있는 것이 정직한 상태다.**
+
+contacts: 자료에 실제로 나온 공개 접촉 경로만.
+- channel: 문의 폼 / 대표 메일 / 전화 / 파트너 모집 페이지 등
+- value: URL·주소·번호를 자료에 있는 그대로
+- role_hint: 자료에 드러난 담당 부서·직함(예: 商品部, 구매팀). 없으면 빈 문자열.
+- 자료에 없으면 빈 배열. 회사 규모로 짐작해 만들지 마라.
+
 search_keywords: 이 회사와 **같은 성격의 회사를 더 찾을 때** 쓸 검색어 3~5개.
 - 이 회사의 상호를 넣지 마라 — 우리는 이 회사가 아니라 '이런 회사들'을 더 찾는다.
 - 위 축에서 파생한다. 특히 value_chain_position·offering·customer_base.
@@ -70,7 +97,7 @@ search_keywords: 이 회사와 **같은 성격의 회사를 더 찾을 때** 쓸
 
 ONTOLOGY_SCHEMA = {
     "type": "object", "additionalProperties": False,
-    "required": ["axes", "search_keywords"],
+    "required": ["axes", "search_keywords", "signals", "contacts"],
     "properties": {
         "axes": {
             "type": "object", "additionalProperties": False,
@@ -87,11 +114,29 @@ ONTOLOGY_SCHEMA = {
         },
         "search_keywords": {"type": "array", "minItems": 2, "maxItems": 6,
                             "items": {"type": "string"}},
+        "signals": {"type": "array", "maxItems": 6, "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["category", "evidence", "observed_at"],
+            "properties": {
+                "category": {"type": "string",
+                             "enum": ["expansion", "investment", "leadership",
+                                      "new_offering", "partnership",
+                                      "procurement", "cost_cutting", "other"]},
+                "evidence": {"type": "string"},
+                "observed_at": {"type": "string"}}}},
+        "contacts": {"type": "array", "maxItems": 4, "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["channel", "value", "role_hint"],
+            "properties": {
+                "channel": {"type": "string"},
+                "value": {"type": "string"},
+                "role_hint": {"type": "string"}}}},
     },
 }
 
 
-def read_company(extractor, company: dict, *, region: str = "") -> CompanyOntology:
+def read_company(extractor, company: dict, *, region: str = "",
+                 purpose: str = "revenue") -> CompanyOntology:
     """검색 스니펫 수준의 자료로 한 기업의 온톨로지를 판독한다.
 
     호출자가 실패를 삼키지 않도록 예외를 그대로 올린다 — 온톨로지가 없는 후보는
@@ -102,7 +147,12 @@ def read_company(extractor, company: dict, *, region: str = "") -> CompanyOntolo
            f"[하는 일] {company.get('what', '')}\n"
            f"[관측된 신호] {company.get('signal', '')}\n"
            f"[출처] {company.get('url', '')}\n"
-           f"[지역] {region or '미지정'}")
+           f"[지역] {region or '미지정'}\n"
+           f"[발굴 목적] "
+           + ("PoC·실증 파트너 — innovation_receptivity와 decision_structure, "
+              "procurement/partnership 신호를 특히 주의 깊게 읽어라"
+              if purpose == "poc" else
+              "매출 리드 — demand_side와 entry_path, 타이밍 신호를 특히 주의 깊게 읽어라"))
     data = extractor.extract_json(ONTOLOGY_SYSTEM, src, ONTOLOGY_SCHEMA,
                                   deep=False, allow_foreign=True)
     axes = {}
@@ -116,6 +166,15 @@ def read_company(extractor, company: dict, *, region: str = "") -> CompanyOntolo
         axes=axes,
         search_keywords=[q.strip() for q in data["search_keywords"] if q.strip()],
         source_url=company.get("url", ""),
+        signals=[TimingSignal(category=SignalCategory(x["category"]),
+                              evidence=x["evidence"].strip(),
+                              observed_at=x.get("observed_at", "").strip())
+                 for x in data.get("signals", []) if x.get("evidence", "").strip()],
+        contacts=[ContactPath(channel=x["channel"].strip(),
+                              value=x["value"].strip(),
+                              role_hint=x.get("role_hint", "").strip())
+                  for x in data.get("contacts", [])
+                  if x.get("value", "").strip()],
     )
 
 

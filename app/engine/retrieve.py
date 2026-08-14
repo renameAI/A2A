@@ -159,7 +159,12 @@ def build_search_brief(req: RetrieveRequest,
             QUERY_SYSTEM,
             f"[이상적 상대의 상]\n{synth}\n\n"
             f"[지역] {req.intent.target_region or '미지정'}\n"
-            f"[상대 유형] {req.intent.target_type or '미지정'}"
+            f"[상대 유형] {req.intent.target_type or '미지정'}\n"
+            f"[발굴 목적] "
+            + ("PoC·실증 파트너 — 오픈이노베이션 공고·실증사업·액셀러레이터·"
+               "스타트업 협업 프로그램을 가진 주체를 겨냥한 검색어를 섞어라"
+               if req.intent.purpose == "poc" else
+               "매출 리드 — 실제 구매·조달·취급으로 이어질 주체를 겨냥한다")
             + (f"\n[이번에 찾을 상대 업종] {seg}\n"
                f"검색어 4개 전부 이 업종에 한정한다. 다른 업종은 섞지 마라."
                if seg else ""),
@@ -500,7 +505,14 @@ def propose_segments(req: RetrieveRequest) -> list[dict]:
             f"솔루션: {p.solution.value}\n"
             f"기존 타겟: {p.target_customer.value}\n"
             f"[지역] {req.intent.target_region or '미지정'}\n"
-            f"[사용자가 적은 상대 유형] {req.intent.target_type or '미지정'}",
+            f"[사용자가 적은 상대 유형] {req.intent.target_type or '미지정'}\n"
+            f"[발굴 목적] "
+            + ("PoC·실증 파트너 — '살 만한 상대'가 아니라 '같이 실험할 구조가 "
+               "있는 상대'를 찾는다. 오픈이노베이션 프로그램·CVC·실증사업 주관·"
+               "테스트베드 보유 주체를 경로로 세워라. 대기업만이 아니라 공공·"
+               "협회·중견도 실증의 장이 된다"
+               if req.intent.purpose == "poc" else
+               "매출 리드 — 실제 구매·조달로 이어질 거래 경로를 찾는다"),
             SEGMENT_SCHEMA, deep=False, allow_foreign=True)
         return [{"label": s["label"].strip(), "why": s["why"].strip()}
                 for s in data.get("segments", []) if s.get("label", "").strip()]
