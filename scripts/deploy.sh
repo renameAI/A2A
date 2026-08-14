@@ -106,10 +106,18 @@ YAML
 
   # max-instances=1: job 폴링이 인스턴스 로컬 메모리를 쓰므로 스케일아웃하면
   # 폴링이 다른 인스턴스에 붙어 '결과 없음'이 된다 (스펙 Architecture).
+  #
+  # --no-cpu-throttling: 검색·판독은 BackgroundTasks로 응답 이후에 돈다.
+  # 기본값(요청 처리 중에만 CPU 할당)이면 202를 돌려준 직후 CPU가 회수돼
+  # job이 몇 분씩 멈췄다가 폴링이 들어올 때만 찔끔 진행한다 — 사용자에겐
+  # '영원히 도는 스피너'로 보인다.
+  # --min-instances 1: 스케일다운으로 인스턴스가 사라지면 진행 중이던 job과
+  # 그 원장(/tmp)이 함께 증발한다. 콜드스타트 제거는 부수 효과.
   gcloud run deploy "$SERVICE" \
     --project "$GCP_PROJECT" --region "$GCP_REGION" \
     --source . --allow-unauthenticated \
-    --max-instances 1 --memory 1Gi --timeout 900 \
+    --max-instances 1 --min-instances 1 --no-cpu-throttling \
+    --memory 1Gi --timeout 900 \
     --env-vars-file "$envf"
   rm -f "$envf"
   local url

@@ -39,8 +39,15 @@ async function api(path: string, body?: unknown, method: "GET" | "POST" = "GET")
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(j?.error?.message || "요청 실패"),
-    { payload: j?.error });
+  if (!r.ok) {
+    // FastAPI의 HTTPException은 {detail}로, 엔진 오류는 {error:{message}}로
+    // 온다. detail을 안 보면 401/403이 "요청 실패" 다섯 글자가 된다 —
+    // 허용 목록 밖 사용자가 로그인에 성공하고도 이유를 모르던 경로.
+    const msg = j?.error?.message ?? (typeof j?.detail === "string" ? j.detail : null)
+      ?? `요청 실패 (${r.status})`;
+    throw Object.assign(new Error(msg),
+      { payload: j?.error, status: r.status });
+  }
   return j;
 }
 
@@ -51,14 +58,52 @@ async function uploadHeaders(): Promise<Record<string, string>> {
   return h;
 }
 
-async function pollJob(jobId: string): Promise<Record<string, unknown>> {
+const POLL_MAX_MS = 15 * 60_000;   // 엔진 job 타임아웃(900s)과 맞춘 상한
+const POLL_FAIL_MAX = 5;           // 연속 통신 실패 허용치
+
+/** job 폴링 — 반드시 끝난다.
+ *
+ * 이전 판은 for(;;)에 !r.ok 검사도 없어, 서버가 죽거나 job이 사라지면
+ * 스피너가 영원히 돌았다(취소 버튼도 없었다). 세 가지를 보장한다:
+ * 상한 시간, 연속 실패 상한, 그리고 호출자가 건 취소 신호.
+ * onTick으로 진행 로그를 흘려보내 사용자가 무슨 일이 일어나는지 본다.
+ */
+async function pollJob(jobId: string, opts: {
+  signal?: AbortSignal;
+  onTick?: (logs: { stage?: string; message?: string }[], elapsed: number) => void;
+} = {}): Promise<Record<string, unknown>> {
+  const started = Date.now();
+  let fails = 0;
   for (;;) {
-    const r = await fetch(`/api/saas/jobs/${jobId}`,
-      { headers: await authHeaders() });
-    const j = await r.json();
-    if (j.status === "done") return j.result;
-    if (j.status === "error") throw Object.assign(
-      new Error(j.error?.message || "실패"), { payload: j.error });
+    if (opts.signal?.aborted) throw new Error("작업을 취소했어요.");
+    if (Date.now() - started > POLL_MAX_MS)
+      throw new Error("15분이 지나도 끝나지 않아 기다리기를 멈췄어요. "
+        + "다시 시도하거나 조건을 좁혀보세요.");
+    try {
+      const r = await fetch(`/api/saas/jobs/${jobId}`,
+        { headers: await authHeaders(), signal: opts.signal });
+      if (!r.ok) {
+        if (r.status === 401 || r.status === 403 || r.status === 404) {
+          const j = await r.json().catch(() => ({}));
+          throw new Error(j?.error?.message ?? `작업을 찾을 수 없어요 (${r.status})`);
+        }
+        throw new Error(`서버 오류 (${r.status})`);
+      }
+      const j = await r.json().catch(() => null);
+      if (!j) throw new Error("응답을 읽지 못했어요");
+      fails = 0;
+      if (j.status === "done") return j.result;
+      if (j.status === "error") throw Object.assign(
+        new Error(j.error?.message || "실패"), { payload: j.error });
+      opts.onTick?.(j.logs ?? [], j.elapsed ?? 0);
+    } catch (e) {
+      // 취소·명시적 실패는 즉시 올린다. 일시적 통신 실패만 재시도한다.
+      if (opts.signal?.aborted) throw new Error("작업을 취소했어요.");
+      if ((e as { payload?: unknown }).payload
+          || (e as Error).message?.startsWith("작업을 찾을 수 없어요")) throw e;
+      if (++fails >= POLL_FAIL_MAX)
+        throw new Error(`서버와 연결이 끊겼어요 (${(e as Error).message})`);
+    }
     await new Promise((res) => setTimeout(res, 1200));
   }
 }
@@ -161,6 +206,8 @@ function Workspace({ who }: { who: string }) {
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [keySaving, setKeySaving] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const [tick, setTick] = useState<{ msg: string; sec: number } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -200,6 +247,26 @@ function Workspace({ who }: { who: string }) {
   }
 
   const push = (m: Msg) => setMsgs((xs) => [...xs, m]);
+
+  /** 취소 가능한 job 대기. 진행 로그의 마지막 줄과 경과를 헤더에 흘린다 —
+   *  사용자가 '무슨 일이 일어나는 중인지' 보이면 기다림이 견딜 만해진다. */
+  async function waitJob(jobId: string) {
+    const ac = new AbortController();
+    abortRef.current = ac;
+    try {
+      return await pollJob(jobId, {
+        signal: ac.signal,
+        onTick: (logs, elapsed) => {
+          const last = logs[logs.length - 1];
+          setTick({ msg: last?.message ?? last?.stage ?? "처리 중",
+                    sec: Math.round(elapsed) });
+        },
+      });
+    } finally {
+      abortRef.current = null;
+      setTick(null);
+    }
+  }
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
   useEffect(() => {
@@ -262,7 +329,7 @@ function Workspace({ who }: { who: string }) {
       }
       push({ who: "agent", text: "자료를 읽고 있어요…" });
       const { job_id } = await api(`/onboarding-sessions/${sid}/run`, undefined, "POST");
-      const res = (await pollJob(job_id)) as {
+      const res = (await waitJob(job_id)) as {
         needs_answers: boolean;
         session: { current_questions: string[]; profile?: { basic: { name: string } } };
       };
@@ -283,13 +350,22 @@ function Workspace({ who }: { who: string }) {
   }
 
   async function approve(sid: string) {
-    const { version_id } = await api(`/onboarding-sessions/${sid}/approve`, undefined, "POST");
-    setVersionId(version_id);
-    push({ who: "stamp", text: "프로필을 승인했습니다" });
-    push({
-      who: "agent", text: "어떤 리드를 찾을까요?",
-      jsx: <BriefForm onSubmit={(intent) => createRequest(version_id, intent)} />,
-    });
+    // 형제 함수들과 같은 형태 — 이전엔 try/catch가 없어 승인이 실패하면
+    // 화면에 아무 흔적도 남지 않았다(사용자는 버튼이 먹통이라고 느낀다).
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { version_id } = await api(
+        `/onboarding-sessions/${sid}/approve`, undefined, "POST");
+      setVersionId(version_id);
+      push({ who: "stamp", text: "프로필을 승인했습니다" });
+      push({
+        who: "agent", text: "어떤 리드를 찾을까요?",
+        jsx: <BriefForm onSubmit={(intent) => createRequest(version_id, intent)} />,
+      });
+    } catch (e) {
+      push({ who: "agent", text: `승인하지 못했어요 — ${(e as Error).message}` });
+    } finally { setBusy(false); }
   }
 
   async function createRequest(vid: string, intent: Record<string, unknown>) {
@@ -303,7 +379,7 @@ function Workspace({ who }: { who: string }) {
       push({ who: "stamp", text: "검색 조건을 확정했습니다" });
       push({ who: "agent", text: "검색 기준을 만들고 있어요…" });
       const b = await api(`/lead-requests/${doc.request_id}/search-brief`, undefined, "POST");
-      const brief = (await pollJob(b.job_id)) as {
+      const brief = (await waitJob(b.job_id)) as {
         search_brief: { synthesized_counterpart: string } };
       push({
         who: "agent", text: "이 기준으로 찾을게요.",
@@ -333,7 +409,7 @@ function Workspace({ who }: { who: string }) {
     push({ who: "agent", text: "어느 업종을 상대로 찾을지 정해볼게요…" });
     try {
       const r = await api(`/lead-requests/${rid}/segments`, undefined, "POST");
-      const res = (await pollJob(r.job_id)) as
+      const res = (await waitJob(r.job_id)) as
         { segments: Seg[]; keyword_recommendations: KwRec[] };
       if (!res.segments.length) {
         push({ who: "agent", text: "업종 후보를 만들지 못했어요. 기준 그대로 검색할게요." });
@@ -350,7 +426,9 @@ function Workspace({ who }: { who: string }) {
     finally { setBusy(false); }
   }
 
-  async function runSearch(rid: string, segments: string[], extra: string[]) {
+  /** 성공하면 true — 실패 시 카드가 다시 눌릴 수 있게 호출자에게 알린다. */
+  async function runSearch(rid: string, segments: string[],
+                           extra: string[]): Promise<boolean> {
     setBusy(true);
     push({ who: "user", text: segments.length
       ? segments.join(" · ") : "기준 그대로 검색" });
@@ -360,7 +438,7 @@ function Workspace({ who }: { who: string }) {
     try {
       const s2 = await api(`/lead-requests/${rid}/search`,
         { segments, extra_queries: extra });
-      const res = (await pollJob(s2.job_id)) as
+      const res = (await waitJob(s2.job_id)) as
         { candidates: Cand[]; keyword_recommendations: KwRec[];
           clarify: ClarifyQ[] };
       setCands(res.candidates);
@@ -370,15 +448,24 @@ function Workspace({ who }: { who: string }) {
         bySeg.set(c.segment || "", (bySeg.get(c.segment || "") ?? 0) + 1);
       const brk = [...bySeg.entries()].filter(([k]) => k)
         .map(([k, n]) => `${k} ${n}곳`).join(" · ");
-      push({ who: "agent", text: `일단 ${res.candidates.length}곳 찾았어요.`
-        + (brk ? ` (${brk})` : "")
-        + " 후보마다 '이런 곳 더/아니에요'로 알려주시면 더 정확해져요." });
+      if (res.candidates.length === 0) {
+        // 0건은 실패가 아니라 결과다 — 다음에 뭘 하면 되는지 말해준다.
+        push({ who: "agent",
+          text: "이 조건으로는 후보를 못 찾았어요. 지역을 넓히거나, 업종을 "
+            + "다시 고르거나, 검색어를 직접 추가해 보세요." });
+      } else {
+        push({ who: "agent", text: `일단 ${res.candidates.length}곳 찾았어요.`
+          + (brk ? ` (${brk})` : "")
+          + " 후보마다 '이런 곳 더/아니에요'로 알려주시면 더 정확해져요." });
+      }
       askClarify(rid, res.clarify);
+      return true;
     } catch (e) {
       const code = (e as { payload?: { code?: string } }).payload?.code;
       push({ who: "agent", text: code === "cost_cap"
         ? (e as Error).message
         : `후보를 찾지 못했어요 — ${(e as Error).message}` });
+      return false;
     } finally { setBusy(false); }
   }
 
@@ -396,7 +483,8 @@ function Workspace({ who }: { who: string }) {
     });
   }
 
-  async function refine(rid: string, answers: string[], done: boolean) {
+  async function refine(rid: string, answers: string[],
+                        done: boolean): Promise<boolean> {
     setBusy(true);
     push({ who: "user", text: done ? "이 정도면 확정"
       : (answers.join(" · ") || "반응 반영해서 다시") });
@@ -404,7 +492,7 @@ function Workspace({ who }: { who: string }) {
     try {
       const r = await api(`/lead-requests/${rid}/refine`, {
         answers, liked: [...likedC], disliked: [...dislikedC], done });
-      const res = (await pollJob(r.job_id)) as {
+      const res = (await waitJob(r.job_id)) as {
         candidates: Cand[]; clarify: ClarifyQ[]; final: boolean;
         wave: number; new_found?: number; note?: string };
       setCands(res.candidates);
@@ -417,8 +505,11 @@ function Workspace({ who }: { who: string }) {
           text: res.note ?? `${res.new_found ?? 0}곳을 새로 찾아 다시 정렬했어요 (${res.wave}차).` });
         askClarify(rid, res.clarify);
       }
-    } catch (e) { push({ who: "agent", text: (e as Error).message }); }
-    finally { setBusy(false); }
+      return true;
+    } catch (e) {
+      push({ who: "agent", text: (e as Error).message });
+      return false;
+    } finally { setBusy(false); }
   }
 
   async function draftMail(cid: string) {
@@ -427,9 +518,9 @@ function Workspace({ who }: { who: string }) {
     push({ who: "agent", text: "수요 신호를 정리하고 초안을 쓰고 있어요…" });
     try {
       const i = await api(`/lead-requests/${requestId}/candidates/${cid}/insight`, undefined, "POST");
-      await pollJob(i.job_id);
+      await waitJob(i.job_id);
       const c = await api(`/lead-requests/${requestId}/candidates/${cid}/compose`, undefined, "POST");
-      const res = (await pollJob(c.job_id)) as { drafts: Draft[] };
+      const res = (await waitJob(c.job_id)) as { drafts: Draft[] };
       const d = res.drafts[0];
       push({
         who: "agent", text: "초안이에요. 발송은 직접 하셔야 해요.",
@@ -494,7 +585,15 @@ function Workspace({ who }: { who: string }) {
       <main className="main">
         <header className="chat-head">
           <h1><span className="hash">#</span> lead-discovery</h1>
-          {busy && <span className="pill run">작업 중</span>}
+          {busy && (
+            <span className="pill run">
+              {tick ? `${tick.msg.slice(0, 34)} · ${tick.sec}s` : "작업 중"}
+            </span>
+          )}
+          {busy && abortRef.current && (
+            <button className="pill cancel"
+              onClick={() => abortRef.current?.abort()}>취소</button>
+          )}
           <span className="topic">
             {versionId ? "프로필 승인됨 · 조건에 맞는 리드를 찾습니다"
               : "회사 소개를 붙여넣으면 프로필부터 만들어요"}
@@ -804,8 +903,8 @@ function OntologyView({ ont }: { ont: Ont }) {
  *  질문이 비어도 '다시 찾기/확정' 손잡이는 남는다 — 멀티턴의 최소 단위. */
 function ClarifyCard({ qs, onRefine, onDone }: {
   qs: ClarifyQ[];
-  onRefine: (answers: string[]) => void;
-  onDone: () => void;
+  onRefine: (answers: string[]) => Promise<boolean>;
+  onDone: () => Promise<boolean>;
 }) {
   const [picked, setPicked] = useState<Map<string, string>>(new Map());
   const [free, setFree] = useState("");
@@ -837,13 +936,22 @@ function ClarifyCard({ qs, onRefine, onDone }: {
           onChange={(e) => setFree(e.target.value)} />
       </div>
       <div className="card-foot">
+        {/* 요청이 실패하면 손잡이가 살아남아야 한다 — 이전엔 클릭 즉시
+            래칭해서, 실패하면 대화가 그 자리에서 끝났다. */}
         <button className="btn pri" disabled={used}
-          onClick={() => { setUsed(true);
-            onRefine([...picked.values(), ...(free.trim() ? [free.trim()] : [])]); }}>
+          onClick={async () => {
+            setUsed(true);
+            const ok = await onRefine(
+              [...picked.values(), ...(free.trim() ? [free.trim()] : [])]);
+            if (!ok) setUsed(false);
+          }}>
           반영해서 다시 찾기
         </button>
         <button className="btn" disabled={used}
-          onClick={() => { setUsed(true); onDone(); }}>이 정도면 확정</button>
+          onClick={async () => {
+            setUsed(true);
+            if (!await onDone()) setUsed(false);
+          }}>이 정도면 확정</button>
       </div>
     </div>
   );
@@ -854,7 +962,7 @@ function ClarifyCard({ qs, onRefine, onDone }: {
  *  지어내면 추천이 아니라 또 하나의 추측이다. */
 function SegmentPicker({ segments, recs, onSubmit }: {
   segments: Seg[]; recs: KwRec[];
-  onSubmit: (segs: string[], extra: string[]) => void;
+  onSubmit: (segs: string[], extra: string[]) => Promise<boolean>;
 }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [kws, setKws] = useState<Set<string>>(new Set());
@@ -890,11 +998,17 @@ function SegmentPicker({ segments, recs, onSubmit }: {
       </div>
       <div className="card-foot">
         <button className="btn pri" disabled={done || picked.size === 0}
-          onClick={() => { setDone(true); onSubmit([...picked], [...kws]); }}>
+          onClick={async () => {
+            setDone(true);
+            if (!await onSubmit([...picked], [...kws])) setDone(false);
+          }}>
           {picked.size ? `${picked.size}개 업종으로 검색` : "업종을 고르세요"}
         </button>
         <button className="btn" disabled={done}
-          onClick={() => { setDone(true); onSubmit([], [...kws]); }}>
+          onClick={async () => {
+            setDone(true);
+            if (!await onSubmit([], [...kws])) setDone(false);
+          }}>
           업종 안 나누고 검색
         </button>
       </div>

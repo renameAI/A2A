@@ -1,12 +1,18 @@
 """비동기 job 스토어 (API_계약서 §0.2, SYS-02).
 
-Phase 6 운영화: 인메모리 → SQLite write-through (재시작 생존). ProductStore와 같은
-패턴·같은 DB 파일(A2A_DB_PATH) — 무인프라(stdlib sqlite3), 커넥션은 호출마다 새로
-열어 백그라운드 job 스레드가 커넥션을 공유하지 않는다.
+Phase 6 운영화: 인메모리 → SQLite write-through. ProductStore와 같은 패턴·같은
+DB 파일(A2A_DB_PATH) — 무인프라(stdlib sqlite3), 커넥션은 호출마다 새로 열어
+백그라운드 job 스레드가 커넥션을 공유하지 않는다.
 
 왜 영속화가 필요한가: A2A 전송층이 Task를 핵심 추상으로 세웠는데(tasks/get·
-tasks/cancel) 인메모리면 재시작 후 완료된 Task도 404가 된다 — 프로토콜 구멍이다.
-이제 완료 Task는 재시작을 생존하고, client_request_id 멱등도 재시작을 넘어 유지된다.
+tasks/cancel) 순수 인메모리면 같은 프로세스 안에서도 로그·결과 관리가 흩어진다.
+
+**생존 범위는 배포 형태가 정한다** (Dockerfile은 A2A_DB_PATH=/tmp/a2a.db):
+- 로컬·볼륨 마운트: 파일이 남으므로 프로세스 재시작을 넘어 조회된다.
+- Cloud Run: /tmp는 인스턴스 메모리다. 인스턴스가 교체되면 job 원장도 사라진다
+  — 진행 중이던 job은 물론 완료된 job도 404가 된다. 프론트가 영원히 폴링하지
+  않도록 클라이언트에 폴링 상한이 있다(web/app/page.tsx POLL_MAX_MS).
+  이것을 없애려면 job 원장을 SaasStore(Supabase)로 옮겨야 한다 — 미구현.
 
 좀비 수확(정직성): 재시작 시 running이던 job은 그 스레드가 죽었으므로 되살아나지
 않는다. 시작 시 error로 수확해 '영원한 running'(A2A SSE 무한 루프의 원인)을 막는다.
