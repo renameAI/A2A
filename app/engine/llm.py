@@ -84,6 +84,10 @@ class AnthropicExtractor:
 #   · 제어문자·대체문자(�): 어떤 언어에서도 쓰레기 → 항상 제거
 #   · 한자·가나: 한국어 서술에서는 EXAONE 환각 노이즈지만, 해외 기업 데이터에서는
 #     정상 값 → keep_cjk=True일 때 보존
+# 429·5xx 재시도 횟수. 4회면 지수 백오프로 최대 ~30초 대기 —
+# job 타임아웃(900s) 안에서 충분히 회복 기회를 준다.
+_MAX_HTTP_ATTEMPTS = 4
+
 _CONTROL_CHARS = re.compile(r"[�\x00-\x08\x0b\x0c\x0e-\x1f]")
 _CJK_CHARS = re.compile(r"[一-鿿㐀-䶿぀-ヿ]")
 
@@ -344,10 +348,23 @@ class _OpenAICompatExtractor:
             return None
         return min(float(raw), self._timeout)
 
+    @staticmethod
+    def _backoff_seconds(resp, attempt: int) -> float:
+        """Retry-After를 존중하고, 없으면 지수 백오프.
+
+        지터를 넣는 이유: 웨이브 하나가 여러 호출을 병렬로 내보내므로, 같은
+        간격으로 재시도하면 다시 동시에 몰려 또 429가 난다.
+        """
+        import random
+        ra = (resp.headers.get("Retry-After") or "").strip()
+        if ra.isdigit():
+            return min(float(ra), 30.0)
+        return min(2.0 ** attempt, 16.0) * (0.5 + random.random())
+
     def _chat(self, system: str, user: str, *, schema: Optional[dict] = None,
               thinking: bool = False, max_tokens: int = 8192,
               temperature: Optional[float] = None, _retry_empty: bool = True,
-              _timeout_override: float | None = None) -> str:
+              _timeout_override: float | None = None, _attempt: int = 1) -> str:
         host = urlparse(self._url).netloc or self._url
         progress.tick_llm()
         progress.log(self._label,
@@ -403,8 +420,25 @@ class _OpenAICompatExtractor:
 
         if resp.status_code == 401:
             raise EngineError(502, "llm_error", f"{self._label} 인증 실패 — 토큰 확인")
-        if resp.status_code == 429:
-            raise EngineError(429, "rate_limited", f"{self._label} 레이트리밋 — 잠시 후 재시도")
+        # 429·5xx는 **재시도로 회복되는 실패**다. 백오프 없이 한 번에 포기하면
+        # 웨이브 중간에 429 하나로 검색 전체가 죽는다(감사 확정 medium).
+        # 인증 실패(401)는 재시도해도 같으므로 위에서 즉시 올린다.
+        if resp.status_code == 429 or resp.status_code >= 500:
+            if _attempt < _MAX_HTTP_ATTEMPTS:
+                wait = self._backoff_seconds(resp, _attempt)
+                progress.log(self._label,
+                             f"⚠ {resp.status_code} — {wait:.1f}초 뒤 재시도 "
+                             f"({_attempt}/{_MAX_HTTP_ATTEMPTS})")
+                time.sleep(wait)
+                return self._chat(system, user, schema=schema, thinking=thinking,
+                                  max_tokens=max_tokens, temperature=temperature,
+                                  _retry_empty=_retry_empty,
+                                  _timeout_override=_timeout_override,
+                                  _attempt=_attempt + 1)
+            if resp.status_code == 429:
+                raise EngineError(429, "rate_limited",
+                                  f"{self._label} 레이트리밋 — {_MAX_HTTP_ATTEMPTS}회 "
+                                  f"재시도했으나 계속 거부됩니다. 잠시 후 다시 시도하세요.")
         if resp.status_code >= 400:
             raise EngineError(502, "llm_error",
                               f"{self._label} 호출 실패({resp.status_code}): {resp.text[:300]}")

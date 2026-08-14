@@ -31,6 +31,7 @@ jobs:
             tests/test_attack_surface.py \
             tests/test_discover_identity.py \
             tests/test_router_guards.py \
+            tests/test_failure_honesty.py \
             tests/test_supabase_store.py \
             tests/test_clarify.py \
             tests/test_outcome_loop.py \

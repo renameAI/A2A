@@ -46,6 +46,11 @@ def _cache_get(query: str) -> "list[dict] | None":
 
 
 def _cache_put(query: str, hits: list[dict]) -> None:
+    # 빈 결과는 캐시하지 않는다. 검색이 일시적으로 실패했거나 차단된 순간을
+    # 24시간짜리 "후보 0곳"으로 굳히면, 사용자는 조건이 나쁜 줄 알고 재시도해도
+    # 같은 0건을 받는다 — 장애가 정상 응답으로 위장된다(감사 확정 medium).
+    if not hits:
+        return
     try:
         _cache_dir().mkdir(parents=True, exist_ok=True)
         _cache_key(query).write_text(

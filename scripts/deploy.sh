@@ -58,7 +58,7 @@ check() {
   if .venv/bin/python -m pytest -q \
        tests/test_saas_layer.py tests/test_supabase_store.py \
        tests/test_attack_surface.py tests/test_discover_identity.py \
-       tests/test_router_guards.py \
+       tests/test_router_guards.py tests/test_failure_honesty.py \
        tests/test_clarify.py tests/test_outcome_loop.py \
        tests/test_ontology_bench.py 2>&1 | tail -3; then
     ok "결정적 테스트 통과"
