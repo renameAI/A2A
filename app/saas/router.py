@@ -373,6 +373,10 @@ def suggest_segments(rid: str, background: BackgroundTasks,
     """
     store = get_saas_store()
     doc, profile, intent = _load_request(store, user, rid)
+    # search-brief 없이 부르면 아래 doc["search_brief"]["query_hypotheses"]가
+    # None을 역참조해 500으로 죽었다 — 계약 위반은 409로 말한다.
+    if not doc.get("search_brief"):
+        raise EngineError(409, "invalid_state", "search-brief 먼저 확정하세요")
 
     def _run() -> dict:
         cost.reserve(store, user.workspace_id, rid, "synth")
@@ -397,6 +401,16 @@ class SearchIn(BaseModel):
     extra_queries: list[str] = []   # 추천 키워드 중 사용자가 채택한 것
 
 
+def _derived_key(doc: dict, rid: str, cid: str) -> str:
+    """후보에서 파생된 문서(인사이트·메일 초안)의 저장 키.
+
+    세대(generation)를 포함한다: /search를 다시 돌리면 company_id가 web-{rid}-01
+    부터 재발급되므로, 세대가 없으면 같은 키에 다른 회사의 인사이트가 남아
+    메일 초안이 엉뚱한 근거로 작성된다.
+    """
+    return f"{rid}::g{doc.get('generation', 1)}::{cid}"
+
+
 def _discover(store, user, rid, doc, profile, intent, settings, extractor,
               plans, wave: int) -> list[dict]:
     """한 웨이브의 수집: 검색 → 도메인 필터 → 기업 추출 → 온톨로지 판독.
@@ -410,6 +424,9 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
     from ..engine.company_ontology import confirmed_ratio, read_company
     from .. import progress
 
+    # src_of: url → 그 URL을 찾아낸 (업종, 검색어) 전부. 예전엔 딕셔너리
+    # 덮어쓰기라 '먼저 본 검색어가 독식'했다 — 뒤 업종의 검색어가 같은 URL을
+    # 다시 찾아내도 그 사실이 사라져 원장에 성과 0으로 기록됐다(감사 확정 low).
     hits, seen, src_of = [], set(), {}
     known_urls = {c.get("source_url") for c in doc.get("pool", [])}
     total_q = sum(len(qs) for _, qs in plans)
@@ -417,10 +434,11 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
     for seg, qs in plans:
         for q in qs:
             for h in web_search(q, settings):
-                if h["url"] in seen or h["url"] in known_urls:
-                    continue        # 이전 웨이브에서 본 URL 재수집 금지
-                seen.add(h["url"])
-                src_of[h["url"]] = (seg, q)
+                url = h["url"]
+                src_of.setdefault(url, []).append((seg, q))
+                if url in seen or url in known_urls:
+                    continue        # 이전 웨이브에서 본 URL 재수집 금지 (추출은 1회)
+                seen.add(url)
                 hits.append(h)
         progress.log("검색", f"{seg or '기본'} — 검색어 {len(qs)}개")
     progress.log("검색", f"웨이브 {wave}: 웹 수집 {len(hits)}건 (중복 제거)")
@@ -434,72 +452,90 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
         requester_name=profile.basic.name)
     progress.log("검색", f"실존 기업 {len(companies)}곳 추출 (히트 {len(hits)}건 중)")
 
+    # 회사 식별자를 여기서 확정한다 — 이후 온톨로지·원장·스니펫 로그 전부
+    # 이 식별자로 귀속시킨다. **URL을 키로 쓰지 않는다**: extract_companies는
+    # 회사명으로만 중복을 거르므로(candidate_extract.py), 디렉터리·회원사
+    # 목록 페이지 하나에서 회사 여러 곳을 뽑는 것이 정상 동작이다. URL을 키로
+    # 쓰면 뒤 회사가 앞 회사의 온톨로지·연락처를 덮어써, 사용자가 A사 카드에서
+    # B사의 메일 주소를 보게 된다(감사 확정 high — 아웃리치 제품의 무성 오염).
+    base = len(doc.get("pool", []))
+    for i, c in enumerate(companies):
+        c["_cid"] = f"web-{rid}-{base + i + 1:02d}"
+        c["_seg"], c["_q"] = (src_of.get(c["url"]) or [("", "")])[0]
+
     cost.reserve(store, user.workspace_id, rid, "insight", count=len(companies))
     onts: dict[str, dict] = {}
+    ontology_failures = 0
     for c in companies:
         try:
             ont = read_company(extractor, c, region=intent.target_region or "",
                                purpose=intent.purpose)
         except Exception as e:
+            ontology_failures += 1
             progress.log("검색", f"⚠ {c['name']} 온톨로지 판독 실패({type(e).__name__})")
             continue
         d = ont.model_dump(mode="json")
         d["confirmed_ratio"] = confirmed_ratio(ont)
-        onts[c["url"]] = d
-        store.put("company_ontology", user.workspace_id,
-                  f"{rid}::{c['url']}", {**d, "name": c["name"],
-                                         "name_ko": c.get("name_ko", ""),
-                                         "request_id": rid})
-    progress.log("검색", f"온톨로지 판독 {len(onts)}곳 "
-                         f"({len(companies) - len(onts)}곳 실패)")
+        onts[c["_cid"]] = d
+        store.put("company_ontology", user.workspace_id, f"{rid}::{c['_cid']}",
+                  {**d, "name": c["name"], "name_ko": c.get("name_ko", ""),
+                   "source_url": c["url"], "request_id": rid})
+    progress.log("검색", f"온톨로지 판독 {len(onts)}곳 ({ontology_failures}곳 실패)")
 
     # 실전 스니펫 캡처 (B5) — 라벨은 사람이 확정한다(모델 출력을 골드로 쓰면
-    # 순환 논증). 실패해도 검색은 계속.
+    # 순환 논증). 한 URL에서 회사가 여럿 나올 수 있으므로 리스트로 담는다.
+    # 실패해도 검색은 계속.
     try:
         log_p = _P("dataset/snippet_log.jsonl")
         log_p.parent.mkdir(exist_ok=True)
-        kept_by_url = {c["url"]: c for c in companies}
+        by_url: dict[str, list[dict]] = {}
+        for c in companies:
+            by_url.setdefault(c["url"], []).append(c)
         with log_p.open("a", encoding="utf-8") as f:
             for h in hits:
-                seg, q = src_of.get(h["url"], ("", ""))
-                c = kept_by_url.get(h["url"])
+                cs = by_url.get(h["url"], [])
+                pairs = src_of.get(h["url"]) or [("", "")]
                 f.write(_json.dumps({
-                    "request_id": rid, "segment": seg, "query": q,
+                    "request_id": rid, "segment": pairs[0][0], "query": pairs[0][1],
+                    "found_by_queries": [q for _, q in pairs],
                     "url": h.get("url", ""), "title": h.get("title", ""),
                     "snippet": (h.get("content") or h.get("snippet") or "")[:800],
-                    "extracted": bool(c),
-                    "extraction": ({"name": c["name"], "what": c["what"],
-                                    "signal": c["signal"]} if c else None),
+                    "extracted": bool(cs),
+                    "extractions": [{"name": c["name"], "what": c["what"],
+                                     "signal": c["signal"]} for c in cs],
                     "ontology_signals": [
                         {"category": x["category"], "evidence": x["evidence"]}
-                        for x in (onts.get(h["url"], {}).get("signals") or [])],
+                        for c in cs
+                        for x in (onts.get(c["_cid"], {}).get("signals") or [])],
                 }, ensure_ascii=False) + "\n")
     except OSError as e:
         progress.log("검색", f"⚠ 스니펫 로그 실패({type(e).__name__}) — 검색은 계속")
 
-    # 키워드 원장 — 업종이 데려온 기업의 온톨로지만 그 업종에 기록
-    kept_urls = {c["url"] for c in companies}
+    # 키워드 원장 — 그 URL을 찾아낸 **모든** 검색어에 그 URL의 회사 수만큼
+    # 수확을 인정한다(먼저 찾은 검색어만 독식하지 않는다). 온톨로지는 그
+    # 업종이 데려온 기업의 것만 그 업종에 기록한다(교차 오염 방지, 이전 실측:
+    # 두 업종 축토큰이 동일하게 85개였다).
     for seg, qs in plans:
-        y = {q: sum(1 for u, (sg, qq) in src_of.items()
-                    if qq == q and u in kept_urls) for q in qs}
-        seg_urls = [u for u in kept_urls
-                    if u in onts and src_of.get(u, ("", ""))[0] == seg]
+        y = {}
+        for q in qs:
+            n = 0
+            for c in companies:
+                if (seg, q) in (src_of.get(c["url"]) or []):
+                    n += 1
+            y[q] = n
+        seg_cids = [c["_cid"] for c in companies
+                    if c["_cid"] in onts and c["_seg"] == seg]
         kw.record_run(store, user.workspace_id, f"{rid}-w{wave}", segment=seg,
-                      queries=qs, yield_by_query=y, kept=sum(y.values()),
-                      ontologies=[onts[u] for u in seg_urls])
+                      queries=qs, yield_by_query=y, kept=len(seg_cids),
+                      ontologies=[onts[cid] for cid in seg_cids])
 
-    base = len(doc.get("pool", []))
-    out = []
-    for i, c in enumerate(companies):
-        seg, q = src_of.get(c["url"], ("", ""))
-        out.append({
-            "company_id": f"web-{rid}-{base + i + 1:02d}",
-            "name": c["name"], "name_ko": c.get("name_ko", ""),
-            "what": c["what"], "signal": c["signal"],
-            "source_url": c["url"], "segment": seg, "found_by": q,
-            "wave": wave, "ontology": onts.get(c["url"]),
-            "pain_signal": " ".join(x for x in (c["what"], c["signal"]) if x)})
-    return out
+    return [{
+        "company_id": c["_cid"], "name": c["name"], "name_ko": c.get("name_ko", ""),
+        "what": c["what"], "signal": c["signal"], "source_url": c["url"],
+        "segment": c["_seg"], "found_by": c["_q"], "wave": wave,
+        "ontology": onts.get(c["_cid"]),
+        "pain_signal": " ".join(x for x in (c["what"], c["signal"]) if x),
+    } for c in companies]
 
 
 def _rank_pool(profile, intent, pool: list[dict],
@@ -536,7 +572,10 @@ def _rank_pool(profile, intent, pool: list[dict],
     result = retrieve(RetrieveRequest(
         requester_profile=profile, intent=intent,
         direction=RetrieveDirection.sell_outreach, pool=PoolChoice.both,
-        k=min(max(k, len(records)), 50), allow_weak=True),
+        # 상한을 두지 않는다 — retrieve가 자기 k로 먼저 자르고 그 뒤에
+        # feedback_bonus를 적용하므로, 상한 밖 후보에게는 '이런 곳 더/
+        # 아니에요' 반응이 아예 닿지 않는다(풀 전체 재랭킹 의도와 모순).
+        k=max(k, len(records)), allow_weak=True),
         candidate_records=records)
     liked_toks = axis_tokens([by_cid[c]["ontology"] for c in liked
                               if c in by_cid and by_cid[c].get("ontology")])
@@ -580,6 +619,12 @@ def run_search(rid: str, body: SearchIn | None = None,
         doc["pool"] = []
         doc["feedback"] = {"liked": [], "disliked": [], "answers": []}
         doc["asked"] = []
+        doc["wave"] = 1
+        # 재실행은 company_id를 처음부터 다시 발급한다(web-{rid}-01…).
+        # 이전 실행의 파생 문서를 남겨두면 같은 cid에 **다른 회사**의 인사이트가
+        # 붙어, 메일 초안이 엉뚱한 회사 근거로 작성된다. 세대 표식을 올려
+        # 옛 파생물이 조회되지 않게 한다.
+        doc["generation"] = int(doc.get("generation", 0)) + 1
         store.put("lead_request", user.workspace_id, rid, doc)
         extractor = get_extractor(settings)
 
@@ -599,6 +644,7 @@ def run_search(rid: str, body: SearchIn | None = None,
 
         doc["pool"] = _discover(store, user, rid, doc, profile, intent,
                                 settings, extractor, plans, wave=1)
+        doc["searched"] = True        # 0곳이어도 '돌렸다'는 사실은 남는다
         doc["candidates"] = _rank_pool(profile, intent, doc["pool"], [], [],
                                        k=min(intent.lead_count or 10, 30))
         questions = generate_questions(
@@ -650,7 +696,11 @@ def refine_search(rid: str, body: RefineIn,
     """멀티턴 좁히기 — 답·반응을 받아 다음 웨이브를 돌거나 top-k를 확정한다."""
     store = get_saas_store()
     doc, profile, intent = _load_request(store, user, rid)
-    if not doc.get("pool"):
+    # 가드는 pool 진리값이 아니라 **검색을 돌린 적이 있는가**로 판정한다.
+    # 웨이브1이 0곳으로 끝나면 pool == []이고, 그때가 사용자가 가장 다시
+    # 시도하고 싶은 순간인데 "1차 검색이 먼저입니다"라는 자기모순으로
+    # 막혔다(감사 확정). 화면의 유일한 재시도 버튼이 죽는 막다른 길이었다.
+    if not doc.get("searched"):
         raise EngineError(409, "invalid_state", "1차 검색(/search)이 먼저입니다")
     settings = get_settings()
 
@@ -798,7 +848,7 @@ def make_insight(rid: str, cid: str, background: BackgroundTasks,
             get_extractor(settings), cid, profile, intent, thin,
             pain_signal=cand.get("pain_signal", ""),
             source_urls=[u for u in [cand.get("source_url", "")] if u])
-        store.put("insight", user.workspace_id, cid,
+        store.put("insight", user.workspace_id, _derived_key(doc, rid, cid),
                   ins.model_dump(mode="json"))
         return {"insight": ins.model_dump(mode="json")}
 
@@ -813,7 +863,8 @@ def make_drafts(rid: str, cid: str, background: BackgroundTasks,
     cand = next((c for c in doc["candidates"] if c["company_id"] == cid), None)
     if cand is None:
         raise EngineError(404, "not_found", f"후보 {cid} 없음")
-    ins_doc = store.get("insight", user.workspace_id, cid)
+    ins_doc = store.get("insight", user.workspace_id,
+                        _derived_key(doc, rid, cid))
     if ins_doc is None:
         raise EngineError(409, "invalid_state", "insight 먼저 생성하세요")
     settings = get_settings()
@@ -834,7 +885,7 @@ def make_drafts(rid: str, cid: str, background: BackgroundTasks,
             requester_profile=profile, intent=intent, candidate_profile=thin,
             candidate_insight=CandidateInsight.model_validate(ins_doc),
             language=intent.outreach_language or "ko"))
-        store.put("email_draft", user.workspace_id, cid,
+        store.put("email_draft", user.workspace_id, _derived_key(doc, rid, cid),
                   res.model_dump(mode="json"))
         # 초안 생성은 서버가 아는 사실 — 결과 원장에 자동 기록 (B4)
         _record_outcome(store, user.workspace_id, rid, cid, cand, drafted=True)

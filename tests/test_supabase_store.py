@@ -133,3 +133,33 @@ def test_missing_env_fails_loud(monkeypatch):
     monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
     with pytest.raises(EngineError):
         SupabaseSaasStore()
+
+
+class TestReserveCostMigrationSafety:
+    """마이그레이션 SQL 자체를 정적으로 검사한다.
+
+    실제 Postgres 없이는 revoke/grant나 음수 거부를 실행 검증할 수 없다 —
+    이건 라이브 DB가 있어야 도는 테스트다. 그래도 이 정적 검사를 게이트에
+    두는 이유: 마이그레이션 파일이 수정·재작성될 때 안전장치(execute 권한
+    회수, 음수 거부)가 조용히 빠지는 것을 잡는다. 감사 확정 high — anon 키로
+    __global__ 비용 원장을 무력화할 수 있었다.
+    """
+
+    def _sql(self) -> str:
+        import pathlib
+        d = pathlib.Path(__file__).resolve().parent.parent / "supabase" / "migrations"
+        return "\n".join(p.read_text(encoding="utf-8") for p in sorted(d.glob("*.sql")))
+
+    def test_execute_revoked_from_public_and_anon(self):
+        sql = self._sql().lower()
+        assert "revoke execute on function public.reserve_cost" in sql
+        assert "from public, anon, authenticated" in sql
+
+    def test_execute_granted_to_service_role_only(self):
+        sql = self._sql().lower()
+        assert "grant execute on function public.reserve_cost" in sql
+        assert "to service_role" in sql
+
+    def test_negative_amount_rejected_in_function_body(self):
+        sql = self._sql().lower()
+        assert "p_add < 0" in sql
