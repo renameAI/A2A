@@ -52,9 +52,18 @@ check() {
     warn "SAAS_ALLOWED_USERS가 비면 전원 거부됩니다(fail-closed 설계)"
 
   echo "── 로컬 게이트 ──"
-  .venv/bin/python -m pytest tests/test_clarify.py tests/test_outcome_loop.py \
-      tests/test_ontology_bench.py -q >/dev/null 2>&1 \
-    && ok "결정적 테스트 통과" || { bad "테스트 실패 — 배포 중단 권장"; fail=1; }
+  # 라우터·스토어 관통을 포함한다. 이전 게이트는 순수 함수 21건만 돌려
+  # /search·/refine·인증·비용이 한 줄도 안 지났다(감사 확정 발견).
+  # 실패 출력을 버리지 않는다 — 무엇이 깨졌는지 모르면 게이트가 아니다.
+  if .venv/bin/python -m pytest -q \
+       tests/test_saas_layer.py tests/test_supabase_store.py \
+       tests/test_attack_surface.py \
+       tests/test_clarify.py tests/test_outcome_loop.py \
+       tests/test_ontology_bench.py 2>&1 | tail -3; then
+    ok "결정적 테스트 통과"
+  else
+    bad "테스트 실패 — 배포 중단"; fail=1
+  fi
 
   [ "$fail" = 0 ] && echo "→ 준비 완료" || echo "→ 위 ✗ 를 먼저 해결하세요"
   return "$fail"

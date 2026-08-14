@@ -341,8 +341,20 @@ def get_evidence(company_id: str):
 
 @router.get("/pages/{company_id}/{filename}")
 def get_page_image(company_id: str, filename: str):
-    path = _pages_dir() / company_id / filename
-    if ".." in filename or not path.is_file():
+    """페이지 이미지 — 경로 순회 방어는 **해석 후 하위 확인**으로 한다.
+
+    이전 검사는 filename의 ".."만 봤다. company_id는 검사하지 않아
+    /pages/..%2f..%2fetc/passwd 류로 base 밖 파일을 읽을 수 있었다
+    (감사 확정 발견). 문자열 블랙리스트는 인코딩 변형을 다 못 막으므로,
+    resolve()로 실제 경로를 확정하고 base 하위인지 본다.
+    """
+    base = _pages_dir().resolve()
+    try:
+        path = (base / company_id / filename).resolve()
+        path.relative_to(base)          # base 밖이면 ValueError
+    except (ValueError, OSError):
+        raise EngineError(404, "not_found", "페이지 이미지 없음")
+    if not path.is_file():
         raise EngineError(404, "not_found", "페이지 이미지 없음")
     return FileResponse(path, media_type="image/png")
 

@@ -4,7 +4,11 @@
 장시간 작업은 기존 JobStore+폴링을 그대로 쓴다 (/product/jobs/{id} 공유).
 Judge는 어떤 경로에서도 호출하지 않는다 (§2.3).
 """
-from fastapi import APIRouter, BackgroundTasks, Depends
+import os
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -30,11 +34,43 @@ from .store import get_saas_store
 
 router = APIRouter(prefix="/saas", tags=["saas"])
 
+def _upload_root() -> Path:
+    """호출 시점에 env를 읽는다 — 모듈 상수로 두면 테스트가 저장소에 파일을
+    쓰고, 배포에서 UPLOAD_DIR을 바꿔도 반영되지 않는다."""
+    return Path(os.environ.get("UPLOAD_DIR", "uploads"))
 
-def _submit(background: BackgroundTasks, fn) -> dict:
+
+def _submit(background: BackgroundTasks, fn, user: "SaasUser | None" = None) -> dict:
+    """job 생성 + **소유자 기록**.
+
+    job_id는 uuid4().hex[:12](48비트)라 추측이 어렵지만, 추측 난이도는 접근
+    제어가 아니다. 결과에는 후보 목록·인사이트·메일 초안이 들어 있으므로
+    소유 워크스페이스를 남기고 조회 시 대조한다.
+    """
     job, _ = job_store.create()
+    if user is not None:
+        get_saas_store().put("job_owner", user.workspace_id, job.job_id,
+                             {"job_id": job.job_id, "workspace_id": user.workspace_id})
     background.add_task(job_store.run, job, fn)
     return {"job_id": job.job_id}
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str, user: SaasUser = Depends(current_user)):
+    """SaaS job 조회 — 자기 워크스페이스가 만든 job만 보인다.
+
+    프론트는 이 경로만 쓴다. /product/jobs/{id}는 인증이 없어 공개 프록시로
+    노출되면 남의 검색 결과가 읽힌다(감사 확정 발견).
+    """
+    store = get_saas_store()
+    if store.get("job_owner", user.workspace_id, job_id) is None:
+        raise EngineError(404, "not_found", f"job {job_id} 없음")
+    job = job_store.get(job_id)
+    if job is None:
+        raise EngineError(404, "not_found", f"job {job_id} 없음")
+    return {"job_id": job.job_id, "status": job.status,
+            "result": job.result, "error": job.error,
+            "logs": job.log.entries, "elapsed": job.log.elapsed}
 
 
 # ── LLM 프로바이더 토글 (EXAONE 로컬 ↔ GPT Luna) ────────────────────
@@ -42,7 +78,7 @@ def _submit(background: BackgroundTasks, fn) -> dict:
 # MVP 운영 도구: 키가 없는 쪽으로는 전환을 거부한다(조용한 대체 없음 — 전환해 놓고
 # 첫 호출에서 터지는 것보다 전환 시점에 거부하는 것이 정직하다).
 
-import os as _os
+_os = os
 
 
 class LlmToggle(BaseModel):
@@ -111,6 +147,56 @@ def set_llm(req: LlmToggle, user: SaasUser = Depends(current_user)):
     return _llm_state()
 
 
+# ── 업로드 (IR덱 PDF) — 인증·크기·형식 검증 ─────────────────────────
+# /product/upload를 대체한다. 그쪽은 인증도, 크기 상한도, 형식 검증도 없어
+# 공개 프록시로 노출되면 누구나 서버 디스크를 채울 수 있었다(감사 확정 발견).
+
+_UPLOAD_MAX = 40 * 1024 * 1024      # 40MB — IR덱 실측 상한(35MB)에 여유
+_CHUNK = 1024 * 1024
+
+
+@router.post("/upload")
+async def upload(file: UploadFile,
+                 user: SaasUser = Depends(current_user)):
+    """PDF만, 40MB까지, 워크스페이스별 디렉터리에 저장한다.
+
+    스트리밍으로 받는 이유: 전체를 메모리에 올리면 40MB 요청 몇 개로
+    max-instances=1 인스턴스의 1Gi가 날아간다.
+    원본 파일명을 경로에 쓰지 않는 이유: 고객사 실명이 파일 경로에 남고,
+    경로 순회·인코딩 문제의 입구가 된다. 이름은 응답으로만 돌려준다.
+    """
+    name = (file.filename or "").strip()
+    if not name.lower().endswith(".pdf"):
+        raise EngineError(400, "invalid_input", "PDF 파일만 업로드할 수 있습니다.")
+    d = _upload_root() / user.workspace_id
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{uuid.uuid4().hex}.pdf"
+    size = 0
+    first = True
+    try:
+        with path.open("wb") as out:
+            while chunk := await file.read(_CHUNK):
+                if first:
+                    # 확장자는 사용자가 붙이는 것이라 신뢰할 수 없다 — 매직바이트로 본다
+                    if not chunk.startswith(b"%PDF-"):
+                        raise EngineError(400, "invalid_input",
+                                          "PDF 형식이 아닙니다 (내용 검사 실패).")
+                    first = False
+                size += len(chunk)
+                if size > _UPLOAD_MAX:
+                    raise EngineError(413, "too_large",
+                                      f"파일이 너무 큽니다 — 최대 "
+                                      f"{_UPLOAD_MAX // (1024*1024)}MB.")
+                out.write(chunk)
+    except EngineError:
+        path.unlink(missing_ok=True)     # 거부한 파일을 디스크에 남기지 않는다
+        raise
+    if size == 0:
+        path.unlink(missing_ok=True)
+        raise EngineError(400, "invalid_input", "빈 파일입니다.")
+    return {"path": str(path), "filename": name, "size": size}
+
+
 # ── 사용자·워크스페이스 ─────────────────────────────────────────────
 
 @router.get("/me")
@@ -175,7 +261,7 @@ def run_session(sid: str, background: BackgroundTasks,
         return {"session": doc, "needs_answers": False,
                 "minimum_met": rep.minimum_met}
 
-    return _submit(background, _run)
+    return _submit(background, _run, user)
 
 
 @router.post("/onboarding-sessions/{sid}/messages")
@@ -273,7 +359,7 @@ def make_brief(rid: str, background: BackgroundTasks,
         store.put("lead_request", user.workspace_id, rid, doc)
         return {"search_brief": doc["search_brief"]}
 
-    return _submit(background, _run)
+    return _submit(background, _run, user)
 
 
 @router.post("/lead-requests/{rid}/segments", status_code=202)
@@ -302,7 +388,7 @@ def suggest_segments(rid: str, background: BackgroundTasks,
                             exclude_rid=rid)
         return {"segments": segs, "keyword_recommendations": recs}
 
-    return _submit(background, _run)
+    return _submit(background, _run, user)
 
 
 class SearchIn(BaseModel):
@@ -531,7 +617,7 @@ def run_search(rid: str, body: SearchIn | None = None,
                                         if c.get("ontology")],
                     exclude_rid=rid)}
 
-    return _submit(background, _run)
+    return _submit(background, _run, user)
 
 
 class RefineIn(BaseModel):
@@ -642,7 +728,7 @@ def refine_search(rid: str, body: RefineIn,
                 "final": False, "wave": wave,
                 "new_found": len(new_pool)}
 
-    return _submit(background, _run)
+    return _submit(background, _run, user)
 
 
 # ── Insight · Compose V2 (이슈 #6-E) ────────────────────────────────
@@ -716,7 +802,7 @@ def make_insight(rid: str, cid: str, background: BackgroundTasks,
                   ins.model_dump(mode="json"))
         return {"insight": ins.model_dump(mode="json")}
 
-    return _submit(background, _run)
+    return _submit(background, _run, user)
 
 
 @router.post("/lead-requests/{rid}/candidates/{cid}/compose", status_code=202)
@@ -754,4 +840,4 @@ def make_drafts(rid: str, cid: str, background: BackgroundTasks,
         _record_outcome(store, user.workspace_id, rid, cid, cand, drafted=True)
         return res.model_dump(mode="json")
 
-    return _submit(background, _run)
+    return _submit(background, _run, user)

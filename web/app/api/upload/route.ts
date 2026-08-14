@@ -12,11 +12,16 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(req: Request) {
-  const upstream = await fetch(`${ENGINE}/product/upload`, {
+  const upstream = await fetch(`${ENGINE}/saas/upload`, {
     method: "POST",
     headers: {
       // content-type은 multipart 경계(boundary)를 담고 있어 그대로 넘겨야 한다
       "content-type": req.headers.get("content-type") ?? "",
+      // 인증 헤더를 버리면 엔진이 401을 준다 — 업로드도 워크스페이스에 귀속된다
+      ...(req.headers.get("authorization")
+        ? { authorization: req.headers.get("authorization")! } : {}),
+      ...(req.headers.get("x-dev-user")
+        ? { "x-dev-user": req.headers.get("x-dev-user")! } : {}),
     },
     body: req.body,
     // Node fetch에서 스트림 본문을 보낼 때 필수

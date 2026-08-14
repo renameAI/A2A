@@ -53,7 +53,8 @@ async function uploadHeaders(): Promise<Record<string, string>> {
 
 async function pollJob(jobId: string): Promise<Record<string, unknown>> {
   for (;;) {
-    const r = await fetch(`/api/product/jobs/${jobId}`, { headers: await authHeaders() });
+    const r = await fetch(`/api/saas/jobs/${jobId}`,
+      { headers: await authHeaders() });
     const j = await r.json();
     if (j.status === "done") return j.result;
     if (j.status === "error") throw Object.assign(

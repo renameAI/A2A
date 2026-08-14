@@ -1,0 +1,51 @@
+# 결정적 테스트만 도는 CI 게이트.
+#
+# 전체 스위트(475건)를 넣지 않는 이유: 네트워크·LLM·학습 산출물에 의존하는
+# 테스트가 섞여 있어 CI에서 빨간불이 상수가 된다. 상수 빨간불은 게이트가
+# 아니라 소음이다. 여기 있는 것은 전부 오프라인·결정적이고 10초 안에 끝난다.
+# 스위트 위생(태스크 #41)이 끝나면 범위를 넓힌다.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - name: 결정적 테스트
+        # .env가 없는 환경이므로 실 API 키가 새어들 여지가 없다 —
+        # 로컬에서 스텁을 빠뜨리면 CI가 잡아낸다.
+        run: |
+          python -m pytest -q \
+            tests/test_saas_layer.py \
+            tests/test_attack_surface.py \
+            tests/test_supabase_store.py \
+            tests/test_clarify.py \
+            tests/test_outcome_loop.py \
+            tests/test_ontology_bench.py
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - name: 타입체크
+        run: npx tsc --noEmit
+        working-directory: web

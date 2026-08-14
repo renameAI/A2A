@@ -15,6 +15,7 @@ tasks/cancel) 인메모리면 재시작 후 완료된 Task도 404가 된다 — 
 →done/error) 시점에만 DB에 기록한다 — 로그 한 줄마다 쓰면 쓰기 폭주가 된다.
 """
 import json
+import logging
 import os
 import sqlite3
 import uuid
@@ -24,6 +25,9 @@ from typing import Callable, Optional
 from . import progress
 from .errors import EngineError
 from .schemas import JobStatus
+
+
+_log = logging.getLogger("a2a.jobs")
 
 
 class Job:
@@ -171,10 +175,19 @@ class JobStore:
             job.log.add("오류", f"{e.code}: {e.message}")
             job.error = e.payload()["error"]
             job.status = JobStatus.error
+            _log.warning("job %s 실패: %s: %s", job.job_id, e.code, e.message,
+                         extra={"job_id": job.job_id, "code": e.code})
         except Exception as e:                       # noqa: BLE001
             job.log.add("오류", f"internal: {e}")
             job.error = {"code": "internal", "message": str(e), "details": None}
             job.status = JobStatus.error
+            # 트레이스백을 여기서 버리면 프로덕션에서 원인을 알 길이 없다 —
+            # 사용자에게 가는 payload는 그대로 두고(내부 구조 비노출), 서버
+            # 로그에만 전체 스택을 남긴다. 실측: 이게 없어서 관통 테스트
+            # 실패 원인('cannot unpack non-iterable NoneType')의 발생 지점을
+            # 찾는 데 별도 재현 스크립트가 필요했다.
+            _log.exception("job %s 실패 (internal)", job.job_id,
+                           extra={"job_id": job.job_id})
         finally:
             # BaseException(SystemExit 등)이 위 핸들러를 건너뛰어도 running으로
             # 고착시키지 않는다 — running 고착은 A2A SSE 스트림 무한 루프가 된다.

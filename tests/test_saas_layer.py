@@ -103,8 +103,28 @@ class TestProspectMode:
 class _CannedExtractor:
     """insight·compose 대역 — 스키마 필수 키만 채운 고정 JSON."""
 
-    def extract_json(self, system, user, schema, deep=False):
+    # 실 시그니처와 정렬 — allow_foreign 누락으로 test_full_journey가
+    # 10커밋째 빨간불이었다(대역이 실제 계약을 못 따라간 전형).
+    def extract_json(self, system, user, schema, deep=False,
+                     allow_foreign=False):
         req = set(schema.get("required", []))
+        if "axes" in req:                      # 기업 온톨로지 판독
+            axes = {k: {"value": "판독 값", "status": "assumed"}
+                    for k in schema["properties"]["axes"]["properties"]}
+            return {"axes": axes, "search_keywords": ["유사 기업 검색어"],
+                    "signals": [], "contacts": []}
+        if "questions" in req:                 # 명확화 질문
+            return {"questions": []}
+        if "segments" in req:
+            return {"segments": [{"label": "테스트 업종", "why": "대역"}]}
+        if "queries" in req:
+            return {"queries": ["테스트 검색어 회사소개"]}
+        if "companies" in req:                 # 기업 추출 — 스텁 히트와 정렬
+            return {"companies": [{
+                "name": "Hotel Sakura Annex", "name_ko": "호텔 사쿠라 애넥스",
+                "what": "객실 노후로 리뉴얼을 검토 중인 독립 호텔",
+                "signal": "시설관리 채용공고 관측",
+                "url": "https://ex.jp/sakura"}]}
         if "drafts" in req:
             return {"drafts": [{
                 "variant_label": "A안",
@@ -145,11 +165,28 @@ class TestJourney:
                 minimum_met=True, open_questions=[], engine_mode="llm",
                 sources=[])
         monkeypatch.setattr(saas_mod, "represent", fake_represent)
-        monkeypatch.setattr(saas_mod, "build_search_brief", lambda req: SearchBrief(
+        monkeypatch.setattr(saas_mod, "build_search_brief",
+                            lambda req, segment=None: SearchBrief(
             deterministic_anchor="앵커", synthesized_counterpart="노후 객실 호텔",
             query_hypotheses=["일본 독립 호텔 리뉴얼"], must_have=[], exclusions=[]))
         monkeypatch.setattr(saas_mod, "get_extractor",
                             lambda s: _CannedExtractor())
+        # 오프라인 계약 — 이 테스트는 네트워크를 한 번도 타면 안 된다.
+        # 실측: 스텁 없이 돌리면 retrieve가 (1) 학습 스코어러(SCORER_URL)와
+        # (2) synthesize_counterpart의 로컬 LLM(Ollama)을 실제로 호출해
+        # 관통 테스트 하나가 90~120초를 쓴다. 게이트는 빨라야 게이트다.
+        # 더 나쁜 것: get_settings()가 .env를 os.environ에 주입하므로,
+        # LLM_PROVIDER=openai인 개발자 머신에서는 테스트가 실제 API를 태운다.
+        import app.engine.scorer_client as sc
+        monkeypatch.setattr(sc, "score_batch_timed", lambda pairs: (None, None))
+        monkeypatch.setattr(sc, "api_score_batch", lambda pairs: (None, None))
+        # 실 계약은 (order, ms) 2-튜플이다 — bare None을 돌려주면 호출부가
+        # 언팩에서 죽는다(스텁이 계약을 어긴 것이지 코드 결함이 아니다).
+        monkeypatch.setattr(sc, "api_rank_listwise",
+                            lambda *a, **k: (None, None))
+        monkeypatch.setattr(ret_mod, "synthesize_counterpart",
+                            lambda req: "노후 객실 리뉴얼이 필요한 일본 독립 호텔")
+
         import app.connectors.tavily as tv
         monkeypatch.setattr(tv, "search", lambda q, s, max_results=8: [
             {"title": "Hotel Sakura Annex", "url": "https://ex.jp/sakura",
@@ -157,9 +194,12 @@ class TestJourney:
         return ok_profile
 
     def _poll(self, client, job_id):
+        # /saas/jobs — 인증·소유권이 걸린 경로다. /product/jobs는 인증이 없어
+        # 기본 차단됐다(공개 프록시로 남의 검색 결과가 읽히던 경로).
         for _ in range(50):
-            j = client.get(f"/product/jobs/{job_id}").json()
+            j = client.get(f"/saas/jobs/{job_id}", headers=H).json()
             if j["status"] != "running":
+                assert j["status"] == "done", f"job 실패: {j.get('error')}"
                 return j
         raise AssertionError("job 미완료")
 

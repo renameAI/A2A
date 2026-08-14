@@ -3,9 +3,10 @@
 엔진은 상태를 보유하지 않는다. 대화·인박스·설정은 제품(클라이언트)이 보유하고
 매 요청에 필요한 입력을 전달한다. judge·negotiate는 비동기 (SYS-02).
 """
+import os
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi import APIRouter, BackgroundTasks, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +24,22 @@ from .schemas import (ComposeRequest, ComposeResponse, JobOut, JudgeRequest,
 
 app = FastAPI(title="A2A B2B 매칭엔진", version="0.1.0")
 
+# 레거시 엔진 API(/v1/*)와 A2A 전송층은 인증이 없다. SaaS 제품에서는 쓰지
+# 않으므로 기본 차단하고, A2A 에이전트 연동이 필요할 때만 명시적으로 켠다.
+# 켜는 순간 공개 URL로 API 크레딧이 열린다는 뜻이므로 문서에 경고를 남긴다.
+#
+# 라우터 등록은 프로세스 기동 시 한 번 정해진다(FastAPI 구조상 불가피).
+# 테스트는 이 상수를 리로드로 바꾸지 말고 create_app()으로 별도 앱을 만든다 —
+# 리로드는 다른 테스트의 monkeypatch·모듈 캐시를 조용히 오염시킨다(실측:
+# 관통 테스트가 스텁을 잃고 120초 네트워크 경로로 되돌아갔다).
+def _legacy_on() -> bool:
+    return os.environ.get("ENABLE_LEGACY_PRODUCT_UI", "").lower() in ("1", "true", "yes")
+
+
+LEGACY_ON = _legacy_on()
+
+v1 = APIRouter()
+
 
 @app.exception_handler(EngineError)
 async def engine_error_handler(_: Request, exc: EngineError):
@@ -37,17 +54,17 @@ async def validation_error_handler(_: Request, exc: RequestValidationError):
                   "details": {"errors": exc.errors()}}})
 
 
-@app.post("/v1/represent", response_model=RepresentResponse)
+@v1.post("/v1/represent", response_model=RepresentResponse)
 def post_represent(req: RepresentRequest):
     return represent(req)
 
 
-@app.post("/v1/retrieve", response_model=RetrieveResponse)
+@v1.post("/v1/retrieve", response_model=RetrieveResponse)
 def post_retrieve(req: RetrieveRequest):
     return retrieve(req)
 
 
-@app.post("/v1/judge", status_code=202)
+@v1.post("/v1/judge", status_code=202)
 def post_judge(req: JudgeRequest, background: BackgroundTasks):
     job, existed = store.create(req.client_request_id)
     if not existed:
@@ -56,7 +73,7 @@ def post_judge(req: JudgeRequest, background: BackgroundTasks):
     return {"job_id": job.job_id}
 
 
-@app.post("/v1/negotiate", status_code=202)
+@v1.post("/v1/negotiate", status_code=202)
 def post_negotiate(req: NegotiateRequest, background: BackgroundTasks):
     job, existed = store.create(req.client_request_id)
     if not existed:
@@ -65,7 +82,7 @@ def post_negotiate(req: NegotiateRequest, background: BackgroundTasks):
     return {"job_id": job.job_id}
 
 
-@app.get("/v1/jobs/{job_id}", response_model=JobOut)
+@v1.get("/v1/jobs/{job_id}", response_model=JobOut)
 def get_job(job_id: str):
     job = store.get(job_id)
     if job is None:
@@ -75,12 +92,12 @@ def get_job(job_id: str):
                   elapsed=job.log.elapsed)
 
 
-@app.post("/v1/compose", response_model=ComposeResponse)
+@v1.post("/v1/compose", response_model=ComposeResponse)
 def post_compose(req: ComposeRequest):
     return compose(req)
 
 
-@app.post("/v1/scout", status_code=202)
+@v1.post("/v1/scout", status_code=202)
 def post_scout(req: "ScoutRequest", background: BackgroundTasks):
     """지식 분리 → explore/exploit 가설 → 웹 검색 숏리스트 (JDG-09·기획서 6.4).
     웹 검색 + LLM 가설이라 비동기 job."""
@@ -96,7 +113,7 @@ def post_scout(req: "ScoutRequest", background: BackgroundTasks):
 # Google A2A 프로토콜 규약: 에이전트는 자기 능력을 JSON 카드로 광고하고,
 # 클라이언트 에이전트는 카드를 읽어 어떤 태스크를 맡길 수 있는지 발견한다.
 
-@app.get("/.well-known/agent.json")
+@v1.get("/.well-known/agent.json")
 def agent_card(request: Request):
     base = str(request.base_url).rstrip("/")
     return {
@@ -144,17 +161,62 @@ def agent_card(request: Request):
 
 
 # ── A2A 전송 계층 (JSON-RPC 2.0 + SSE) ──────────────────────────────
-from .a2a import router as a2a_router                  # noqa: E402
+def mount_legacy(target: FastAPI) -> None:
+    """레거시 표면(인증 없음)을 앱에 붙인다 — 명시 호출로만."""
+    from .a2a import router as a2a_router              # noqa: E402
+    from .product.router import router as product_router   # noqa: E402
 
-app.include_router(a2a_router)
+    target.include_router(v1)
+    target.include_router(a2a_router)
+    target.include_router(product_router)
+    target.mount("/", StaticFiles(
+        directory=Path(__file__).parent / "product" / "static",
+        html=True), name="ui")
 
 
-# ── 제품 레이어 (stateful) + 프론트엔드 ─────────────────────────────
-# v0는 한 프로세스에 함께 띄운다. 분리 배포 시 product만 떼어내면 된다.
-from .product.router import router as product_router   # noqa: E402
+if LEGACY_ON:
+    mount_legacy(app)
 
-app.include_router(product_router)
-from .saas.router import router as saas_router   # noqa: E402 — SaaS 계층 (이슈 #6)
+
+# ── SaaS 계층 (이슈 #6) — 인증·비용캡이 있는 유일한 표면 ────────────
+from .saas.router import router as saas_router   # noqa: E402
+
 app.include_router(saas_router)
-app.mount("/", StaticFiles(directory=Path(__file__).parent / "product" / "static",
-                           html=True), name="ui")
+
+
+@app.get("/healthz")
+def healthz():
+    """생존 확인 — 의존성을 건드리지 않는다. StaticFiles 마운트보다 위에
+    선언해야 캐치올에 먹히지 않는다."""
+    return {"ok": True, "version": app.version}
+
+
+@app.get("/readyz")
+def readyz():
+    """준비 확인 — 실제로 요청을 처리할 수 있는 상태인지 본다.
+
+    /healthz와 나누는 이유: 프로세스는 살아 있는데 스토어가 죽었거나
+    허용 목록이 비어(전원 거부) 아무도 못 쓰는 상태를 '정상'으로
+    보고하면 안 된다. 실패는 503 + 원인 목록으로 말한다.
+    """
+    from .config import get_settings
+    from .saas.store import get_saas_store
+    problems = []
+    try:
+        get_saas_store().list("workspace", "__readyz__")
+    except Exception as e:                       # noqa: BLE001
+        problems.append(f"store: {type(e).__name__}")
+    s = get_settings()
+    if not s.saas_allowed_users:
+        problems.append("SAAS_ALLOWED_USERS 비어 있음 — 전원 거부 상태")
+    if s.llm_provider == "openai" and not s.openai_api_key:
+        problems.append("OPENAI_API_KEY 없음")
+    if not getattr(s, "tavily_api_key", ""):
+        problems.append("TAVILY_API_KEY 없음")
+    if problems:
+        return JSONResponse(status_code=503, content={"ok": False,
+                                                      "problems": problems})
+    return {"ok": True}
+
+
+# 레거시 제품 레이어(인증 없는 22개 엔드포인트)는 위 mount_legacy가 담당한다.
