@@ -11,6 +11,8 @@ Phase 2: 합성 = LLM 1회(저렴·캐시), 검색 = 벡터DB(OpenSearch) + 온�
 결정적 앵커 혼합(base의 절반을 프로필 직접 도출 템플릿에 고정)으로 그 분산을
 1/4로 감쇠하고, 동점 후보는 company_id 전순서로 재현 가능하게 정렬한다.
 """
+import re
+
 from ..errors import NoStrongCandidate
 from ..schemas import (CandidateOut, PoolChoice, RetrieveDirection,
                        RetrieveRequest, RetrieveResponse)
@@ -107,7 +109,12 @@ QUERY_SYSTEM = """당신은 B2B 리드 발굴의 검색 전략가다. 주어진 
 
 검색어 4개를 만든다. 각각 다른 각도로 — ① 업종+지역 기업 목록 ② 현지어 업종명
 ③ 이 업종에서 '거래를 시작하려는' 신호(파트너·조달·도입·입찰·채용 공고 등,
-   업종에 맞는 것으로) ④ 협회·디렉터리·전시 참가사."""
+   업종에 맞는 것으로) ④ 협회·디렉터리·전시 참가사.
+
+지역이 '미지정'이면 지역어를 아예 넣지 마라 — 지역 없는 검색어를 만든다.
+검색어는 검색엔진에 그대로 들어가는 문자열이다: {지역} 같은 자리표시자,
+대괄호, "여기에 넣을 것" 류의 메모가 섞이면 그 검색은 통째로 헛돈다.
+완성된 검색어만 낸다."""
 
 QUERY_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -116,6 +123,20 @@ QUERY_SCHEMA = {
         "type": "array", "minItems": 3, "maxItems": 5,
         "items": {"type": "string"}}},
 }
+
+
+_PLACEHOLDER = re.compile(r"[{}\[\]<>]|자리표시자|여기에|TODO|XXX", re.I)
+
+
+def _usable_query(q: str) -> bool:
+    """검색엔진에 그대로 넣을 수 있는 문자열인가.
+
+    실측(할리케이 건): 지역 미지정 상태에서 모델이 '{지역}'을 리터럴로 낸
+    검색어 4개가 그대로 Tavily로 나가 전부 헛돌았다. 프롬프트로도 막았지만,
+    검색어는 비용이 붙는 외부 호출이므로 나가기 전에 코드가 한 번 더 본다.
+    """
+    q = (q or "").strip()
+    return bool(q) and len(q) >= 4 and not _PLACEHOLDER.search(q)
 
 
 def _fallback_queries(req: RetrieveRequest) -> list[str]:
@@ -165,7 +186,7 @@ def build_search_brief(req: RetrieveRequest,
                f"검색어 4개 전부 이 업종에 한정한다. 다른 업종은 섞지 마라."
                if seg else ""),
             QUERY_SCHEMA, deep=False, allow_foreign=True)
-        queries = [q for q in data.get("queries", []) if q.strip()]
+        queries = [q for q in data.get("queries", []) if _usable_query(q)]
     except Exception as e:            # 검색어 생성 실패로 전체를 죽이지 않는다
         from .. import progress
         progress.log("검색", f"⚠ 검색어 생성 실패({type(e).__name__}) — 규칙 기반 대체")
