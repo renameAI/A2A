@@ -27,6 +27,21 @@ _NON_COMPANY = (
 )
 
 
+# ── 채택 결정 (결정=코드) ────────────────────────────────────────────
+# 기대효용: EU(채택) = p·v − (1−p)·c
+#   v = 실존 후보를 파이프라인에 올리는 가치 (놓치면 이 요청에서 다시 못 찾는다)
+#   c = 오채택 정리 비용 (하류의 온톨로지 판독·재랭킹·사용자 반응이 걸러준다)
+# 하류 필터가 3겹이라 c ≪ v — c/v = 1/4로 두면 채택 임계는
+#   τ = c / (v + c) = 0.2   (EU > 0 ⇔ p > τ)
+# 모델은 p만 산출하고 결정은 이 임계가 내린다. 근거: 2601.07767 — 모델의
+# 자체 결정 정책은 자기 보정 신호를 활용하지 못한다(과잉 회피 실측과 일치).
+import os as _os
+
+
+def _accept_tau() -> float:
+    return float(_os.environ.get("EXTRACT_ACCEPT_TAU", "0.2"))
+
+
 def filter_company_hits(hits: list[dict]) -> tuple[list[dict], int]:
     """비기업 도메인 제거. (남은 히트, 제외 수)."""
     kept = [h for h in hits
@@ -35,38 +50,41 @@ def filter_company_hits(hits: list[dict]) -> tuple[list[dict], int]:
     return kept, len(hits) - len(kept)
 
 
+# 설계 (2026-08 v3, 스카우트 궤적): 규칙 목록을 버리고 목적함수를 준다.
+#
+# v2까지의 실패 이력: 규칙을 쌓을수록 모델의 암묵적 결정 정책이 보수화되어
+# "필드를 확신 있게 못 채우면 항목을 버린다"로 수렴했다(영문권 전멸,
+# 반도체 배치 붕괴 실측). 근거 문헌이 같은 진단을 준다 — 모델은 보정된
+# 확신 신호를 갖고 있으나 **자기 결정 정책이 그 신호를 쓰지 못한다**
+# (arXiv 2601.07767). 처방: 모델은 항목별 확률만 산출하고(판정), 채택
+# 여부는 코드가 기대효용 임계로 내린다(결정) — BAS(2604.03216)의
+# answer-or-abstain 효용 모델, Search-R1(2503.09516)·ReAct의 관찰→가설→
+# 판단 궤적을 결합한 구조다.
 EXTRACT_SYSTEM = HARD_RULES + """
 
-당신은 B2B 리드 리서처다. 웹 검색 결과에서 **실존하는 기업만** 골라낸다.
-업종·지역·언어는 건마다 다르다 — 특정 업종을 가정하지 마라. 판단 기준은
-[찾는 상대]에 적힌 내용뿐이다.
+당신은 B2B 리드 스카우트다. 웹 검색 결과에서 [찾는 상대]에 부합할 수 있는
+실존 기업을 발굴한다. 업종·지역·언어는 건마다 다르다 — 아무 업종도 가정하지
+말고, 판단 근거는 [찾는 상대]와 각 항목의 자료뿐이다.
 
-판정 절차 — 항목마다 순서대로 적용한다:
-① 이 페이지의 **주체**가 기업인가?
-   - 기업의 공식 사이트는 채택 후보다. 그 경우 페이지 제목·도메인이 곧
-     그 회사가 스스로 쓰는 이름인 경우가 많다 — 그것을 쓴다.
-   - 기사·블로그·백과사전·쇼핑몰·SNS·논문·기관 안내 페이지 자체는 기업이
-     아니다. 단, 그런 페이지가 **다른 실존 기업들을 명시적으로 소개**하면
-     그 기업들을 채택할 수 있다(디렉터리·회원사 목록·비교 기사가 그렇다).
-② 회사 이름을 알 수 있는가? 제목이 기사 헤드라인이라 이름이 아니면 본문에서
-   찾고, 끝내 없으면 그 항목만 버린다. **없는 이름을 지어내는 것만 금지다** —
-   페이지에 있는 이름을 옮기는 것은 추측이 아니다. 법인 등기명일 필요는 없다.
-③ [찾는 상대]의 역할과 **명백히 다른 업인가?** 그때만 버린다. 스니펫은
-   단편이라 세부(지역·규모·단계)까지는 안 보인다 — **확인 불가는 불일치가
-   아니다.** 업이 맞으면 채택하고, 세부 검증은 다음 단계가 한다.
-- 같은 회사가 여러 번 나오면 한 번만 남긴다.
-- 빈 배열은 ①~③을 다 거치고도 채택할 기업이 **하나도 없을 때**의 결과다.
-  "확신이 부족하다"는 이유로 비우지 마라 — 실존 기업을 버리는 것은 없는
-  기업을 만드는 것만큼 큰 오류다.
+항목마다 같은 궤적을 독립적으로 밟는다:
+  관찰 — 이 페이지의 주체는 누구인가. 기업 자신인가, 기업을 소개하는 제3자
+        (기사·디렉터리·협회)인가, 기업과 무관한 글인가.
+  가설 — 여기서 발굴할 수 있는 회사 이름은 무엇인가. 제목에 있든 본문에
+        있든, 자료에 실제로 적힌 이름만 후보다.
+  판정 — p = 그 이름의 회사가 실존하며 [찾는 상대]의 역할에 부합할 확률.
+        확신이 아니라 **정직한 추정치**를 내라. 스니펫은 단편이므로 0.9를
+        넘기 어렵고, 업이 맞아 보이면 0.5 아래로 내려갈 이유도 없다.
+        채택·탈락은 네가 정하지 않는다 — p만 내면 시스템이 결정한다.
 
-각 기업의 기록 형식 (형식을 다 못 채운다는 이유로 기업을 버리지 마라 —
-빈 문자열이 허용되는 항목은 비워 두면 된다):
-- name: 자료에 적힌 그대로의 회사 이름. **원어 유지** — 번역·음역하면 검색과
-  연락 때 그 회사를 못 찾는다.
-- what: 그 회사가 무엇을 하는지 한 문장. 자료가 짧으면 짧게 쓰면 된다.
-- signal: 요청 기업과 연결될 만한 **관측된 신호**(거래·모집·공고·최근 움직임).
-  자료에 없으면 빈 문자열 — 비어 있는 것이 정상이고, 지어내는 것만 금지다.
-- url: 근거가 된 검색 결과의 URL (반드시 입력에 있던 것 그대로)"""
+한 항목에서 회사가 여럿 발굴되면 각각 별도 행으로 낸다(디렉터리·비교 기사).
+어느 항목이 판정하기 어려워도 다른 항목의 p에 영향을 주지 마라.
+
+불변 조건 (이것만은 절대적이다):
+- 이름·설명은 자료에 있는 것만. 자료에 없는 회사를 만들어내면 p가 무의미해진다.
+- name은 자료 표기 그대로(원어 유지 — 번역하면 검색·연락 때 못 찾는다).
+- url은 그 회사가 나온 입력 항목의 URL 그대로.
+- what은 자료가 말하는 만큼만 한 문장. signal은 관측된 신호가 있을 때만,
+  없으면 빈 문자열."""
 
 EXTRACT_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -76,12 +94,13 @@ EXTRACT_SCHEMA = {
             "type": "array", "maxItems": 30,
             "items": {
                 "type": "object", "additionalProperties": False,
-                "required": ["name", "what", "signal", "url"],
+                "required": ["name", "what", "signal", "url", "p"],
                 "properties": {
                     "name": {"type": "string"},
                     "what": {"type": "string"},
                     "signal": {"type": "string"},
                     "url": {"type": "string"},
+                    "p": {"type": "number", "minimum": 0, "maximum": 1},
                 },
             },
         },
@@ -90,8 +109,16 @@ EXTRACT_SCHEMA = {
 
 
 def extract_companies(extractor, hits: list[dict], counterpart: str,
-                      requester_name: str = "") -> list[dict]:
-    """검색 히트 → 실존 기업 목록. LLM 1회. 실패하면 빈 목록(조용한 대체 없음)."""
+                      requester_name: str = "", _split: bool = True) -> list[dict]:
+    """검색 히트 → 실존 기업 목록. 기본 LLM 1회.
+
+    배치 붕괴 가드: 히트가 3건 이상인데 0곳이 나오면 반으로 갈라 한 번씩
+    재시도한다. 실측(반도체 건): 판정이 어려운 항목 하나가 배치 전체를 빈
+    배열로 무너뜨렸다 — 단독으로는 잡히던 기업이 그 항목과 같이 있으면
+    사라진다. 프롬프트로 독립 판정을 지시해도 완전히 못 막으므로, 독립성은
+    코드가 강제한다(판정은 모델, 결정은 코드). 최악 +2콜이지만 0곳으로
+    끝나는 요청 자체가 드물어야 정상이다.
+    """
     if not hits:
         return []
     listing = "\n".join(
@@ -105,11 +132,18 @@ def extract_companies(extractor, hits: list[dict], counterpart: str,
         EXTRACT_SCHEMA, deep=False, allow_foreign=True)
     seen, out = set(), []
     valid_urls = {h.get("url") for h in hits}
+    tau = _accept_tau()
+    dropped_low_p = 0
     for c in data.get("companies", []):
         name = (c.get("name") or "").strip()
         url = (c.get("url") or "").strip()
         # 계약 검증 — 입력에 없던 URL은 환각이다 (인용 계약과 같은 원리)
         if not name or name in seen or url not in valid_urls:
+            continue
+        # 기대효용 결정 — 모델의 p가 임계 미만이면 코드가 탈락시킨다.
+        # p 누락은 0.5로 본다(중립) — 스키마가 강제하므로 방어적 기본값일 뿐.
+        if float(c.get("p", 0.5)) < tau:
+            dropped_low_p += 1
             continue
         seen.add(name)
         what = (c.get("what") or "").strip()
@@ -121,6 +155,22 @@ def extract_companies(extractor, hits: list[dict], counterpart: str,
         # name_ko(한국어 표기)는 추출에서 만들지 않는다 — 번역·독음은 별도의
         # 앱 계층 관심사다. 추출 프롬프트에 섞으면 "표기를 못 만들겠다"가
         # 기업 폐기로 이어지는 결합이 생긴다(실측: 영문권 전멸 사고의 일부).
-        out.append({"name": name, "name_ko": name,
-                    "what": what, "signal": sig, "url": url})
+        out.append({"name": name, "name_ko": name, "what": what,
+                    "signal": sig, "url": url,
+                    "p": round(float(c.get("p", 0.5)), 2)})
+    if dropped_low_p:
+        from .. import progress
+        progress.log("검색", f"저확률 후보 {dropped_low_p}건 탈락 (p < {tau})")
+    if not out and _split and len(hits) >= 3:
+        from .. import progress
+        progress.log("검색", f"⚠ 추출 0곳(히트 {len(hits)}건) — 배치를 갈라 재시도")
+        mid = len(hits) // 2
+        seen2, merged = set(), []
+        for half in (hits[:mid], hits[mid:]):
+            for c in extract_companies(extractor, half, counterpart,
+                                       requester_name, _split=False):
+                if c["name"] not in seen2:
+                    seen2.add(c["name"])
+                    merged.append(c)
+        return merged
     return out
