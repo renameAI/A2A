@@ -220,8 +220,16 @@ def me(user: SaasUser = Depends(current_user)):
 
 # ── 온보딩 (이슈 #6-C, 기획서 §5) ───────────────────────────────────
 
+# 회사명을 대화 턴으로 전달할 때 쓰는 질문 문구. represent의 mock 파서가
+# 이 문구를 '이름' 필드로 읽는다(_QUESTION_TO_FIELD) — 두 곳이 같아야 한다.
+NAME_QUESTION = "회사 이름은 무엇인가요?"
+
+
 class OnboardingCreate(BaseModel):
     assets: list[Asset] = Field(min_length=1)
+    # 회사명은 사용자가 아는 사실이다 — 자료에서 추론할 이유가 없다. 있으면
+    # 프로필의 basic.name을 코드가 확정한다(LLM이 '뉴턴/뉴톤'을 오가던 근원).
+    company_name: str | None = None
 
 
 class OnboardingAnswer(BaseModel):
@@ -235,7 +243,8 @@ def create_session(req: OnboardingCreate,
     sid = store.new_id("ob")
     doc = {"session_id": sid, "status": "collecting",
            "assets": [a.model_dump(mode="json") for a in req.assets],
-           "dialogue": [], "current_questions": [], "profile": None}
+           "dialogue": [], "current_questions": [], "profile": None,
+           "company_name": (req.company_name or "").strip() or None}
     store.put("onboarding", user.workspace_id, sid, doc)
     return doc
 
@@ -263,6 +272,8 @@ def run_session(sid: str, background: BackgroundTasks,
             revised, changed, unclear = revise_profile(
                 Profile.model_validate(doc["profile"]), pending_fix)
             doc["profile"] = revised.model_dump(mode="json")
+            if changed and "name" in changed:
+                doc["company_name"] = revised.basic.name   # 정정된 이름이 새 사실
             doc["corrections"] = []          # 반영했으므로 비운다
             doc["status"] = "review_required"
             # 모호해서 못 고쳤으면 그 사실을 질문으로 돌려준다 — 조용히
@@ -271,16 +282,23 @@ def run_session(sid: str, background: BackgroundTasks,
             store.put("onboarding", user.workspace_id, sid, doc)
             return {"session": doc, "needs_answers": bool(unclear and not changed),
                     "changed": changed}
+        known_name = (doc.get("company_name") or "").strip()
+        dialogue = [DialogueTurn(**t) for t in doc["dialogue"]]
+        if known_name:
+            # 모델에게도 알려준다 — 서술 필드가 다른 표기로 회사를 부르면 어색하다.
+            dialogue.insert(0, DialogueTurn(q=NAME_QUESTION, a=known_name))
         try:
             rep = represent(RepresentRequest(
-                assets=[Asset(**a) for a in doc["assets"]],
-                dialogue=[DialogueTurn(**t) for t in doc["dialogue"]]))
+                assets=[Asset(**a) for a in doc["assets"]], dialogue=dialogue))
         except ProfileBelowMinimum as e:
             # 오류로 끝내지 않고 질문을 세션에 보존 → 채팅이 이어받는다 (§5.3)
             doc["status"] = "clarifying"
             doc["current_questions"] = (e.details or {}).get("open_questions", [])
             store.put("onboarding", user.workspace_id, sid, doc)
             return {"session": doc, "needs_answers": True}
+        if known_name:
+            # 판정은 모델, 결정은 코드 — 사용자가 준 이름을 추론값이 이길 수 없다.
+            rep.profile.basic.name = known_name
         doc["status"] = "review_required"
         doc["profile"] = rep.profile.model_dump(mode="json")
         doc["current_questions"] = rep.open_questions
@@ -299,23 +317,55 @@ def answer_session(sid: str, req: OnboardingAnswer,
     doc = store.get("onboarding", user.workspace_id, sid)
     if doc is None:
         raise EngineError(404, "not_found", f"온보딩 세션 {sid} 없음")
+    # 채팅 입력의 의미는 세션 단계가 정한다. 세 가지뿐이다:
+    #   프로필 있음            → 정정 (성공한 /run이 보강 질문을 남겨도 화면엔
+    #                            안 보인다 — 본 적 없는 질문의 답으로 기록하면
+    #                            "뉴톤이야 기업명이"가 '푸는 문제'의 최우선 신뢰
+    #                            답이 된다. 실측.)
+    #   프로필 없음·질문 대기  → 그 질문의 답 (clarifying)
+    #   프로필 없음·질문 없음  → 추가 자료 (소개를 두 번에 나눠 붙여넣는 경우)
+    # 질문을 지어내지 않는다 — 물은 적 없는 질문에 답이 달리면 답의 의미가 바뀐다.
     pending = doc.get("current_questions") or []
-    # 프로필이 이미 있으면 채팅 입력은 **정정**이다. 성공한 /run도
-    # current_questions에 보강 질문을 남기지만 화면은 프로필 카드만 보여준다 —
-    # 사용자는 그 질문을 본 적이 없다. 본 적 없는 질문의 답으로 기록하면
-    # "뉴톤이야 기업명이"가 '푸는 문제' 필드의 최우선 신뢰 답이 된다(실측:
-    # 그 뒤 재생성 결과에 "고객이 뉴톤이야에 돈을 내기 직전에…"가 떴다).
-    # 질문에 답하는 경로는 프로필이 아직 없어 되묻는 중(clarifying)일 때뿐이다.
-    if doc.get("profile") or not pending:
-        # 질문을 지어내지 않는다. 예전엔 "회사에 대해 자유롭게 알려주세요"를
-        # 만들어 붙여서, 사용자의 정정("뉴톤이야 기업명이")이 **회사 자유
-        # 서술**로 기록됐다 — 그 뒤 represent가 그걸 최우선 신뢰 자료로 읽고
-        # "뉴톤이야"를 회사명으로 삼았다. 물은 적 없는 질문에 답이 달리면
-        # 그 답의 의미가 바뀐다.
+    if doc.get("profile"):
         doc.setdefault("corrections", []).append(req.answer)
-    else:
+    elif pending:
         doc["dialogue"].append({"q": pending[0], "a": req.answer})
         doc["current_questions"] = pending[1:]
+    else:
+        doc["assets"].append(Asset(type="text", content=req.answer)
+                             .model_dump(mode="json"))
+    store.put("onboarding", user.workspace_id, sid, doc)
+    return doc
+
+
+class OnboardingAssets(BaseModel):
+    assets: list[Asset] = Field(min_length=1)
+
+
+@router.post("/onboarding-sessions/{sid}/assets")
+def add_assets(sid: str, req: OnboardingAssets,
+               user: SaasUser = Depends(current_user)):
+    """세션에 자료를 **추가**한다 (교체가 아니다).
+
+    없던 API라 클라이언트가 파일이 더 오면 새 세션을 만들었고, 그러면 앞서
+    붙여넣은 소개 텍스트가 버려졌다 — 정정 사고와 같은 계열(멀티턴 약함).
+    프로필이 이미 있으면 추가 자료로 다시 만든다(다음 /run이 재생성). 승인된
+    뒤에는 붙일 수 없다 — 그 프로필은 이미 버전으로 굳었다.
+    """
+    store = get_saas_store()
+    doc = store.get("onboarding", user.workspace_id, sid)
+    if doc is None:
+        raise EngineError(404, "not_found", f"온보딩 세션 {sid} 없음")
+    if doc.get("status") == "completed":
+        raise EngineError(409, "invalid_state",
+                          "이미 승인된 프로필입니다 — 새 요청으로 시작해 주세요.")
+    doc["assets"].extend(a.model_dump(mode="json") for a in req.assets)
+    if doc.get("profile"):
+        # 자료가 늘었으니 프로필은 다시 만들어야 한다. 정정(revise)이 아니라
+        # 재생성이 맞다 — 새 자료가 어느 필드를 바꿀지 사용자도 모른다.
+        doc["profile"] = None
+        doc["corrections"] = []
+        doc["current_questions"] = []
     store.put("onboarding", user.workspace_id, sid, doc)
     return doc
 

@@ -428,6 +428,9 @@ function Workspace({ who }: { who: string }) {
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
   const [session, setSession] = useState<string | null>(null);
+  // 회사명 — 사용자가 아는 사실이라 첫 턴에 직접 받는다. 자료에서 추론하면
+  // '뉴턴/뉴톤'처럼 표기가 흔들리고, 자료가 얇으면 '미상'이 된다.
+  const [companyName, setCompanyName] = useState<string | null>(null);
   const [questions, setQuestions] = useState<string[]>([]);
   const [versionId, setVersionId] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -552,7 +555,7 @@ function Workspace({ who }: { who: string }) {
   /** 새 대화 — location.reload()는 상태를 통째로 버리는 대신 로그인 왕복까지
    *  일으킨다. 필요한 것만 비운다. */
   function newRequest() {
-    setRequestId(null); setVersionId(null); setSession(null);
+    setRequestId(null); setVersionId(null); setSession(null); setCompanyName(null);
     setCands([]); setRecs([]); setQuestions([]);
     setSaved(new Map()); setReplied(new Set());
     setLikedC(new Set()); setDislikedC(new Set());
@@ -620,7 +623,7 @@ function Workspace({ who }: { who: string }) {
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
   useEffect(() => {
-    push({ who: "agent", text: "안녕하세요. 회사 소개 텍스트를 붙여넣으면 프로필을 만들고, 조건에 맞는 리드를 웹에서 찾아드려요." });
+    push({ who: "agent", text: "안녕하세요. 먼저 회사 이름을 알려주세요. 그다음 회사 소개 텍스트를 붙여넣거나 PDF·Word를 올리면 프로필을 만들고, 조건에 맞는 리드를 웹에서 찾아드려요." });
   }, []);
 
   /** PDF 업로드 → 엔진이 파싱할 Asset으로 변환.
@@ -684,13 +687,13 @@ function Workspace({ who }: { who: string }) {
       let sid = session;
       if (!sid) {
         const s = await api("/onboarding-sessions",
-          { assets: assets ?? [{ type: "text", content: text }] });
+          { assets: assets ?? [{ type: "text", content: text }],
+            company_name: companyName ?? undefined });
         sid = s.session_id; setSession(sid);
       } else if (assets) {
-        // 이미 세션이 있는데 자료가 더 오면 새 세션으로 시작한다 —
-        // 기존 세션의 자산 목록을 갱신하는 API가 아직 없다(정직한 한계).
-        const s = await api("/onboarding-sessions", { assets });
-        sid = s.session_id; setSession(sid);
+        // 자료가 더 오면 **같은 세션에 붙인다.** 예전엔 새 세션을 만들어서,
+        // 앞서 붙여넣은 소개 텍스트가 통째로 버려졌다.
+        await api(`/onboarding-sessions/${sid}/assets`, { assets });
       } else {
         await api(`/onboarding-sessions/${sid}/messages`, { answer: text });
       }
@@ -957,6 +960,15 @@ function Workspace({ who }: { who: string }) {
     if (!v || busy) return;
     setInput("");
     push({ who: "user", text: v });
+    // 세션 전이고 이름이 없는데 짧은 한 줄이면 이름으로 받는다. 긴 글은
+    // 자료다 — 이름을 안 주고 소개를 붙여넣는 사용자를 막지 않는다(그때는
+    // 모델이 추론하고, 틀리면 정정 경로로 고친다).
+    if (!session && !companyName && looksLikeName(v)) {
+      setCompanyName(v);
+      push({ who: "agent",
+        text: `${v}, 반가워요. 이제 회사 소개 텍스트를 붙여넣거나 PDF·Word를 올려주세요.` });
+      return;
+    }
     if (!versionId) { runOnboard(v); return; }
     push({ who: "agent", text: "지금은 위 카드의 버튼으로 진행해 주세요 — 자유 대화 확장은 다음 이슈예요." });
   }
@@ -1587,6 +1599,14 @@ function SegmentPicker({ segments, recs, onSubmit }: {
       </div>
     </div>
   );
+}
+
+/** 첫 입력이 회사명으로 보이는가. 짧은 한 줄이면 이름, 아니면 자료다.
+ *  URL·이메일은 이름이 아니다(붙여넣은 홈페이지 주소가 회사명이 되면 안 된다). */
+function looksLikeName(v: string): boolean {
+  if (v.length > 40 || v.includes("\n")) return false;
+  if (/https?:\/\/|www\.|@/i.test(v)) return false;
+  return true;
 }
 
 type BriefDraft = { region?: string; target_type?: string; notes?: string;

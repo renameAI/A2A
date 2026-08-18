@@ -174,7 +174,10 @@ class TestSessionRouting:
         assert r.status_code == 200
         doc = get_saas_store().get("onboarding", "ws-boram", sid)
         assert doc["dialogue"] == []                       # 가짜 Q&A 없음
-        assert doc["corrections"] == ["뉴톤이야 기업명이"]   # 정정으로 남는다
+        # 프로필이 아직 없으면 정정할 대상이 없다 — 이때 입력은 자료다.
+        # (프로필이 있을 때 정정으로 가는 것은 아래 테스트가 본다.)
+        assert [a["content"] for a in doc["assets"]][-1] == "뉴톤이야 기업명이"
+        assert doc.get("corrections", []) == []
 
     def test_message_after_profile_is_a_correction_even_if_questions_linger(
             self, client):

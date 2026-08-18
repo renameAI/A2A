@@ -44,6 +44,7 @@ _WILLINGNESS_QUESTION = "협력 의향(판매/구매)은 어느 정도인가요?
 
 # 보강 질문(원문) → Mock 파서가 읽는 정규 필드명 (단일 진실 소스)
 _QUESTION_TO_FIELD = {
+    "회사 이름은 무엇인가요?": "이름",     # saas.router.NAME_QUESTION과 동일 문구
     _ASK_QUESTIONS["problem"]: "문제",
     _ASK_QUESTIONS["solution"]: "솔루션",
     _ASK_QUESTIONS["target"]: "타겟",
