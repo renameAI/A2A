@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 from ..jobs import store as job_store
 from ..config import get_settings
 from ..engine.candidate_adapter import candidate_record_from_profile
-from ..engine.candidate_extract import extract_companies, filter_company_hits
+from ..engine.candidate_extract import (dedupe_pool, extract_companies,
+                                        filter_company_hits)
 from ..engine import keywords as kw
 from ..engine.candidate_insight import build_insight
 from ..engine.compose_lead import compose_lead
@@ -553,10 +554,16 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
     # 목록 페이지 하나에서 회사 여러 곳을 뽑는 것이 정상 동작이다. URL을 키로
     # 쓰면 뒤 회사가 앞 회사의 온톨로지·연락처를 덮어써, 사용자가 A사 카드에서
     # B사의 메일 주소를 보게 된다(감사 확정 high — 아웃리치 제품의 무성 오염).
-    base = len(doc.get("pool", []))
+    # 발급 번호는 **누적 발급 수**로 센다. len(pool)로 세면 병합으로 풀이
+    # 줄어든 만큼 다음 웨이브가 이미 쓴 번호를 다시 발급해, 서로 다른 회사가
+    # 같은 company_id를 갖는다(저장 스냅샷·명확화 인용·반응이 엉뚱한 회사에
+    # 붙는다). 옛 문서에는 이 값이 없으므로 len(pool)로 되돌아간다 — 그때는
+    # 병합이 없었으니 두 값이 같다.
+    base = doc.get("cid_seq", len(doc.get("pool", [])))
     for i, c in enumerate(companies):
         c["_cid"] = f"web-{rid}-{base + i + 1:02d}"
         c["_seg"], c["_q"] = (src_of.get(c["url"]) or [("", "")])[0]
+    doc["cid_seq"] = base + len(companies)
 
     cost.reserve(store, user.workspace_id, rid, "insight", count=len(companies))
     onts: dict[str, dict] = {}
@@ -642,6 +649,15 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
         "p": c.get("p", 0.7), "p_raw": c.get("p_raw", c.get("p", 0.7)),
         "source_kind": c.get("source_kind", "unknown"),
     } for c in companies]
+
+
+def _merge_pool(pool: list[dict]) -> list[dict]:
+    """풀을 중복 없는 상태로 유지한다. 웨이브를 넘나드는 중복은 여기서만 잡힌다."""
+    from .. import progress
+    kept, merged = dedupe_pool(pool)
+    if merged:
+        progress.log("검색", f"같은 회사 {merged}건 병합 (같은 사이트의 다른 페이지)")
+    return kept
 
 
 def _rank_pool(profile, intent, pool: list[dict],
@@ -755,8 +771,9 @@ def run_search(rid: str, body: SearchIn | None = None,
         if extra:
             plans.append(("추천 키워드", extra))
 
-        doc["pool"] = _discover(store, user, rid, doc, profile, intent,
-                                settings, extractor, plans, wave=1)
+        doc["pool"] = _merge_pool(_discover(
+            store, user, rid, doc, profile, intent,
+            settings, extractor, plans, wave=1))
         doc["searched"] = True        # 0곳이어도 '돌렸다'는 사실은 남는다
         doc["candidates"] = _rank_pool(profile, intent, doc["pool"], [], [],
                                        k=min(intent.lead_count or 10, 30))
@@ -877,7 +894,11 @@ def refine_search(rid: str, body: RefineIn,
         new_pool = _discover(store, user, rid, doc, profile, intent,
                              settings, extractor,
                              [(f"웨이브{wave}", queries)], wave=wave)
-        doc["pool"] += new_pool
+        # '새로 N곳'은 병합 뒤 실제로 늘어난 수여야 한다. 추출 수를 그대로
+        # 쓰면 이미 아는 회사를 다시 찾은 것도 새로 찾았다고 보고한다.
+        before = len(doc["pool"])
+        doc["pool"] = _merge_pool(doc["pool"] + new_pool)
+        gained = len(doc["pool"]) - before
         doc["candidates"] = _rank_pool(profile, intent, doc["pool"],
                                        fb["liked"], fb["disliked"], k)
         questions = generate_questions(
@@ -889,7 +910,7 @@ def refine_search(rid: str, body: RefineIn,
         store.put("lead_request", user.workspace_id, rid, doc)
         return {"candidates": doc["candidates"], "clarify": questions,
                 "final": False, "wave": wave,
-                "new_found": len(new_pool)}
+                "new_found": gained}
 
     return _submit(background, _run, user)
 

@@ -59,6 +59,65 @@ def _source_weight(kind: str) -> float:
     return _SOURCE_W.get((kind or "").strip().lower(), 0.7)   # 미상은 중간
 
 
+# ── 풀 단위 중복 병합 ────────────────────────────────────────────────
+# extract_companies의 이름 중복 제거는 **한 호출 안에서만** 듣는다. 웨이브가
+# 갈리면 호출도 갈리므로 웨이브를 넘나드는 중복은 아무도 못 잡는다. _discover의
+# known_urls 가드도 URL이 정확히 같을 때만 막아서 같은 사이트의 다른 경로는
+# 통과한다.
+#
+# 실측(할리케이 프로덕션): Clother가 clother.ch/en과 clother.ch/de로 최종
+# 10곳에 두 번 올랐다.
+#
+# 병합 키를 **이름과 사이트 둘 다**로 두는 이유도 같은 실측에서 나온다: 같은
+# 실행에서 Vestiaire Collective와 Mytheresa가 **둘 다 worldfootwear.com**에서
+# 나왔다. 서로 다른 회사다. 사이트만으로 합치면 기사·디렉터리 한 페이지에서
+# 발굴한 회사들이 통째로 뭉개진다.
+import re as _re
+import unicodedata as _ud
+from urllib.parse import urlparse as _urlparse
+
+
+def _norm_name(name: str) -> str:
+    """이름 비교용 정규화. 표기 흔들림만 지우고 어형은 건드리지 않는다."""
+    s = _ud.normalize("NFKC", name or "").casefold()
+    s = _re.sub(r"[^\w\s]", "", s, flags=_re.UNICODE)
+    return _re.sub(r"\s+", " ", s).strip()
+
+
+def _site_of(url: str) -> str:
+    """URL → 사이트 식별자(호스트). www.는 같은 사이트로 본다."""
+    host = _urlparse(url or "").netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def dedupe_pool(pool: "list[dict]") -> "tuple[list[dict], int]":
+    """같은 회사가 같은 사이트의 다른 URL로 중복 등재된 것을 합친다.
+
+    남기는 쪽은 p(유효 확률)가 높은 기록이다 — 같은 회사라도 어느 페이지에서
+    봤느냐에 따라 판정이 다르고, 더 잘 본 쪽을 남기는 것이 맞다. 동점이면
+    먼저 들어온 것을 남겨 순서가 흔들리지 않게 한다.
+
+    (남은 풀, 합쳐진 수)를 돌려준다.
+    """
+    kept: "list[dict]" = []
+    at: "dict[tuple, int]" = {}      # 키 → kept 안의 위치
+    merged = 0
+    for c in pool:
+        key = (_norm_name(c.get("name", "")), _site_of(c.get("source_url", "")))
+        if not key[0] or not key[1]:     # 이름이나 출처가 없으면 합치지 않는다
+            kept.append(c)
+            continue
+        i = at.get(key)
+        if i is None:
+            at[key] = len(kept)
+            kept.append(c)
+            continue
+        merged += 1
+        if float(c.get("p", 0.7)) > float(kept[i].get("p", 0.7)):
+            kept[i] = c
+    return kept, merged
+
+
 def filter_company_hits(hits: list[dict]) -> tuple[list[dict], int]:
     """비기업 도메인 제거. (남은 히트, 제외 수)."""
     kept = [h for h in hits
