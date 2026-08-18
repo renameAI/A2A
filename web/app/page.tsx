@@ -712,15 +712,56 @@ function Workspace({ who }: { who: string }) {
           jsx: <ProfileCard profile={res.session.profile}
             onApprove={() => approve(sid!)}
             onFix={(note) => {
-              // 정정 요청은 대화 답변과 같은 경로로 흘려보낸다 —
-              // represent가 그 답을 반영해 프로필을 다시 만든다
               push({ who: "user", text: note });
-              runOnboard(note);
+              reviseProfile(sid!, note);
             }} />,
         });
       }
     } catch (e) {
       push({ who: "agent", text: (e as Error).message });
+    } finally { setBusy(false); }
+  }
+
+  /** 프로필 정정.
+   *
+   * runOnboard로 흘려보내면 안 된다 — 거기엔 "세션이 없으면 이 텍스트를
+   * 자료 삼아 새 세션을 만든다"는 분기가 있고, 상태가 어긋나면 정정문이
+   * **회사 자료 전체를 대체**한다. 실측(프로덕션 저장 세션): 자료가
+   * '뉴톤이야 기업명이' 9글자뿐인 세션이 만들어졌고, 15,559자로 만든
+   * 프로필은 버려진 채 회사를 처음부터 다시 파악하려 들었다.
+   *
+   * 정정은 반드시 **그 프로필을 만든 세션**에 붙는다. sid는 카드가 그려질
+   * 때 확정된 값이므로 여기서 인자로 받는다 — session 상태에 의존하지
+   * 않는다(둘이 어긋나는 것이 사고의 원인이었다).
+   */
+  async function reviseProfile(sid: string, note: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api(`/onboarding-sessions/${sid}/corrections`, { note });
+      push({ who: "agent", text: "고칠게요…" });
+      const { job_id } = await api(
+        `/onboarding-sessions/${sid}/run`, undefined, "POST");
+      const res = (await waitJob(job_id)) as {
+        needs_answers: boolean;
+        session: { current_questions: string[]; profile?: ProfileDoc };
+      };
+      if (res.needs_answers) {
+        setQuestions(res.session.current_questions);
+        push({ who: "agent", text: res.session.current_questions[0]
+          ?? "회사에 대해 더 알려주세요." });
+        return;
+      }
+      const name = res.session.profile?.basic?.name ?? "회사";
+      push({
+        who: "agent", text: `${name} 프로필을 고쳤어요. 확인해 주세요.`,
+        jsx: <ProfileCard profile={res.session.profile}
+          onApprove={() => approve(sid)}
+          onFix={(n) => { push({ who: "user", text: n });
+                          reviseProfile(sid, n); }} />,
+      });
+    } catch (e) {
+      push({ who: "agent", text: `고치지 못했어요 — ${(e as Error).message}` });
     } finally { setBusy(false); }
   }
 

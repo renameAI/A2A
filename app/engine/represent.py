@@ -16,6 +16,7 @@ from ..schemas import (AssetType, CompanyPortrait, OntologyAnchor, Profile,
                        BasicInfo, ProvField, Provenance, RepresentRequest,
                        RepresentResponse, ValueProp, Willingness)
 from .common import infer_stage, pseudo_embedding
+from .prompts import HARD_RULES
 from .llm import get_extractor
 
 _VALUE_PROP_MAP = {
@@ -71,6 +72,94 @@ def _dialogue_to_mock_lines(dialogue) -> list[str]:
         else:                               # 이미 정규 키(판매의향 등)면 그대로
             lines.append(f"{q}: {a}")
     return lines
+
+
+# ── 정정 반영 (프로필을 다시 만들지 않고 고친다) ─────────────────────
+#
+# 왜 재생성이 아닌가: 사용자가 한 줄을 고쳐 달라고 했는데 자료를 다시 읽어
+# 프로필을 처음부터 만들면, 고쳐 달라지 않은 필드까지 매번 흔들린다. 사용자는
+# 자기가 건드리지 않은 곳이 바뀌는 것을 '바보가 됐다'고 느낀다 — 실제 그렇다.
+# 정정은 편집이지 재해석이 아니다.
+REVISE_SYSTEM = HARD_RULES + """
+
+당신은 이미 만들어진 회사 프로필을 **사용자의 지적대로만** 고친다.
+
+절대 규칙:
+- 지적이 가리키는 곳만 고친다. 나머지 필드는 **글자 하나 바꾸지 마라.**
+  사용자는 자기가 건드리지 않은 곳이 바뀌면 신뢰를 잃는다.
+- 지적은 자료가 아니다. "뉴톤이야 기업명이"는 회사 소개가 아니라 이름을
+  고치라는 지시다 — 지시문 자체를 필드 값으로 넣지 마라.
+- 지적이 모호해 어디를 고칠지 모르겠으면, 아무것도 바꾸지 말고 unclear에
+  무엇이 모호한지 적어라. 짐작해서 고치는 것보다 되묻는 편이 낫다.
+- 지적이 기존 값과 충돌하면 **지적을 따른다.** 사용자가 자기 회사를 안다.
+- 고친 필드를 changed에 나열한다(사용자에게 무엇이 바뀌었는지 보여준다)."""
+
+REVISE_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["name", "country", "industry", "description",
+                 "problem_solved", "solution", "target_customer",
+                 "changed", "unclear"],
+    "properties": {
+        "name": {"type": "string"},
+        "country": {"type": "string"},
+        "industry": {"type": "string"},
+        "description": {"type": "string"},
+        "problem_solved": {"type": "string"},
+        "solution": {"type": "string"},
+        "target_customer": {"type": "string"},
+        "changed": {"type": "array", "items": {"type": "string"}},
+        "unclear": {"type": "string"},
+    },
+}
+
+
+def revise_profile(profile: Profile, corrections: "list[str]",
+                   settings=None) -> "tuple[Profile, list[str], str]":
+    """프로필 + 정정 → 고쳐진 프로필. (프로필, 바뀐 필드, 모호한 점).
+
+    실패하면 원본을 그대로 돌려준다 — 정정을 못 반영하는 것이 프로필을 잃는
+    것보다 낫다. 호출자가 changed가 비었는지로 판단한다.
+    """
+    from ..config import get_settings
+    from .llm import get_extractor
+    if not corrections:
+        return profile, [], ""
+    try:
+        d = get_extractor(settings or get_settings()).extract_json(
+            REVISE_SYSTEM,
+            f"[현재 프로필]\n"
+            f"회사명: {profile.basic.name}\n"
+            f"국가: {profile.basic.country}\n"
+            f"업종: {profile.basic.industry}\n"
+            f"소개: {profile.description}\n"
+            f"푸는 문제: {profile.problem_solved.value}\n"
+            f"솔루션: {profile.solution.value}\n"
+            f"타깃 고객: {profile.target_customer.value}\n\n"
+            f"[사용자의 지적 — 이것만 반영한다]\n"
+            + "\n".join(f"- {c}" for c in corrections),
+            REVISE_SCHEMA, deep=False, allow_foreign=True)
+    except Exception as e:                       # noqa: BLE001
+        from .. import progress
+        progress.log("온보딩", f"⚠ 정정 반영 실패({type(e).__name__}) — 원본 유지")
+        return profile, [], ""
+
+    out = profile.model_copy(deep=True)
+    out.basic.name = (d.get("name") or profile.basic.name).strip()
+    out.basic.country = (d.get("country") or profile.basic.country).strip()
+    out.basic.industry = (d.get("industry") or profile.basic.industry).strip()
+    out.description = (d.get("description") or profile.description).strip()
+    # provenance는 stated로 올린다 — 사용자가 직접 말한 값이다.
+    for field, key in (("problem_solved", "problem_solved"),
+                       ("solution", "solution"),
+                       ("target_customer", "target_customer")):
+        val = (d.get(key) or "").strip()
+        cur = getattr(out, field)
+        if val and val != cur.value:
+            cur.value = val
+            cur.provenance = Provenance.stated
+            cur.confidence = max(cur.confidence or 0.0, 0.9)
+    changed = [str(c) for c in (d.get("changed") or []) if str(c).strip()]
+    return out, changed, (d.get("unclear") or "").strip()
 
 
 # ── 자산 수집 → 청크 (ING-01, ING-02) ───────────────────────────────

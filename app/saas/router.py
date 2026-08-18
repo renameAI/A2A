@@ -252,6 +252,25 @@ def run_session(sid: str, background: BackgroundTasks,
     def _run() -> dict:
         doc["status"] = "representing"
         store.put("onboarding", user.workspace_id, sid, doc)
+
+        # 정정이 쌓여 있으면 **고친다**. 자료를 다시 읽어 프로필을 새로 만들면
+        # 사용자가 건드리지 않은 필드까지 매번 흔들리고, 그게 '갑자기 바보가
+        # 됐다'로 보인다. 정정은 편집이지 재해석이 아니다.
+        pending_fix = doc.get("corrections") or []
+        if pending_fix and doc.get("profile"):
+            from ..engine.represent import revise_profile
+            cost.reserve(store, user.workspace_id, sid, "brief")
+            revised, changed, unclear = revise_profile(
+                Profile.model_validate(doc["profile"]), pending_fix)
+            doc["profile"] = revised.model_dump(mode="json")
+            doc["corrections"] = []          # 반영했으므로 비운다
+            doc["status"] = "review_required"
+            # 모호해서 못 고쳤으면 그 사실을 질문으로 돌려준다 — 조용히
+            # 아무것도 안 바뀌면 사용자는 정정이 먹혔다고 오해한다.
+            doc["current_questions"] = [unclear] if (unclear and not changed) else []
+            store.put("onboarding", user.workspace_id, sid, doc)
+            return {"session": doc, "needs_answers": bool(unclear and not changed),
+                    "changed": changed}
         try:
             rep = represent(RepresentRequest(
                 assets=[Asset(**a) for a in doc["assets"]],
@@ -280,9 +299,46 @@ def answer_session(sid: str, req: OnboardingAnswer,
     doc = store.get("onboarding", user.workspace_id, sid)
     if doc is None:
         raise EngineError(404, "not_found", f"온보딩 세션 {sid} 없음")
-    q = (doc.get("current_questions") or ["회사에 대해 자유롭게 알려주세요"])[0]
-    doc["dialogue"].append({"q": q, "a": req.answer})
-    doc["current_questions"] = doc.get("current_questions", [])[1:]
+    pending = doc.get("current_questions") or []
+    if not pending:
+        # 질문을 지어내지 않는다. 예전엔 "회사에 대해 자유롭게 알려주세요"를
+        # 만들어 붙여서, 사용자의 정정("뉴톤이야 기업명이")이 **회사 자유
+        # 서술**로 기록됐다 — 그 뒤 represent가 그걸 최우선 신뢰 자료로 읽고
+        # "뉴톤이야"를 회사명으로 삼았다. 물은 적 없는 질문에 답이 달리면
+        # 그 답의 의미가 바뀐다.
+        doc.setdefault("corrections", []).append(req.answer)
+    else:
+        doc["dialogue"].append({"q": pending[0], "a": req.answer})
+        doc["current_questions"] = pending[1:]
+    store.put("onboarding", user.workspace_id, sid, doc)
+    return doc
+
+
+class ProfileCorrection(BaseModel):
+    note: str
+
+
+@router.post("/onboarding-sessions/{sid}/corrections")
+def correct_profile(sid: str, req: ProfileCorrection,
+                    user: SaasUser = Depends(current_user)):
+    """프로필 정정 요청을 세션에 붙인다 (자료를 대체하지 않는다).
+
+    별도 경로를 두는 이유: 정정을 '질문에 대한 답'으로 보내면 답이 자료가
+    된다. 실측(프로덕션 저장 세션) — 정정문 9글자가 세션의 **유일한 자료**가
+    되어, 15,559자로 만든 프로필이 버려지고 회사를 처음부터 다시 파악했다.
+    정정은 자료가 아니라 이미 만든 프로필에 대한 지시다.
+    """
+    store = get_saas_store()
+    doc = store.get("onboarding", user.workspace_id, sid)
+    if doc is None:
+        raise EngineError(404, "not_found", f"온보딩 세션 {sid} 없음")
+    if not doc.get("profile"):
+        raise EngineError(409, "invalid_state",
+                          "고칠 프로필이 아직 없습니다 — 먼저 자료를 넣어주세요.")
+    note = (req.note or "").strip()
+    if not note:
+        raise EngineError(400, "invalid_input", "무엇을 고칠지 적어주세요.")
+    doc.setdefault("corrections", []).append(note)
     store.put("onboarding", user.workspace_id, sid, doc)
     return doc
 
