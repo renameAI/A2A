@@ -63,6 +63,16 @@ def fetch_pdf_bytes(url: str, settings: Settings,
                     client.close()
         except httpx.HTTPError as e:
             raise FetchFailed(url, str(e))
+    # 업로드 자료는 Supabase Storage에 있다. 로컬 경로가 아닌 이유는
+    # 서버리스에서 파일시스템이 호출 간에 공유되지 않기 때문이다 —
+    # 업로드한 인스턴스와 파싱하는 인스턴스가 다르면 파일이 사라진다.
+    if url.startswith("supabase://"):
+        from ..saas import storage
+        obj = url[len("supabase://"):]
+        try:
+            return storage.download(obj)
+        except Exception as e:                     # noqa: BLE001
+            raise FetchFailed(url, str(e))
     from pathlib import Path
     path = Path(url)
     if not path.exists():

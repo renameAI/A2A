@@ -8,7 +8,8 @@
 from .. import progress
 from ..config import Settings, get_settings
 from ..errors import ProfileBelowMinimum
-from ..ingest.chunking import Chunk, chunk_text, pdf_to_text
+from ..ingest.chunking import (Chunk, chunk_text, docx_to_text,
+                               pdf_to_text)
 from ..ingest.extractor import extract_profile
 from ..ingest.fetchers import fetch_instagram, fetch_pdf_bytes, fetch_url
 from ..schemas import (AssetType, CompanyPortrait, OntologyAnchor, Profile,
@@ -78,7 +79,13 @@ def _asset_text(asset, settings: Settings) -> str:
     if asset.content:
         return asset.content
     if asset.type == AssetType.ir_deck:
-        return pdf_to_text(fetch_pdf_bytes(asset.url or "", settings))
+        # 확장자로 파서를 고른다. 업로드 경로가 확장자를 보존하므로(서명 발급
+        # 때 서버가 붙인다) 여기서 신뢰할 수 있다.
+        url = asset.url or ""
+        data = fetch_pdf_bytes(url, settings)
+        if url.lower().endswith(".docx"):
+            return docx_to_text(data)
+        return pdf_to_text(data)
     if asset.type == AssetType.instagram:
         return fetch_instagram(asset.url or "", settings)
     if asset.type == AssetType.website:

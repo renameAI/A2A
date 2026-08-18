@@ -28,6 +28,32 @@ def pdf_to_text(data: bytes) -> str:
     return "\n\n".join(pages)
 
 
+def docx_to_text(data: bytes) -> str:
+    """Word(.docx) → 텍스트.
+
+    LLM에 맡기지 않는 이유: .docx는 zip 안의 XML이라 텍스트가 **이미 구조로
+    존재한다**. 모델을 통과시키면 비용이 들고, 없던 문장이 생길 여지가 생기며,
+    결과가 실행마다 흔들린다. 읽어낼 수 있는 것은 읽어낸다.
+
+    표를 함께 뽑는 이유: 회사 소개 문서는 실적·고객사·스펙을 표에 담는 경우가
+    많다. 본문만 뽑으면 그 부분이 통째로 사라진다.
+    """
+    from docx import Document
+    doc = Document(io.BytesIO(data))
+    parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    for t in doc.tables:
+        for row in t.rows:
+            cells = [c.text.strip() for c in row.cells if c.text.strip()]
+            if cells:
+                # 중복 셀 제거 — 병합 셀은 같은 텍스트를 여러 번 돌려준다
+                seen, uniq = set(), []
+                for c in cells:
+                    if c not in seen:
+                        seen.add(c); uniq.append(c)
+                parts.append(" | ".join(uniq))
+    return "\n".join(parts)
+
+
 def chunk_text(text: str, source: str,
                max_chars: int = DEFAULT_CHUNK_CHARS) -> list[Chunk]:
     """문단 경계 우선 분할. 문단이 max_chars를 넘으면 그 안에서 하드 분할."""

@@ -65,7 +65,8 @@ def test_path_traversal_blocked(client):
 def test_saas_requires_auth(client):
     for path in ["/saas/jobs/x", "/saas/lead-requests", "/saas/settings/llm"]:
         assert client.get(path).status_code == 401
-    assert client.post("/saas/upload").status_code == 401
+    assert client.post("/saas/uploads/sign",
+                       json={"filename": "a.pdf"}).status_code == 401
 
 
 def test_job_scoped_to_workspace(client, monkeypatch):
@@ -96,41 +97,50 @@ def test_job_denied_for_unlisted_user(client):
                       headers={"X-Dev-User": "stranger"}).status_code == 403
 
 
-def test_upload_rejects_non_pdf_content(client):
-    """확장자는 사용자가 붙이는 것이라 신뢰할 수 없다 — 매직바이트로 본다."""
-    r = client.post("/saas/upload", headers={"X-Dev-User": "boram"},
-                    files={"file": ("a.pdf", b"not a pdf", "application/pdf")})
-    assert r.status_code == 400
-    r = client.post("/saas/upload", headers={"X-Dev-User": "boram"},
-                    files={"file": ("a.txt", b"%PDF-1.4\n", "application/pdf")})
-    assert r.status_code == 400          # 확장자도 함께 본다
+def _no_network(monkeypatch):
+    """서명 발급이 실제 스토리지로 나가지 않게 한다 — 이 파일은 경로·권한만 본다."""
+    from app.saas import storage as st
+    monkeypatch.setattr(st, "sign_upload",
+                        lambda obj: {"path": obj, "token": "t"})
 
 
-def test_upload_size_cap(client, monkeypatch):
-    """상한 로직을 검증한다 — 40MB 페이로드를 실제로 만들면 테스트가 느려지고
-    (실측 수십 초) 검증되는 것은 같다. 상수를 낮춰 경계만 본다."""
-    from app.saas import router as r_mod
-    monkeypatch.setattr(r_mod, "_UPLOAD_MAX", 4096)
-    ok = b"%PDF-1.4\n" + b"x" * 1000
-    assert client.post("/saas/upload", headers={"X-Dev-User": "boram"},
-                       files={"file": ("ok.pdf", ok, "application/pdf")}
-                       ).status_code == 200
-    big = b"%PDF-1.4\n" + b"x" * 8192
-    assert client.post("/saas/upload", headers={"X-Dev-User": "boram"},
-                       files={"file": ("big.pdf", big, "application/pdf")}
-                       ).status_code == 413
+def test_sign_rejects_unsupported_extension(client, monkeypatch):
+    """받는 형식은 PDF와 .docx뿐. 구형 .doc은 OLE 복합문서라 파서가 다르다."""
+    _no_network(monkeypatch)
+    H = {"X-Dev-User": "boram"}
+    for name in ("a.txt", "a.doc", "a.hwp", "a.pdf.exe", "noext"):
+        r = client.post("/saas/uploads/sign", headers=H,
+                        json={"filename": name})
+        assert r.status_code == 400, name
+    for name in ("a.pdf", "회사소개.DOCX"):
+        assert client.post("/saas/uploads/sign", headers=H,
+                           json={"filename": name}).status_code == 200, name
 
 
-def test_upload_stored_under_workspace(client, tmp_path):
-    """업로드는 워크스페이스 디렉터리에 담기고, 원본 파일명은 경로에 안 쓴다
-    (고객사 실명이 경로에 남지 않게)."""
-    r = client.post("/saas/upload", headers={"X-Dev-User": "boram"},
-                    files={"file": ("고객사_IR.pdf", b"%PDF-1.4\n" + b"x" * 100,
-                                    "application/pdf")})
+def test_sign_path_is_server_chosen_and_workspace_scoped(client, monkeypatch):
+    """경로를 서버가 정한다 — 클라이언트가 정하면 남의 워크스페이스에 쓸 수 있다.
+
+    원본 파일명은 경로에 넣지 않는다(고객사 실명이 스토리지 경로에 남는다).
+    """
+    _no_network(monkeypatch)
+    r = client.post("/saas/uploads/sign", headers={"X-Dev-User": "boram"},
+                    json={"filename": "고객사_IR.pdf"})
     assert r.status_code == 200
-    path = r.json()["path"]
-    assert "ws-boram" in path and "고객사" not in path
-    assert r.json()["filename"] == "고객사_IR.pdf"
+    body = r.json()
+    assert body["path"].startswith("ws-boram/")
+    assert "고객사" not in body["path"] and body["path"].endswith(".pdf")
+    assert body["filename"] == "고객사_IR.pdf"     # 표시용으로만 돌려준다
+
+
+def test_sign_cannot_be_steered_into_another_workspace(client, monkeypatch):
+    """파일명에 경로 순회를 심어도 접두사를 벗어나지 못한다."""
+    _no_network(monkeypatch)
+    r = client.post("/saas/uploads/sign", headers={"X-Dev-User": "mallory"},
+                    json={"filename": "../../ws-boram/steal.pdf"})
+    # 확장자만 취하고 이름은 버리므로, 순회 문자열이 경로에 남지 않는다
+    if r.status_code == 200:
+        assert r.json()["path"].startswith("ws-mallory/")
+        assert ".." not in r.json()["path"]
 
 
 def test_health_endpoints(client):

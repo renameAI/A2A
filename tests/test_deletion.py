@@ -95,20 +95,44 @@ class TestDeleteEndpoints:
         assert bad.status_code == 400
         assert get_saas_store().get("lead_request", "ws-boram", "lr-x") is not None
 
-    def test_delete_me_wipes_workspace_and_files(self, client, tmp_path):
+    def test_delete_me_wipes_workspace_and_files(self, client, monkeypatch):
+        """문서와 함께 업로드 자료도 지운다.
+
+        자료는 이제 Supabase Storage에 있으므로, 지워야 할 것은 워크스페이스
+        접두사다. 문서만 지우면 고객사 IR덱이 스토리지에 남는다.
+        """
         from app.saas.store import get_saas_store
+        from app.saas import storage as st
         store = get_saas_store()
         _seed(store)
-        up = client.post("/saas/upload", headers=H,
-                         files={"file": ("a.pdf", b"%PDF-1.4\n" + b"x" * 50,
-                                         "application/pdf")})
-        assert up.status_code == 200
+        removed = {}
+        monkeypatch.setattr(st, "remove_prefix",
+                            lambda prefix: removed.setdefault(prefix, 3))
         # 확인 문구는 사용자의 email — dev 모드는 {user}@dev.local
         r = client.post("/saas/me/delete", headers=H,
                         json={"confirm": "boram@dev.local"})
-        assert r.status_code == 200 and r.json()["files"] == 1
+        assert r.status_code == 200 and r.json()["files"] == 3
+        assert removed == {"ws-boram": 3}          # 자기 접두사만 지운다
         assert store.list("lead_request", "ws-boram") == []
-        assert not (Path(tmp_path / "up") / "ws-boram").exists()
+
+    def test_delete_survives_storage_failure(self, client, monkeypatch):
+        """스토리지 정리가 실패해도 문서 삭제는 되돌리지 않는다.
+
+        여기서 500을 내면 사용자는 '삭제가 안 됐다'고 읽고 다시 누르지만,
+        문서는 이미 지워져 있다. 실패는 로그로 남기고 삭제는 완료한다.
+        """
+        from app.saas.store import get_saas_store
+        from app.saas import storage as st
+        store = get_saas_store()
+        _seed(store)
+
+        def _boom(prefix):
+            raise RuntimeError("storage down")
+        monkeypatch.setattr(st, "remove_prefix", _boom)
+        r = client.post("/saas/me/delete", headers=H,
+                        json={"confirm": "boram@dev.local"})
+        assert r.status_code == 200 and r.json()["files"] == 0
+        assert store.list("lead_request", "ws-boram") == []
 
 
 class TestLedgerScanBounded:

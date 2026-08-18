@@ -68,12 +68,7 @@ async function api(path: string, body?: unknown,
   return j;
 }
 
-/** 업로드는 multipart라 Content-Type을 브라우저가 정해야 한다 — 헤더에서 뺀다. */
-async function uploadHeaders(): Promise<Record<string, string>> {
-  const h = await authHeaders();
-  delete (h as Record<string, string>)["Content-Type"];
-  return h;
-}
+
 
 const POLL_MAX_MS = 15 * 60_000;   // 엔진 job 타임아웃(900s)과 맞춘 상한
 const POLL_FAIL_MAX = 5;           // 연속 통신 실패 허용치
@@ -641,24 +636,27 @@ function Workspace({ who }: { who: string }) {
     return `${name}을(를) 업로드하지 못했어요 (${status}).`;
   }
 
+  /** 파일을 스토리지로 **직접** 올린다.
+   *
+   * 예전엔 파일이 Next Route Handler를 거쳐 엔진으로 갔는데, Vercel 함수의
+   * 요청 본문 상한이 4.5MB라 IR덱은 413으로 튕겼다(요금제로 못 올린다).
+   * 지금은 엔진에서 서명만 받고 브라우저가 스토리지로 바로 올린다 — 파일이
+   * 함수를 통과하지 않으므로 그 상한이 적용되지 않는다.
+   *
+   * 경로는 엔진이 정한다(워크스페이스 접두사 + 난수 이름). 클라이언트가
+   * 경로를 못 정하므로 남의 워크스페이스에 쓰거나 남의 파일을 덮어쓸 수 없다.
+   */
   async function uploadFiles(files: File[]) {
     const assets: Array<Record<string, string>> = [];
     for (const f of files) {
-      const fd = new FormData();
-      fd.append("file", f);
-      // rewrites 프록시는 큰 multipart에서 500이 난다(실측 35MB) —
-      // 스트리밍 Route Handler(app/api/upload/route.ts)를 쓴다.
-      const r = await fetch("/api/upload", {
-        method: "POST", headers: await uploadHeaders(), body: fd });
-      if (!r.ok) {
-        // 엔진이 주는 설명이 있으면 그것을 쓴다. 없을 때 "PDF만 가능"으로
-        // 뭉개면 안 된다 — 413(4.5MB 초과)과 500(서버 오류)이 전부 형식
-        // 문제로 보여서, 사용자가 멀쩡한 PDF를 계속 다시 올린다(실측).
-        const j = await r.json().catch(() => ({}));
-        throw new Error(j?.error?.message || uploadFailure(r.status, f.name));
-      }
-      const { path } = await r.json();
-      assets.push({ type: "ir_deck", content: "", url: path });
+      const sign = await api("/uploads/sign", { filename: f.name }, "POST");
+      const { error } = await supabase!.storage
+        .from(sign.bucket)
+        .uploadToSignedUrl(sign.path, sign.token, f,
+                           { contentType: sign.content_type });
+      if (error) throw new Error(`${f.name} 업로드 실패 — ${error.message}`);
+      assets.push({ type: "ir_deck", content: "",
+                    url: `supabase://${sign.path}` });
     }
     return assets;
   }
@@ -1183,9 +1181,9 @@ function Workspace({ who }: { who: string }) {
               }} />
             <div className="comp-bar">
               <div className="left">
-                <input ref={fileRef} type="file" accept=".pdf" multiple hidden
+                <input ref={fileRef} type="file" accept=".pdf,.docx" multiple hidden
                   onChange={onPickFiles} />
-                <button className="icon-btn" title="자료 올리기 (PDF)"
+                <button className="icon-btn" title="자료 올리기 (PDF·Word)"
                   onClick={() => fileRef.current?.click()}>＋</button>
               </div>
               <button className="send" onClick={send} disabled={!input.trim() || busy}

@@ -8,7 +8,7 @@ import os
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -30,7 +30,7 @@ from ..schemas import (Asset, BasicInfo, CandidateInsight, ComposeLeadRequest,
                        DialogueTurn, Intent, PoolChoice, Profile, ProvField,
                        Provenance, RepresentRequest, RetrieveDirection,
                        RetrieveRequest)
-from . import cost
+from . import cost, storage
 from .auth import SaasUser, current_user
 from .store import get_saas_store
 
@@ -38,12 +38,6 @@ router = APIRouter(prefix="/saas", tags=["saas"])
 
 class _SkipSnippetLog(Exception):
     """스니펫 로그가 꺼져 있다는 내부 신호 — 오류가 아니다."""
-
-
-def _upload_root() -> Path:
-    """호출 시점에 env를 읽는다 — 모듈 상수로 두면 테스트가 저장소에 파일을
-    쓰고, 배포에서 UPLOAD_DIR을 바꿔도 반영되지 않는다."""
-    return Path(os.environ.get("UPLOAD_DIR", "uploads"))
 
 
 def _submit(background: BackgroundTasks, fn, user: "SaasUser | None" = None) -> dict:
@@ -179,50 +173,36 @@ def usage(user: SaasUser = Depends(current_user)):
 # /product/upload를 대체한다. 그쪽은 인증도, 크기 상한도, 형식 검증도 없어
 # 공개 프록시로 노출되면 누구나 서버 디스크를 채울 수 있었다(감사 확정 발견).
 
-_UPLOAD_MAX = 40 * 1024 * 1024      # 40MB — IR덱 실측 상한(35MB)에 여유
-_CHUNK = 1024 * 1024
 
 
-@router.post("/upload")
-async def upload(file: UploadFile,
-                 user: SaasUser = Depends(current_user)):
-    """PDF만, 40MB까지, 워크스페이스별 디렉터리에 저장한다.
+class UploadSignIn(BaseModel):
+    filename: str
 
-    스트리밍으로 받는 이유: 전체를 메모리에 올리면 40MB 요청 몇 개로
-    max-instances=1 인스턴스의 1Gi가 날아간다.
-    원본 파일명을 경로에 쓰지 않는 이유: 고객사 실명이 파일 경로에 남고,
-    경로 순회·인코딩 문제의 입구가 된다. 이름은 응답으로만 돌려준다.
+
+@router.post("/uploads/sign")
+def sign_upload_url(body: UploadSignIn,
+                    user: SaasUser = Depends(current_user)):
+    """브라우저가 스토리지로 **직접** 올릴 서명 URL을 발급한다.
+
+    파일이 이 함수를 통과하지 않는다. 통과하면 Vercel의 요청 본문 4.5MB
+    상한에 걸리는데(413, 요금제와 무관), 그건 IR덱에 턱없이 부족하다.
+
+    경로는 서버가 정한다 — 워크스페이스 접두사와 난수 이름을 여기서 붙이므로
+    클라이언트가 남의 워크스페이스에 쓰거나 남의 파일을 덮어쓸 수 없다.
+    원본 파일명은 경로에 넣지 않는다(고객사 실명이 경로에 남고 경로 순회의
+    입구가 된다) — 응답으로만 돌려준다.
     """
-    name = (file.filename or "").strip()
-    if not name.lower().endswith(".pdf"):
-        raise EngineError(400, "invalid_input", "PDF 파일만 업로드할 수 있습니다.")
-    d = _upload_root() / user.workspace_id
-    d.mkdir(parents=True, exist_ok=True)
-    path = d / f"{uuid.uuid4().hex}.pdf"
-    size = 0
-    first = True
-    try:
-        with path.open("wb") as out:
-            while chunk := await file.read(_CHUNK):
-                if first:
-                    # 확장자는 사용자가 붙이는 것이라 신뢰할 수 없다 — 매직바이트로 본다
-                    if not chunk.startswith(b"%PDF-"):
-                        raise EngineError(400, "invalid_input",
-                                          "PDF 형식이 아닙니다 (내용 검사 실패).")
-                    first = False
-                size += len(chunk)
-                if size > _UPLOAD_MAX:
-                    raise EngineError(413, "too_large",
-                                      f"파일이 너무 큽니다 — 최대 "
-                                      f"{_UPLOAD_MAX // (1024*1024)}MB.")
-                out.write(chunk)
-    except EngineError:
-        path.unlink(missing_ok=True)     # 거부한 파일을 디스크에 남기지 않는다
-        raise
-    if size == 0:
-        path.unlink(missing_ok=True)
-        raise EngineError(400, "invalid_input", "빈 파일입니다.")
-    return {"path": str(path), "filename": name, "size": size}
+    name = (body.filename or "").strip()
+    ext = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
+    if ext not in storage.CONTENT_TYPES:
+        raise EngineError(
+            400, "invalid_input",
+            "PDF 또는 Word(.docx) 파일만 올릴 수 있습니다. "
+            "구형 .doc은 .docx로 저장한 뒤 올려주세요.")
+    obj = f"{user.workspace_id}/{uuid.uuid4().hex}{ext}"
+    signed = storage.sign_upload(obj)
+    return {"path": obj, "token": signed["token"], "bucket": storage.BUCKET,
+            "content_type": storage.CONTENT_TYPES[ext], "filename": name}
 
 
 # ── 사용자·워크스페이스 ─────────────────────────────────────────────
@@ -434,13 +414,14 @@ def delete_me(body: DeleteMe, user: SaasUser = Depends(current_user)):
                           f"확인 문구가 다릅니다 — '{expected}' 를 그대로 입력하세요.")
     store = get_saas_store()
     n = store.delete_workspace(user.workspace_id)
-    # 업로드한 원본 자료도 지운다 — 문서만 지우면 IR덱 PDF가 디스크에 남는다
-    import shutil
-    d = _upload_root() / user.workspace_id
+    # 업로드한 원본 자료도 지운다 — 문서만 지우면 IR덱이 스토리지에 남는다
     files = 0
-    if d.exists():
-        files = sum(1 for _ in d.iterdir())
-        shutil.rmtree(d, ignore_errors=True)
+    try:
+        files = storage.remove_prefix(user.workspace_id)
+    except Exception as e:          # noqa: BLE001 — 문서 삭제까지 되돌리지 않는다
+        from .. import progress
+        progress.log("삭제", f"⚠ 스토리지 정리 실패({type(e).__name__}) — "
+                             f"자료가 남았을 수 있습니다")
     return {"deleted_workspace": user.workspace_id,
             "documents": n, "files": files}
 
