@@ -75,6 +75,11 @@ button{font:inherit;cursor:pointer;border:none;background:none}
 .chan.done{color:#7C8499}
 .side-foot{padding:10px 16px;border-top:1px solid rgba(255,255,255,.07);
   font-size:11.5px;color:#7C8499;display:flex;align-items:center;gap:7px}
+/* 상태 문구가 줄어들어야 버튼이 온전히 남는다 — 버튼이 '비밀/번호'로
+   쪼개지면 무엇을 누르는 것인지 읽히지 않는다(실측). min-width:0이 없으면
+   flex 항목은 콘텐츠 아래로 안 줄어들어 축약 자체가 일어나지 않는다. */
+.side-foot > :first-of-type ~ :not(button){min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
 .dot-live{width:7px;height:7px;border-radius:50%;background:#2BAC76;
   animation:pulse 2.2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
@@ -459,8 +464,19 @@ a.ct-v{color:var(--blue)}
   color:var(--txt-2);text-decoration:underline;text-underline-offset:2px}
 .linky:hover:not(:disabled){color:var(--txt)}
 .linky:disabled{color:var(--txt-3);cursor:default;text-decoration:none}
-.side-out{margin-left:auto;font-size:11.5px;color:#7C8499}
+.side-out{margin-left:auto;font-size:11.5px;color:#7C8499;
+  white-space:nowrap;flex-shrink:0}
 .side-out:hover{color:#C7CCDA;text-decoration:underline}
+.side-out-tight{margin-left:10px}
+.side-pw{padding:0 16px 12px;display:flex;flex-wrap:wrap;gap:6px}
+.side-pw-input{flex:1;min-width:0;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.12);border-radius:7px;
+  padding:6px 9px;font-size:12px;color:#E7EAF2}
+.side-pw-input:focus{outline:none;border-color:var(--coral)}
+.side-pw-save{background:rgba(255,255,255,.10);border:none;border-radius:7px;
+  padding:6px 11px;font-size:12px;color:#E7EAF2;cursor:pointer}
+.side-pw-save:disabled{opacity:.45;cursor:default}
+.side-pw-msg{flex-basis:100%;font-size:11px;color:#9AA3B5}
 
 /* 진행 표시·취소 — 무한 스피너 앞에서 사용자가 할 수 있는 게 있어야 한다.
    헤더는 가로 공간이 좁으므로 진행 문구는 잘라내고 취소는 절대 줄바꿈하지

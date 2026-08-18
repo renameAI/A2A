@@ -444,6 +444,31 @@ function Workspace({ who }: { who: string }) {
   const [recs, setRecs] = useState<KwRec[]>([]);
   const [replied, setReplied] = useState<Set<string>>(new Set());
   const signOut = () => supabase?.auth.signOut();
+
+  /** 지금 로그인한 계정의 비밀번호를 설정한다.
+   *
+   * 실패해도 로그인 수단을 잃지 않는다 — 코드 경로는 그대로 살아 있으므로,
+   * 오타로 엉뚱한 값이 들어가도 코드로 들어와 다시 설정하면 된다. */
+  async function savePassword() {
+    if (!supabase || !pwField) return;
+    setPwMsg("저장 중…");
+    const { error } = await supabase.auth.updateUser({ password: pwField });
+    if (error) {
+      const m = error.message.toLowerCase();
+      setPwMsg(m.includes("at least") || m.includes("should be")
+        ? "너무 짧아요 — 더 길게 정해 주세요."
+        : error.message);
+      return;
+    }
+    setPwField(null);
+    setPwMsg("");
+    alert("비밀번호가 설정됐어요. 다음 로그인부터 쓸 수 있어요.");
+  }
+
+  // 비밀번호 설정칸 — 열려 있을 때만 렌더한다(평소 사이드바를 어지럽히지
+  // 않는다). null = 닫힘, "" = 열렸고 아직 입력 없음.
+  const [pwField, setPwField] = useState<string | null>(null);
+  const [pwMsg, setPwMsg] = useState("");
   const [reqs, setReqs] = useState<ReqSummary[]>([]);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [likedC, setLikedC] = useState<Set<string>>(new Set());
@@ -938,10 +963,30 @@ function Workspace({ who }: { who: string }) {
             </span>
           )}
           {isConfigured && (
-            <button className="side-out" onClick={signOut}
-              title={who}>로그아웃</button>
+            <>
+              <button className="side-out" onClick={() => {
+                setPwMsg(""); setPwField((v) => (v === null ? "" : null));
+              }}>비밀번호</button>
+              <button className="side-out side-out-tight" onClick={signOut}
+                title={who}>로그아웃</button>
+            </>
           )}
         </div>
+        {/* 비밀번호 설정 — updateUser는 **현재 세션**으로만 동작한다.
+            즉 이미 로그인한 사람이 자기 것을 바꾸는 경로이고, 로그인 화면에
+            둘 수 없는 이유(누구나 누를 수 있음)가 여기서는 성립하지 않는다. */}
+        {pwField !== null && (
+          <div className="side-pw">
+            <input className="side-pw-input" type="password" value={pwField}
+              placeholder="새 비밀번호" autoFocus
+              autoComplete="new-password"
+              onChange={(e) => setPwField(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && savePassword()} />
+            <button className="side-pw-save" onClick={savePassword}
+              disabled={!pwField}>저장</button>
+            {pwMsg && <div className="side-pw-msg">{pwMsg}</div>}
+          </div>
+        )}
       </aside>
 
       <main className="main">
