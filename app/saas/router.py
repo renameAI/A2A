@@ -1087,14 +1087,29 @@ def deep_read(rid: str, background: BackgroundTasks,
         from ..engine.company_ontology import confirmed_ratio, read_company
         from ..ingest.crawler import crawl_website
         cid = c["company_id"]
+        site = c["source_url"]
+        found_via = ""
         if c.get("source_kind") != "own":
-            return cid, {"deep_read": {"status": "no_site",
-                                       "note": "출처가 회사 사이트가 아니라 읽지 않음"}}
+            # 기사·디렉터리 URL은 그 회사 사이트가 아니다 — 이름으로 찾는다.
+            # 실측: 상위 10곳 중 5곳이 이 경우라, 이게 없으면 절반을 못 읽는다.
+            from ..engine.candidate_extract import _site_of
+            from ..engine.site_discovery import find_official_site
+            try:
+                cost.reserve(store, user.workspace_id, rid, "brief")
+                site, p_site = find_official_site(
+                    get_extractor(settings), settings, c["name"],
+                    c.get("what", ""), exclude_site=_site_of(c["source_url"]))
+            except Exception as e:                   # noqa: BLE001
+                site, p_site = "", 0.0
+            if not site:
+                return cid, {"deep_read": {"status": "no_site",
+                                           "note": "공식 사이트를 확신 있게 찾지 못함"}}
+            found_via = f"검색으로 발견 (p={p_site:.2f})"
         try:
-            text = crawl_website(c["source_url"], settings)
+            text = crawl_website(site, settings)
         except Exception as e:                       # noqa: BLE001
             return cid, {"deep_read": {"status": "fetch_failed",
-                                       "note": type(e).__name__}}
+                                       "note": type(e).__name__, "site": site}}
         if not text.strip():
             return cid, {"deep_read": {"status": "empty",
                                        "note": "본문을 읽지 못함(JS 렌더링 등)"}}
@@ -1104,7 +1119,7 @@ def deep_read(rid: str, background: BackgroundTasks,
                 get_extractor(settings),
                 {"name": c["name"], "name_ko": c.get("name_ko", ""),
                  "what": c.get("what", ""), "signal": c.get("signal", ""),
-                 "url": c["source_url"]},
+                 "url": site},
                 region=intent.target_region or "", purpose=intent.purpose,
                 site_text=text)
         except Exception as e:                       # noqa: BLE001
@@ -1115,7 +1130,8 @@ def deep_read(rid: str, background: BackgroundTasks,
         return cid, {"ontology": d,
                      "deep_read": {"status": "done", "chars": len(text),
                                    "contacts": len(ont.contacts),
-                                   "signals": len(ont.signals)}}
+                                   "signals": len(ont.signals),
+                                   "site": site, "note": found_via}}
 
     def _run() -> dict:
         from concurrent.futures import ThreadPoolExecutor
