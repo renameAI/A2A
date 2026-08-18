@@ -145,6 +145,18 @@ function loginError(raw: string): string {
     return "메일 발송 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.";
   if (m.includes("only request this after") || m.includes("60 seconds"))
     return "방금 코드를 보냈어요. 1분 뒤에 다시 요청할 수 있어요.";
+  // 순서 주의: 아래 코드 만료 규칙이 "invalid"를 넓게 잡으므로, 그보다
+  // 좁은 문구를 먼저 본다. 실측으로 걸렸던 버그다 — 비밀번호가 틀렸는데
+  // "Invalid login credentials"가 'invalid'에 먼저 걸려 "코드가 맞지 않다"고
+  // 안내했다. 사용자는 있지도 않은 코드를 다시 받으러 간다.
+  //
+  // 비밀번호가 틀린 경우와 비밀번호가 아예 설정되지 않은 계정에 대해
+  // Supabase는 같은 문구를 준다 — 어느 계정에 비밀번호가 있는지 알려주지
+  // 않기 위해서다. 우리도 그 구분을 화면에 드러내지 않는다.
+  if (m.includes("invalid login credentials"))
+    return "이메일 또는 비밀번호가 올바르지 않아요.";
+  if (m.includes("email logins are disabled"))
+    return "이 프로젝트에서 비밀번호 로그인이 꺼져 있어요.";
   if (m.includes("expired") || m.includes("invalid"))
     return "코드가 맞지 않거나 만료됐어요. 다시 받아 주세요.";
   if (m.includes("signups not allowed") || m.includes("not authorized"))
@@ -152,6 +164,17 @@ function loginError(raw: string): string {
   if (m.includes("failed to fetch") || m.includes("network"))
     return "네트워크에 연결하지 못했어요. 연결을 확인해 주세요.";
   return raw;
+}
+
+type Stage = "email" | "code" | "password";
+
+/** 첫 화면을 무엇으로 열 것인가.
+ *
+ * 메일 발송이 켜져 있으면 '코드 받기'가 주 경로다. 꺼져 있으면 보낼 것이
+ * 없으므로 비밀번호를 먼저 보여준다 — 이때 코드 경로는 관리자가 발급한
+ * 코드를 쓰는 보조 수단으로 남는다(scripts/issue_login_code.py). */
+function defaultStage(): Stage {
+  return emailLoginEnabled ? "email" : "password";
 }
 
 /** 로그인 게이트. Supabase 미설정이면 통과(로컬 dev) — 설정 여부를 화면이
@@ -170,10 +193,8 @@ function loginError(raw: string): string {
  * 보내는 동안에도 로그인이 되어야 하므로, 코드 전환은 단절이 아니라 추가다. */
 export default function Gate() {
   const [ready, setReady] = useState(!isConfigured);
-  // 발송이 꺼져 있으면 '보내기' 단계가 존재하지 않는다 — 이메일과 코드를
-  // 한 화면에서 받는다. 단계가 하나뿐이므로 사용자가 막다른 길에 걸리지 않는다.
-  const [stage, setStage] = useState<"email" | "code">(
-    emailLoginEnabled ? "email" : "code");
+  const [stage, setStage] = useState<Stage>(defaultStage());
+  const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
@@ -195,8 +216,8 @@ export default function Gate() {
       // 로그아웃 직후 '코드를 보냈어요' 화면에 **직전 인증코드가 입력된 채**
       // 다시 나타났다. 공용 화면에서는 그 코드가 그대로 노출된다.
       if (!sess) {
-        setStage(emailLoginEnabled ? "email" : "code");
-        setCode(""); setErr(""); setCooldown(0);
+        setStage(defaultStage());
+        setCode(""); setPassword(""); setErr(""); setCooldown(0);
       }
     });
     return () => sub.subscription.unsubscribe();
@@ -241,7 +262,34 @@ export default function Gate() {
         <div className="login-brand">rename<em>.</em></div>
         <div className="login-sub">Lead 발굴 워크스페이스</div>
 
-        {stage === "email" ? (
+        {stage === "password" ? (
+          <>
+            <input className="login-input" type="email" value={email}
+              placeholder="회사 이메일" autoFocus autoComplete="username"
+              disabled={busy}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && signInPassword()} />
+            <input className="login-input" type="password" value={password}
+              placeholder="비밀번호" autoComplete="current-password"
+              disabled={busy}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && signInPassword()} />
+            <button className="btn pri login-btn" onClick={signInPassword}
+              disabled={busy || !email.trim() || !password}>
+              {busy ? "확인 중…" : "로그인"}
+            </button>
+            <div className="login-alt">
+              <button className="linky" onClick={() => goStage("code")}
+                disabled={busy}>
+                코드로 로그인
+              </button>
+            </div>
+            <p className="login-note">
+              비밀번호는 설정된 계정만 쓸 수 있어요.
+              없으면 코드로 로그인해 주세요.
+            </p>
+          </>
+        ) : stage === "email" ? (
           <>
             <input className="login-input" type="email" value={email}
               placeholder="회사 이메일" autoFocus autoComplete="email"
@@ -252,8 +300,14 @@ export default function Gate() {
               disabled={busy || !email.trim()}>
               {busy ? "보내는 중…" : "인증 코드 받기"}
             </button>
+            <div className="login-alt">
+              <button className="linky" onClick={() => goStage("password")}
+                disabled={busy}>
+                비밀번호로 로그인
+              </button>
+            </div>
             <p className="login-note">
-              비밀번호 없이 메일로 받은 코드로 들어옵니다.
+              메일로 받은 코드로 들어옵니다.
               허용된 계정만 접근할 수 있어요.
             </p>
           </>
@@ -302,10 +356,18 @@ export default function Gate() {
                 </p>
               </>
             ) : (
-              <p className="login-note">
-                지금은 메일 발송이 꺼져 있어요.<br />
-                관리자에게 로그인 코드를 요청해 주세요.
-              </p>
+              <>
+                <div className="login-alt">
+                  <button className="linky" onClick={() => goStage("password")}
+                    disabled={busy}>
+                    비밀번호로 로그인
+                  </button>
+                </div>
+                <p className="login-note">
+                  지금은 메일 발송이 꺼져 있어요.<br />
+                  관리자에게 로그인 코드를 요청해 주세요.
+                </p>
+              </>
             )}
           </>
         )}
@@ -316,6 +378,23 @@ export default function Gate() {
 
   function backToEmail() {
     setStage("email"); setCode(""); setErr("");
+  }
+
+  /** 경로 전환. 이전 경로에서 뜬 오류·입력을 끌고 가지 않는다 —
+   *  '비밀번호가 틀렸다'가 코드 화면에 남아 있으면 무엇이 문제인지 모른다. */
+  function goStage(next: Stage) {
+    setStage(next); setErr(""); setCode(""); setPassword("");
+  }
+
+  async function signInPassword() {
+    if (!supabase || !email.trim() || !password || busy) return;
+    setBusy(true); setErr("");
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(), password,
+    });
+    setBusy(false);
+    // 성공하면 onAuthStateChange가 세션을 받아 ready로 넘어간다.
+    if (error) { setErr(loginError(error.message)); setPassword(""); }
   }
 
   async function sendCode() {
