@@ -477,10 +477,27 @@ def list_requests(limit: int = 50, user: SaasUser = Depends(current_user)):
 
 @router.get("/lead-requests/{rid}")
 def get_request(rid: str, user: SaasUser = Depends(current_user)):
-    doc = get_saas_store().get("lead_request", user.workspace_id, rid)
+    store = get_saas_store()
+    doc = store.get("lead_request", user.workspace_id, rid)
     if doc is None:
         raise EngineError(404, "not_found", f"Request {rid} 없음")
-    return doc
+    # 파생물(인사이트·메일 초안·결과)은 따로 저장돼 있었지만 여기 실리지 않아
+    # 화면은 새로고침 뒤 "초안이 사라졌다"고 보였다. 실측: 저장은 되고 있었고
+    # 조회만 없었다. 후보별로 묶어 준다 — 초안은 본문까지 실어 다시 열 수 있게.
+    derived = {}
+    for c in doc.get("candidates") or []:
+        cid = c["company_id"]
+        k = _derived_key(doc, rid, cid)
+        ins = store.get("insight", user.workspace_id, k)
+        drf = store.get("email_draft", user.workspace_id, k)
+        out = store.get("outcome", user.workspace_id, f"{rid}::{cid}")
+        if ins or drf or out:
+            derived[cid] = {"has_insight": bool(ins), "insight": ins,
+                            "draft": drf,
+                            "outcome": {"saved": bool((out or {}).get("saved")),
+                                        "drafted": bool((out or {}).get("drafted")),
+                                        "replied": (out or {}).get("replied", "")}}
+    return {**doc, "derived": derived}
 
 
 @router.delete("/lead-requests/{rid}")

@@ -442,6 +442,13 @@ function Workspace({ who }: { who: string }) {
   const [saved, setSaved] = useState<Map<string, Cand>>(new Map());
   const [recs, setRecs] = useState<KwRec[]>([]);
   const [replied, setReplied] = useState<Set<string>>(new Set());
+  // 후보별 파생물(초안·인사이트·결과) — 서버에 이미 저장돼 있던 것을 복원 때
+  // 받아 둔다. 없으면 화면은 매번 처음인 것처럼 보였다.
+  const [derived, setDerived] =
+    useState<Record<string, { draft?: { drafts?: Draft[] } | null;
+                              has_insight?: boolean;
+                              outcome?: { saved: boolean; drafted: boolean;
+                                          replied: string } }>>({});
   const signOut = () => supabase?.auth.signOut();
 
   /** 지금 로그인한 계정의 비밀번호를 설정한다.
@@ -519,6 +526,16 @@ function Workspace({ who }: { who: string }) {
       const fb = doc.feedback ?? {};
       setLikedC(new Set(fb.liked ?? []));
       setDislikedC(new Set(fb.disliked ?? []));
+      // 저장·답장·초안 상태를 서버 원장에서 되살린다 — 새로고침이 진행을 지우면
+      // 도구가 아니라 일회성 검색이다.
+      const dv = (doc.derived ?? {}) as typeof derived;
+      setDerived(dv);
+      const byId = new Map<string, Cand>((doc.candidates ?? []).map((c: Cand) => [c.company_id, c]));
+      setSaved(new Map(Object.entries(dv)
+        .filter(([, v]) => v.outcome?.saved && byId.has)
+        .flatMap(([cid, v]) => v.outcome?.saved && byId.get(cid) ? [[cid, byId.get(cid)!]] : [])));
+      setReplied(new Set(Object.entries(dv)
+        .filter(([, v]) => v.outcome?.replied === "yes").map(([cid]) => cid)));
       const u = new URL(location.href);
       u.searchParams.set("r", rid);
       history.replaceState(null, "", u.toString());
@@ -981,12 +998,24 @@ function Workspace({ who }: { who: string }) {
       const c = await api(`/lead-requests/${requestId}/candidates/${cid}/compose`, undefined, "POST");
       const res = (await waitJob(c.job_id)) as { drafts: Draft[] };
       const d = res.drafts[0];
+      setDerived((prev) => ({ ...prev, [cid]: { ...(prev[cid] ?? {}),
+        draft: res, has_insight: true,
+        outcome: { ...(prev[cid]?.outcome ?? { saved: false, replied: "" }),
+                   drafted: true } } }));
       push({
         who: "agent", text: "초안이에요. 발송은 직접 하셔야 해요.",
         jsx: <MailDraft d={d} />,
       });
     } catch (e) { push({ who: "agent", text: (e as Error).message }); }
     finally { setBusy(false); }
+  }
+
+  /** 저장된 초안을 다시 연다 — 다시 만들면 비용이 들고 문장이 바뀐다. */
+  function reopenDraft(cid: string, name: string) {
+    const d = derived[cid]?.draft?.drafts?.[0];
+    if (!d) return;
+    push({ who: "agent", text: `${name}에게 보낼 저장된 초안이에요.`,
+           jsx: <MailDraft d={d} /> });
   }
 
   function send() {
@@ -1226,8 +1255,17 @@ function Workspace({ who }: { who: string }) {
                     }}>
                     {saved.has(c.company_id) ? "저장됨" : "저장"}
                   </button>
-                  <button className="mini"
-                    onClick={() => draftMail(c.company_id)}>메일 초안</button>
+                  {derived[c.company_id]?.draft?.drafts?.length ? (
+                    <>
+                      <button className="mini saved" title="저장된 초안 다시 열기"
+                        onClick={() => reopenDraft(c.company_id, c.name)}>초안 보기</button>
+                      <button className="mini" title="새로 씁니다 (비용 발생)"
+                        onClick={() => draftMail(c.company_id)}>다시 쓰기</button>
+                    </>
+                  ) : (
+                    <button className="mini"
+                      onClick={() => draftMail(c.company_id)}>메일 초안</button>
+                  )}
                   <button
                     className={`mini ${replied.has(c.company_id) ? "saved" : ""}`}
                     onClick={async () => {
@@ -1329,7 +1367,10 @@ function Workspace({ who }: { who: string }) {
                 <a href={c.source_url} target="_blank" rel="noreferrer"
                   style={{ fontSize: 12 }}>{c.source_url}</a>
                 <button className="mini" style={{ marginTop: 6 }}
-                  onClick={() => draftMail(c.company_id)}>메일 초안</button>
+                  onClick={() => derived[c.company_id]?.draft?.drafts?.length
+                    ? reopenDraft(c.company_id, c.name) : draftMail(c.company_id)}>
+                  {derived[c.company_id]?.draft?.drafts?.length ? "초안 보기" : "메일 초안"}
+                </button>
               </div>
             ))}
       </aside>

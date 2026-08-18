@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.engine.keywords import outcome_weight, recommend
+from tests.test_saas_layer import client  # noqa: F401
 
 
 class FakeStore:
@@ -128,3 +129,37 @@ def test_why_explains_reply():
         WS, ["일본 수입사 회사소개"])
     top = next(r for r in recs if r["query"] == "Q2 수입사")
     assert "답장 1건" in top["why"]
+
+
+class TestDerivedOnGet:
+    """GET /lead-requests/{rid}가 인사이트·초안·결과를 후보별로 실어준다.
+
+    실측: 세 가지 다 저장은 되고 있었는데 조회에 없어, 새로고침하면 화면이
+    '초안이 사라졌다'고 보였다. 저장은 되고 복원이 안 되면 도구가 아니다.
+    """
+    def test_get_carries_derived_by_candidate(self, client):
+        from app.saas.store import get_saas_store
+        from app.saas.router import _derived_key
+        H = {"X-Dev-User": "boram"}
+        store = get_saas_store()
+        pv = store.new_id("pv")
+        store.put("profile_version", "ws-boram", pv, {"version_id": pv, "profile": {}})
+        rid = "lr-derived"
+        doc = {"request_id": rid, "profile_version_id": pv, "generation": 2,
+               "candidates": [{"company_id": "c1", "name": "A"},
+                              {"company_id": "c2", "name": "B"}]}
+        store.put("lead_request", "ws-boram", rid, doc)
+        store.put("email_draft", "ws-boram", _derived_key(doc, rid, "c1"),
+                  {"drafts": [{"subject": "s", "body": "b", "warnings": []}]})
+        store.put("outcome", "ws-boram", f"{rid}::c1",
+                  {"saved": True, "drafted": True, "replied": "yes"})
+        # 다른 세대의 초안은 실리면 안 된다 — 같은 company_id에 다른 회사였을 수 있다
+        store.put("email_draft", "ws-boram", f"{rid}::g1::c2",
+                  {"drafts": [{"subject": "old", "body": "old", "warnings": []}]})
+
+        r = client.get(f"/saas/lead-requests/{rid}", headers=H).json()
+        d = r["derived"]
+        assert d["c1"]["draft"]["drafts"][0]["subject"] == "s"
+        assert d["c1"]["outcome"] == {"saved": True, "drafted": True, "replied": "yes"}
+        assert d["c1"]["has_insight"] is False
+        assert "c2" not in d                       # 옛 세대 초안은 무시
