@@ -125,13 +125,57 @@ async function pollJob(jobId: string, opts: {
   }
 }
 
+/** 메일로 받은 일회용 코드의 자릿수 (Supabase의 mailer_otp_length).
+ *
+ * 이 값은 화면 힌트와 자동 제출에만 쓴다 — 서버 설정이 바뀌어도 로그인이
+ * 막히지 않도록, 제출 버튼은 6자리 이상이면 항상 열어둔다. 길이를 하드
+ * 게이트로 쓰면 설정 한 줄 바뀔 때 아무도 못 들어온다. */
+const OTP_LEN = 8;
+const OTP_MIN = 6;      // 자동 제출은 안 해도 수동 제출은 허용하는 하한
+const RESEND_COOLDOWN = 60;   // GoTrue가 동일 사용자에게 강제하는 재요청 간격(초)
+
+/** Supabase(영문) 오류를 사용자가 행동할 수 있는 한국어로 옮긴다.
+ *
+ * 원문을 그대로 띄우면 "Token has expired or is invalid"를 본 사용자가
+ * 무엇을 해야 하는지 모른다. 매칭에 실패하면 원문을 그대로 보여준다 —
+ * 모르는 오류를 '알 수 없는 오류'로 뭉개면 디버깅 단서가 사라진다. */
+function loginError(raw: string): string {
+  const m = raw.toLowerCase();
+  if (m.includes("rate limit") || m.includes("over_email_send_rate"))
+    return "메일 발송 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.";
+  if (m.includes("only request this after") || m.includes("60 seconds"))
+    return "방금 코드를 보냈어요. 1분 뒤에 다시 요청할 수 있어요.";
+  if (m.includes("expired") || m.includes("invalid"))
+    return "코드가 맞지 않거나 만료됐어요. 다시 받아 주세요.";
+  if (m.includes("signups not allowed") || m.includes("not authorized"))
+    return "허용된 계정이 아니에요. 관리자에게 접근을 요청해 주세요.";
+  if (m.includes("failed to fetch") || m.includes("network"))
+    return "네트워크에 연결하지 못했어요. 연결을 확인해 주세요.";
+  return raw;
+}
+
 /** 로그인 게이트. Supabase 미설정이면 통과(로컬 dev) — 설정 여부를 화면이
- *  드러내므로 '인증이 조용히 사라진' 상태가 생기지 않는다. */
+ *  드러내므로 '인증이 조용히 사라진' 상태가 생기지 않는다.
+ *
+ * 링크가 아니라 **코드**로 들어온다. 이유는 두 가지 실측 실패 모드다:
+ * 1) 기업 메일 보안(Microsoft Safe Links·Proofpoint·Mimecast)이 배달 전에
+ *    링크를 미리 열어본다. 매직링크는 일회용이라 스캐너가 먼저 소진하고,
+ *    사용자는 '만료된 링크'를 본다. supabase/auth#1214가 2023년부터 열려
+ *    있다 — 우리 쪽에서 고칠 수 있는 문제가 아니다.
+ * 2) 데스크톱에서 요청하고 폰에서 메일을 열면 세션이 폰에 생긴다.
+ * 코드는 URL이 아니라서 스캐너가 클릭할 것이 없고, 눈으로 읽어 옮겨 적으므로
+ * 기기가 갈려도 시작한 화면에서 로그인이 끝난다.
+ *
+ * 링크 경로도 계속 동작한다(emailRedirectTo 유지) — 메일 템플릿이 링크를
+ * 보내는 동안에도 로그인이 되어야 하므로, 코드 전환은 단절이 아니라 추가다. */
 export default function Gate() {
   const [ready, setReady] = useState(!isConfigured);
+  const [stage, setStage] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
+  const [code, setCode] = useState("");
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [who, setWho] = useState("");
 
   useEffect(() => {
@@ -143,9 +187,28 @@ export default function Gate() {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, sess) => {
       setWho(sess?.user?.email ?? "");
       setReady(Boolean(sess));
+      // 세션이 사라지면(로그아웃·만료) 로그인 폼을 처음 상태로 되돌린다.
+      // Gate는 언마운트되지 않으므로 stage/code가 그대로 남는다 — 실측:
+      // 로그아웃 직후 '코드를 보냈어요' 화면에 **직전 인증코드가 입력된 채**
+      // 다시 나타났다. 공용 화면에서는 그 코드가 그대로 노출된다.
+      if (!sess) { setStage("email"); setCode(""); setErr(""); setCooldown(0); }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // 재요청 쿨다운 — 서버가 어차피 60초를 강제하므로, 눌러도 실패하는 버튼을
+  // 열어두는 대신 남은 시간을 보여준다(실패를 겪게 하지 않는다).
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  // 자동 제출 — 자릿수가 다 차면 사용자가 버튼을 찾지 않아도 된다.
+  useEffect(() => {
+    if (stage === "code" && code.length === OTP_LEN && !busy) verify();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, stage]);
 
   // 설정 누락을 dev 폴백으로 덮지 않는다 — 배포 사고를 화면이 말한다
   if (isMisconfigured) return (
@@ -164,27 +227,61 @@ export default function Gate() {
     </div>
   );
   if (ready) return <Workspace who={who || (isConfigured ? "" : DEV_USER)} />;
+
   return (
     <div className="login">
       <div className="login-box">
         <div className="login-brand">rename<em>.</em></div>
         <div className="login-sub">Lead 발굴 워크스페이스</div>
-        {sent ? (
-          <p className="login-msg">
-            <b>{email}</b>으로 로그인 링크를 보냈어요.<br />
-            메일의 링크를 열면 이 화면이 자동으로 넘어갑니다.
-          </p>
-        ) : (
+
+        {stage === "email" ? (
           <>
             <input className="login-input" type="email" value={email}
-              placeholder="회사 이메일" autoFocus
+              placeholder="회사 이메일" autoFocus autoComplete="email"
+              disabled={busy}
               onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && send()} />
-            <button className="btn pri login-btn" onClick={send}>
-              로그인 링크 받기
+              onKeyDown={(e) => e.key === "Enter" && sendCode()} />
+            <button className="btn pri login-btn" onClick={sendCode}
+              disabled={busy || !email.trim()}>
+              {busy ? "보내는 중…" : "인증 코드 받기"}
             </button>
             <p className="login-note">
-              비밀번호 없이 메일 링크로 들어옵니다. 허용된 계정만 접근할 수 있어요.
+              비밀번호 없이 메일로 받은 코드로 들어옵니다.
+              허용된 계정만 접근할 수 있어요.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="login-msg">
+              <b>{email}</b>으로<br />{OTP_LEN}자리 코드를 보냈어요.
+            </p>
+            {/* maxLength를 DOM에 걸지 않는다 — 브라우저는 숫자만 남기기
+                *전에* 원본 길이로 잘라서, 오타로 문자가 한 번 섞이면 그만큼
+                자릿수를 잃는다(실측: "12ab345678" → "123456"). 길이 제한은
+                숫자만 걸러낸 뒤 코드가 건다. 붙여넣기도 같은 이유로 여기서만
+                자른다. */}
+            <input className="login-input login-code" value={code}
+              autoFocus inputMode="numeric" autoComplete="one-time-code"
+              disabled={busy}
+              onChange={(e) =>
+                setCode(e.target.value.replace(/\D/g, "").slice(0, OTP_LEN))}
+              onKeyDown={(e) => e.key === "Enter" && verify()} />
+            <button className="btn pri login-btn" onClick={verify}
+              disabled={busy || code.length < OTP_MIN}>
+              {busy ? "확인 중…" : "로그인"}
+            </button>
+            <div className="login-alt">
+              <button className="linky" onClick={sendCode}
+                disabled={busy || cooldown > 0}>
+                {cooldown > 0 ? `코드 다시 받기 (${cooldown}초)` : "코드 다시 받기"}
+              </button>
+              <button className="linky" onClick={backToEmail} disabled={busy}>
+                다른 이메일로
+              </button>
+            </div>
+            <p className="login-note">
+              메일이 안 보이면 스팸함도 확인해 주세요.
+              코드는 1시간 뒤 만료됩니다.
             </p>
           </>
         )}
@@ -193,14 +290,34 @@ export default function Gate() {
     </div>
   );
 
-  async function send() {
-    if (!supabase || !email.trim()) return;
-    setErr("");
+  function backToEmail() {
+    setStage("email"); setCode(""); setErr("");
+  }
+
+  async function sendCode() {
+    if (!supabase || !email.trim() || busy) return;
+    setBusy(true); setErr(""); setCode("");
+    // emailRedirectTo를 유지해 링크 경로도 살려둔다 — 템플릿이 코드로 바뀌기
+    // 전까지는 메일에 링크가 담기므로, 링크를 눌러도 로그인이 되어야 한다.
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: { emailRedirectTo: window.location.origin },
     });
-    error ? setErr(error.message) : setSent(true);
+    setBusy(false);
+    if (error) { setErr(loginError(error.message)); return; }
+    setStage("code"); setCooldown(RESEND_COOLDOWN);
+  }
+
+  async function verify() {
+    if (!supabase || code.length < OTP_MIN || busy) return;
+    setBusy(true); setErr("");
+    // type: "email" — 메일로 보낸 일회용 코드의 검증 타입.
+    // 성공하면 onAuthStateChange가 세션을 받아 ready로 넘어간다.
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.trim(), token: code, type: "email",
+    });
+    setBusy(false);
+    if (error) { setErr(loginError(error.message)); setCode(""); }
   }
 }
 

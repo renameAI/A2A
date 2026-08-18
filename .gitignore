@@ -32,3 +32,6 @@ runs/
 !.claude/skills/
 saas.db
 .vercel
+
+# Next.js 로컬 환경파일 (anon 키는 공개용이나, env 파일은 커밋하지 않는다)
+.env*.local
