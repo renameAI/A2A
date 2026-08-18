@@ -1049,6 +1049,98 @@ class OutcomeIn(BaseModel):
     replied: "Literal['yes', 'no', ''] | None" = None
 
 
+# ── 심층 판독 — '닿기'의 마지막 1마일 ─────────────────────────────────
+#
+# 발굴 직후의 온톨로지는 검색 스니펫만 읽는다. 실측(프로덕션 5건 전부): 1위
+# 후보 접점 0건·타이밍 신호 0건. 200자 안에 이메일·담당·채용·뉴스가 있을 리
+# 없다. 여기서 후보 회사의 사이트를 실제로 가져와 다시 읽는다.
+#
+# 별도 job인 이유: 웨이브1이 이미 300초 근처(실측 303s)라 같은 job에 넣으면
+# Vercel 상한을 넘긴다. 목록은 먼저 보여주고 뒤에서 채운다.
+#
+# 출처가 own인 후보만 읽는다: 기사·디렉터리 URL은 그 회사 사이트가 아니다 —
+# 크롤하면 엉뚱한 페이지를 그 회사의 것으로 읽는다. 그런 후보는 "사이트
+# 미확인"으로 정직하게 남긴다(사이트 발견은 다음 단계).
+_DEEP_READ_TOP = 10
+_DEEP_READ_WORKERS = 4         # 크롤+판독은 IO 대기가 대부분 — 병렬이 이득
+
+
+class DeepReadIn(BaseModel):
+    company_ids: list[str] | None = None     # 비우면 상위 _DEEP_READ_TOP
+
+
+@router.post("/lead-requests/{rid}/deep-read", status_code=202)
+def deep_read(rid: str, background: BackgroundTasks,
+              body: DeepReadIn | None = None,
+              user: SaasUser = Depends(current_user)):
+    store = get_saas_store()
+    doc, _profile, intent = _load_request(store, user, rid)
+    if not doc.get("candidates"):
+        raise EngineError(409, "invalid_state", "후보가 아직 없습니다 — 검색 먼저")
+    settings = get_settings()
+    want = set((body.company_ids if body and body.company_ids else
+                [c["company_id"] for c in doc["candidates"][:_DEEP_READ_TOP]]))
+    targets = [c for c in doc["candidates"] if c["company_id"] in want]
+
+    def _one(c: dict) -> tuple[str, dict]:
+        """(company_id, 갱신 필드). 실패는 상태로 남긴다 — 조용히 넘기지 않는다."""
+        from ..engine.company_ontology import confirmed_ratio, read_company
+        from ..ingest.crawler import crawl_website
+        cid = c["company_id"]
+        if c.get("source_kind") != "own":
+            return cid, {"deep_read": {"status": "no_site",
+                                       "note": "출처가 회사 사이트가 아니라 읽지 않음"}}
+        try:
+            text = crawl_website(c["source_url"], settings)
+        except Exception as e:                       # noqa: BLE001
+            return cid, {"deep_read": {"status": "fetch_failed",
+                                       "note": type(e).__name__}}
+        if not text.strip():
+            return cid, {"deep_read": {"status": "empty",
+                                       "note": "본문을 읽지 못함(JS 렌더링 등)"}}
+        cost.reserve(store, user.workspace_id, rid, "deep_read")
+        try:
+            ont = read_company(
+                get_extractor(settings),
+                {"name": c["name"], "name_ko": c.get("name_ko", ""),
+                 "what": c.get("what", ""), "signal": c.get("signal", ""),
+                 "url": c["source_url"]},
+                region=intent.target_region or "", purpose=intent.purpose,
+                site_text=text)
+        except Exception as e:                       # noqa: BLE001
+            return cid, {"deep_read": {"status": "read_failed",
+                                       "note": type(e).__name__}}
+        d = ont.model_dump(mode="json")
+        d["confirmed_ratio"] = confirmed_ratio(ont)
+        return cid, {"ontology": d,
+                     "deep_read": {"status": "done", "chars": len(text),
+                                   "contacts": len(ont.contacts),
+                                   "signals": len(ont.signals)}}
+
+    def _run() -> dict:
+        from concurrent.futures import ThreadPoolExecutor
+        from .. import progress
+        progress.log("판독", f"상위 {len(targets)}곳 사이트 심층 판독 시작")
+        with ThreadPoolExecutor(max_workers=_DEEP_READ_WORKERS) as ex:
+            results = dict(ex.map(_one, targets))
+        # 최신 문서에 병합한다 — 판독 중 사용자가 반응(👍/👋)을 남겼을 수 있다.
+        fresh = store.get("lead_request", user.workspace_id, rid) or doc
+        for coll in ("candidates", "pool"):
+            for c in fresh.get(coll) or []:
+                upd = results.get(c["company_id"])
+                if upd:
+                    c.update(upd)
+        store.put("lead_request", user.workspace_id, rid, fresh)
+        done = sum(1 for r in results.values()
+                   if r["deep_read"]["status"] == "done")
+        contacts = sum(r["deep_read"].get("contacts", 0) for r in results.values())
+        progress.log("판독", f"완료 — 판독 {done}/{len(targets)}곳, 접점 {contacts}건")
+        return {"candidates": fresh["candidates"],
+                "read": done, "total": len(targets)}
+
+    return _submit(background, _run, user)
+
+
 @router.post("/lead-requests/{rid}/candidates/{cid}/outcome")
 def set_outcome(rid: str, cid: str, body: OutcomeIn,
                 user: SaasUser = Depends(current_user)):

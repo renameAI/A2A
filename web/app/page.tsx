@@ -15,7 +15,8 @@ type Cand = { company_id: string; name: string; name_ko?: string;
   what?: string; signal?: string; source_url: string;
   pain_signal: string; retrieval_score: number; weak: boolean;
   segment?: string; found_by?: string; ontology?: Ont | null;
-  p?: number; source_kind?: string };
+  p?: number; source_kind?: string;
+  deep_read?: { status: string; note?: string; contacts?: number; signals?: number } };
 const SRC_LABEL: Record<string, string> = {
   own: "자사 페이지", directory: "디렉터리·협회", mention: "기사·언급" };
 type Ont = { axes: Record<string, { value: string; status: string }>;
@@ -852,6 +853,37 @@ function Workspace({ who }: { who: string }) {
   }
 
   /** 성공하면 true — 실패 시 카드가 다시 눌릴 수 있게 호출자에게 알린다. */
+  /** 상위 후보의 사이트를 실제로 읽어 접점·신호를 채운다.
+   *
+   * 검색 job과 분리한 이유: 웨이브1이 300초 근처라 같이 넣으면 Vercel 상한을
+   * 넘긴다. 목록은 즉시 보여주고, 판독이 끝나면 카드만 조용히 갱신한다.
+   * 실측: 스니펫만 읽던 때는 1위 후보 접점 0건 — 사이트를 읽자 UNDO는
+   * 접점 1·신호 3(Microsoft·BA·McLaren 파트너십), Project Cece는
+   * 파트너 모집 페이지가 나왔다. */
+  async function deepRead(rid: string) {
+    try {
+      const j = await api(`/lead-requests/${rid}/deep-read`, {}, "POST");
+      // waitJob을 쓰지 않는다 — 그건 abortRef와 진행 표시를 독점하는데, 판독은
+      // 사용자가 다음 행동(반응·재검색)을 하는 동안 뒤에서 도는 작업이다.
+      const res = (await pollJob(j.job_id, {})) as
+        { candidates: Cand[]; read: number; total: number };
+      // 교체가 아니라 병합 — 판독하는 동안 사용자가 재검색했으면 목록이 이미
+      // 바뀌어 있다. 옛 목록으로 되돌리면 안 되고, 겹치는 후보만 살찌운다.
+      const by = new Map(res.candidates.map((c) => [c.company_id, c]));
+      setCands((prev) => prev.map((c) => {
+        const u = by.get(c.company_id);
+        return u ? { ...c, ontology: u.ontology, deep_read: u.deep_read } : c;
+      }));
+      const contacts = res.candidates.reduce(
+        (n, c) => n + (c.ontology?.contacts?.length ?? 0), 0);
+      push({ who: "agent",
+        text: `상위 ${res.total}곳 중 ${res.read}곳의 사이트를 읽어 접점 ${contacts}건을 찾았어요. 카드를 펼치면 보여요.` });
+    } catch (e) {
+      // 판독 실패가 검색 결과를 가리면 안 된다 — 목록은 이미 떠 있다.
+      push({ who: "agent", text: `사이트 판독을 마치지 못했어요 — ${(e as Error).message}` });
+    }
+  }
+
   async function runSearch(rid: string, segments: string[],
                            extra: string[]): Promise<boolean> {
     setBusy(true);
@@ -868,6 +900,7 @@ function Workspace({ who }: { who: string }) {
           clarify: ClarifyQ[] };
       setCands(res.candidates);
       setRecs(res.keyword_recommendations || []);
+      if (res.candidates.length) void deepRead(rid);
       const bySeg = new Map<string, number>();
       for (const c of res.candidates)
         bySeg.set(c.segment || "", (bySeg.get(c.segment || "") ?? 0) + 1);
@@ -923,6 +956,7 @@ function Workspace({ who }: { who: string }) {
       setCands(res.candidates);
       if (res.final) {
         push({ who: "stamp", text: "후보를 확정했습니다" });
+        void deepRead(rid);
         push({ who: "agent",
           text: `최종 ${res.candidates.length}곳이에요. 저장한 후보만 메일 초안으로 이어져요.` });
       } else {
@@ -1152,6 +1186,13 @@ function Workspace({ who }: { who: string }) {
                 <div className="cand-acts">
                   <a className="mini" href={c.source_url} target="_blank"
                     rel="noreferrer">원문</a>
+                  {c.deep_read && (
+                    <span className="mini" title={c.deep_read.note ?? ""}>
+                      {c.deep_read.status === "done"
+                        ? `사이트 읽음 · 접점 ${c.deep_read.contacts ?? 0}`
+                        : c.deep_read.status === "no_site" ? "사이트 미확인"
+                        : "사이트 못 읽음"}
+                    </span>)}
                   {c.source_kind && SRC_LABEL[c.source_kind] && (
                     <span className="mini" title={`실존·부합 추정 p=${c.p ?? "?"}`}
                       style={{ opacity: c.source_kind === "mention" ? 0.6 : 0.85 }}>

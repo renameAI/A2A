@@ -40,6 +40,10 @@ _PRIORITY_KEYWORDS = [
     "about", "company", "회사", "소개", "product", "제품", "service", "서비스",
     "solution", "솔루션", "business", "사업", "team", "팀", "portfolio",
     "포트폴리오", "vision", "비전", "ir", "customer", "고객", "case", "사례",
+    # 아웃리치 재료 — 접점(연락처·담당)과 타이밍 신호(뉴스·채용·파트너 모집)는
+    # 소개 페이지가 아니라 이 페이지들에 있다. 후보 심층 판독이 이걸 읽는다.
+    "contact", "연락", "문의", "inquiry", "news", "뉴스", "press", "보도",
+    "career", "careers", "채용", "recruit", "jobs", "partner", "파트너",
 ]
 
 _CACHE_TTL_SECONDS = 24 * 3600   # ING-09

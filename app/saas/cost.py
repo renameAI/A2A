@@ -48,7 +48,8 @@ ESTIMATE_USD = {
     "prospect": 0.02,        # 후보 1곳 부분 프로필
     "insight": 0.02,
     "compose": 0.03,
-    "brief": 0.01,           # 승인 직후 Lead Request 폼 초안 (프로필 1개 입력)
+    "brief": 0.01,
+    "deep_read": 0.03,       # 후보 1곳 사이트 본문(≤9K자) 포함 온톨로지 재판독           # 승인 직후 Lead Request 폼 초안 (프로필 1개 입력)
     "tavily": 0.0,           # 무료 티어 — 호출 수만 기록
 }
 
