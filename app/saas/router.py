@@ -300,7 +300,13 @@ def answer_session(sid: str, req: OnboardingAnswer,
     if doc is None:
         raise EngineError(404, "not_found", f"온보딩 세션 {sid} 없음")
     pending = doc.get("current_questions") or []
-    if not pending:
+    # 프로필이 이미 있으면 채팅 입력은 **정정**이다. 성공한 /run도
+    # current_questions에 보강 질문을 남기지만 화면은 프로필 카드만 보여준다 —
+    # 사용자는 그 질문을 본 적이 없다. 본 적 없는 질문의 답으로 기록하면
+    # "뉴톤이야 기업명이"가 '푸는 문제' 필드의 최우선 신뢰 답이 된다(실측:
+    # 그 뒤 재생성 결과에 "고객이 뉴톤이야에 돈을 내기 직전에…"가 떴다).
+    # 질문에 답하는 경로는 프로필이 아직 없어 되묻는 중(clarifying)일 때뿐이다.
+    if doc.get("profile") or not pending:
         # 질문을 지어내지 않는다. 예전엔 "회사에 대해 자유롭게 알려주세요"를
         # 만들어 붙여서, 사용자의 정정("뉴톤이야 기업명이")이 **회사 자유
         # 서술**로 기록됐다 — 그 뒤 represent가 그걸 최우선 신뢰 자료로 읽고

@@ -175,3 +175,24 @@ class TestSessionRouting:
         doc = get_saas_store().get("onboarding", "ws-boram", sid)
         assert doc["dialogue"] == []                       # 가짜 Q&A 없음
         assert doc["corrections"] == ["뉴톤이야 기업명이"]   # 정정으로 남는다
+
+    def test_message_after_profile_is_a_correction_even_if_questions_linger(
+            self, client):
+        """성공한 /run이 남긴 보강 질문은 화면에 안 보인다 — 그 답으로 기록하면
+        안 된다(실측: '뉴톤이야 기업명이'가 '푸는 문제' 답이 됐다)."""
+        from app.saas.store import get_saas_store
+        H = {"X-Dev-User": "boram"}
+        sid = client.post("/saas/onboarding-sessions", headers=H, json={
+            "assets": [{"type": "text", "content": "자료"}]}).json()["session_id"]
+        store = get_saas_store()
+        doc = store.get("onboarding", "ws-boram", sid)
+        doc["profile"] = {"basic": {"name": "뉴턴", "country": "한국",
+                                    "industry": "x"}, "description": "d"}
+        doc["current_questions"] = ["귀사가 해결하는 문제는 무엇인가요?"]
+        store.put("onboarding", "ws-boram", sid, doc)
+        client.post(f"/saas/onboarding-sessions/{sid}/messages",
+                    headers=H, json={"answer": "뉴톤이야 기업명이"})
+        doc = store.get("onboarding", "ws-boram", sid)
+        assert doc["dialogue"] == []
+        assert doc["corrections"] == ["뉴톤이야 기업명이"]
+        assert doc["current_questions"] == ["귀사가 해결하는 문제는 무엇인가요?"]

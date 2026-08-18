@@ -966,7 +966,7 @@ function Workspace({ who }: { who: string }) {
       <nav className="rail" aria-label="워크스페이스">
         <div className="ws" title="rename">r.</div>
         <div className="spacer" />
-        <div className="me" title="보람">보</div>
+        <div className="me" title={who}>{(who || "?").trim()[0]?.toUpperCase()}</div>
       </nav>
 
       <aside className="side">
