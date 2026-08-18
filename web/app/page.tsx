@@ -630,6 +630,17 @@ function Workspace({ who }: { who: string }) {
 
   /** PDF 업로드 → 엔진이 파싱할 Asset으로 변환.
    *  Asset 계약: 업로드 파일은 url에 서버 경로, content는 빈 문자열. */
+  /** 본문 없는 실패의 원인을 상태 코드로 갈라 준다. */
+  function uploadFailure(status: number, name: string): string {
+    if (status === 413)
+      return `${name}이(가) 너무 큽니다 — 4.5MB를 넘으면 서버가 받지 못해요.`;
+    if (status === 401 || status === 403)
+      return "로그인이 만료됐어요. 새로고침 후 다시 시도해 주세요.";
+    if (status >= 500)
+      return `${name} 업로드 중 서버 오류(${status})예요. 파일 형식 문제는 아닙니다.`;
+    return `${name}을(를) 업로드하지 못했어요 (${status}).`;
+  }
+
   async function uploadFiles(files: File[]) {
     const assets: Array<Record<string, string>> = [];
     for (const f of files) {
@@ -640,8 +651,11 @@ function Workspace({ who }: { who: string }) {
       const r = await fetch("/api/upload", {
         method: "POST", headers: await uploadHeaders(), body: fd });
       if (!r.ok) {
+        // 엔진이 주는 설명이 있으면 그것을 쓴다. 없을 때 "PDF만 가능"으로
+        // 뭉개면 안 된다 — 413(4.5MB 초과)과 500(서버 오류)이 전부 형식
+        // 문제로 보여서, 사용자가 멀쩡한 PDF를 계속 다시 올린다(실측).
         const j = await r.json().catch(() => ({}));
-        throw new Error(j?.error?.message || `${f.name} 업로드 실패 (PDF만 가능)`);
+        throw new Error(j?.error?.message || uploadFailure(r.status, f.name));
       }
       const { path } = await r.json();
       assets.push({ type: "ir_deck", content: "", url: path });
@@ -1537,9 +1551,14 @@ function SegmentPicker({ segments, recs, onSubmit }: {
 
 function BriefForm({ onSubmit }:
   { onSubmit: (intent: Record<string, unknown>) => void }) {
-  const [region, setRegion] = useState("일본");
-  const [ttype, setTtype] = useState("독립 호텔");
-  const [notes, setNotes] = useState("객실 리노베이션과 운영 개선");
+  // 기본값을 비워 둔다. 예전엔 호텔 데모 값("일본"/"독립 호텔"/"객실
+  // 리노베이션과 운영 개선")이 그대로 박혀 있어서, 프로필이 무엇이든 늘 그
+  // 값으로 시작했다 — 탄소 MRV 회사에게 일본 호텔을 찾자고 제안하는 꼴이다.
+  // 채워진 칸은 사용자가 '엔진이 내 프로필을 읽고 제안한 값'으로 읽는다.
+  // 근거 없는 값을 채워 두는 것은 빈칸보다 나쁘다.
+  const [region, setRegion] = useState("");
+  const [ttype, setTtype] = useState("");
+  const [notes, setNotes] = useState("");
   const [count, setCount] = useState(10);
   const [purpose, setPurpose] = useState<"revenue" | "poc">("revenue");
   return (
@@ -1558,11 +1577,15 @@ function BriefForm({ onSubmit }:
           </button>
         </div>
         <div className="frm">
-          <label>지역<input value={region}
+          {/* 지역은 비워 두면 엔진이 지역어를 검색어에 아예 넣지 않는다
+              (retrieve.py의 '미지정' 규칙) — 빈칸이 곧 '전 세계'다. */}
+          <label>지역<input value={region} placeholder="비워 두면 전 세계"
             onChange={(e) => setRegion(e.target.value)} /></label>
           <label>상대 유형<input value={ttype}
+            placeholder="예: 자재를 납품받는 제조사"
             onChange={(e) => setTtype(e.target.value)} /></label>
           <label>제안 내용<input value={notes}
+            placeholder="상대에게 무엇을 제안하나요"
             onChange={(e) => setNotes(e.target.value)} /></label>
           <label>찾을 수<input type="number" min={1} max={30} value={count}
             onChange={(e) => setCount(+e.target.value || 10)} /></label>
