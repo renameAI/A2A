@@ -163,3 +163,52 @@ class TestDerivedOnGet:
         assert d["c1"]["outcome"] == {"saved": True, "drafted": True, "replied": "yes"}
         assert d["c1"]["has_insight"] is False
         assert "c2" not in d                       # 옛 세대 초안은 무시
+
+
+class TestPipeline:
+    """저장한 리드를 요청 넘어 단계별로 — 원장에 있는 것을 모을 뿐이다."""
+    def _seed(self, client):
+        from app.saas.store import get_saas_store
+        store = get_saas_store()
+        for rid, title in (("lr-a", "A요청"), ("lr-b", "B요청")):
+            store.put("lead_request", "ws-boram", rid, {"request_id": rid, "title": title})
+        return store
+
+    def test_saved_leads_are_grouped_by_stage(self, client):
+        store = self._seed(client)
+        store.put("outcome", "ws-boram", "lr-a::c1", {"request_id": "lr-a", "company_id": "c1",
+                  "name": "UNDO", "saved": True, "drafted": True, "replied": "", "stage": "contacted"})
+        store.put("outcome", "ws-boram", "lr-b::c2", {"request_id": "lr-b", "company_id": "c2",
+                  "name": "Varaha", "saved": True, "drafted": False, "replied": "yes", "stage": "replied"})
+        store.put("outcome", "ws-boram", "lr-b::c3", {"request_id": "lr-b", "company_id": "c3",
+                  "name": "NotSaved", "saved": False})
+        r = client.get("/saas/pipeline", headers={"X-Dev-User": "boram"}).json()
+        assert r["total"] == 2
+        assert [x["name"] for x in r["board"]["contacted"]] == ["UNDO"]
+        assert r["board"]["replied"][0]["request_title"] == "B요청"
+        assert all(x["name"] != "NotSaved" for st in r["board"].values() for x in st)
+
+    def test_stage_moves_and_replied_promotes(self, client):
+        from app.saas.store import get_saas_store
+        store = self._seed(client)
+        pv = store.new_id("pv")
+        store.put("profile_version", "ws-boram", pv, {"version_id": pv, "profile": {
+            "basic": {"name": "A", "country": "한국", "industry": "x"}, "description": "d",
+            "problem_solved": {"value": "p", "provenance": "stated", "confidence": 0.9},
+            "solution": {"value": "s", "provenance": "stated", "confidence": 0.9},
+            "target_customer": {"value": "t", "provenance": "stated", "confidence": 0.9}}})
+        store.put("lead_request", "ws-boram", "lr-a", {"request_id": "lr-a", "title": "A",
+                  "profile_version_id": pv,
+                  "intent": {"value_props": ["revenue_growth"], "lead_count": 5},
+                  "candidates": [{"company_id": "c1", "name": "UNDO", "source_url": "https://un-do.com"}]})
+        H = {"X-Dev-User": "boram"}
+        client.post("/saas/lead-requests/lr-a/candidates/c1/outcome", headers=H, json={"saved": True})
+        o = store.get("outcome", "ws-boram", "lr-a::c1")
+        assert o["stage"] == "saved" and o["name"] == "UNDO"
+        client.post("/saas/lead-requests/lr-a/candidates/c1/outcome", headers=H, json={"replied": "yes"})
+        assert store.get("outcome", "ws-boram", "lr-a::c1")["stage"] == "replied"
+        client.post("/saas/lead-requests/lr-a/candidates/c1/outcome", headers=H, json={"stage": "meeting", "note": "9/2 콜"})
+        o = store.get("outcome", "ws-boram", "lr-a::c1")
+        assert o["stage"] == "meeting" and o["note"] == "9/2 콜"
+        assert client.post("/saas/lead-requests/lr-a/candidates/c1/outcome", headers=H,
+                           json={"stage": "bogus"}).status_code in (400, 422)

@@ -26,6 +26,13 @@ type Ont = { axes: Record<string, { value: string; status: string }>;
 type Seg = { label: string; why: string };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
+type PipeRow = { request_id: string; request_title: string; company_id: string;
+  name: string; source_url: string; drafted: boolean; replied: string;
+  note: string; stage: string };
+type Pipeline = { stages: string[]; board: Record<string, PipeRow[]>; total: number };
+const STAGE_LABEL: Record<string, string> = {
+  saved: "저장", contacted: "연락함", replied: "답장", meeting: "미팅",
+  won: "성사", lost: "종료" };
 type OutreachKit = { to_role?: string; channel?: string; channel_value?: string;
   why_now?: string; hook?: string };
 type KwRec = { query: string; score: number; why: string };
@@ -479,6 +486,9 @@ function Workspace({ who }: { who: string }) {
   const [pwMsg, setPwMsg] = useState("");
   const [reqs, setReqs] = useState<ReqSummary[]>([]);
   const [usage, setUsage] = useState<Usage | null>(null);
+  // 파이프라인 보드 — 요청 넘어 저장한 리드를 단계별로. 열 때만 불러온다.
+  const [pipe, setPipe] = useState<Pipeline | null>(null);
+  const [pipeOpen, setPipeOpen] = useState(false);
   const [likedC, setLikedC] = useState<Set<string>>(new Set());
   const [dislikedC, setDislikedC] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
@@ -1078,10 +1088,15 @@ function Workspace({ who }: { who: string }) {
             ))}
           </div>
           <div className="sec">
-            <div className="sec-title"><span className="tri">▾</span> 저장한 Lead</div>
-            <button className="chan">
+            <div className="sec-title"><span className="tri">▾</span> 파이프라인</div>
+            <button className={`chan ${pipeOpen ? "active" : ""}`}
+              onClick={async () => {
+                if (pipeOpen) { setPipeOpen(false); return; }
+                try { setPipe(await api("/pipeline")); setPipeOpen(true); }
+                catch (e) { push({ who: "agent", text: (e as Error).message }); }
+              }}>
               <span className="hash">☆</span>
-              <span className="nm">저장 {saved.size}곳</span></button>
+              <span className="nm">저장한 리드 보드{pipe ? ` · ${pipe.total}` : ""}</span></button>
           </div>
         </div>
         <div className="side-foot">
@@ -1152,6 +1167,17 @@ function Workspace({ who }: { who: string }) {
             )}
           </div>
         </header>
+        {pipeOpen && pipe && (
+          <PipelineBoard pipe={pipe}
+            onOpen={(rid) => { setPipeOpen(false); openRequest(rid); }}
+            onStage={async (row, stage) => {
+              try {
+                await api(`/lead-requests/${row.request_id}/candidates/${row.company_id}/outcome`,
+                          { stage });
+                setPipe(await api("/pipeline"));
+              } catch (e) { push({ who: "agent", text: (e as Error).message }); }
+            }} />
+        )}
         <div className="msgs">
           <div className="day"><span>오늘</span></div>
           {msgs.map((m, i) => m.who === "stamp" ? (
@@ -1442,6 +1468,45 @@ function ProfileCard({ profile, onApprove, onFix }: {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** 파이프라인 보드 — 요청 넘어 저장한 리드를 단계별 열로. 단계 이동은 사용자의
+ *  손이다(답장 여부 같은 사실은 자동으로 올라오고, 미팅·성사는 사용자만 안다). */
+function PipelineBoard({ pipe, onOpen, onStage }: {
+  pipe: Pipeline;
+  onOpen: (rid: string) => void;
+  onStage: (row: PipeRow, stage: string) => void;
+}) {
+  if (pipe.total === 0) return (
+    <div className="board board-empty">
+      아직 저장한 리드가 없어요. 후보 카드의 <b>저장</b>을 누르면 여기 쌓여요.
+    </div>);
+  return (
+    <div className="board">
+      {pipe.stages.map((st) => (
+        <div className="board-col" key={st}>
+          <div className="board-col-h">
+            {STAGE_LABEL[st] ?? st}
+            <span className="board-n">{(pipe.board[st] ?? []).length}</span>
+          </div>
+          {(pipe.board[st] ?? []).map((r) => (
+            <div className="board-card" key={`${r.request_id}:${r.company_id}`}>
+              <div className="board-name">{r.name || r.company_id}</div>
+              <button className="linky board-req" onClick={() => onOpen(r.request_id)}
+                title="이 요청 열기">{r.request_title}</button>
+              <div className="board-meta">
+                {r.drafted && <span className="mini">초안</span>}
+                {r.replied === "yes" && <span className="mini saved">답장</span>}
+              </div>
+              <select className="board-sel" value={r.stage}
+                onChange={(e) => onStage(r, e.target.value)}>
+                {pipe.stages.map((x) => (
+                  <option key={x} value={x}>{STAGE_LABEL[x] ?? x}</option>))}
+              </select>
+            </div>))}
+        </div>))}
     </div>
   );
 }

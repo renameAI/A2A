@@ -1053,10 +1053,23 @@ def _record_outcome(store, ws: str, rid: str, cid: str, cand: dict,
         "request_id": rid, "company_id": cid,
         "segment": cand.get("segment", ""),
         "found_by": cand.get("found_by", ""),
-        "saved": False, "drafted": False, "replied": ""}
+        "saved": False, "drafted": False, "replied": "", "stage": "", "note": ""}
+    # 보드용 스냅샷 — 후보 이름·출처는 요청을 다시 열지 않고도 보여야 한다.
+    o["name"] = cand.get("name", o.get("name", ""))
+    o["source_url"] = cand.get("source_url", o.get("source_url", ""))
     o.update(fields)
+    if o.get("saved") and not o.get("stage"):
+        o["stage"] = "saved"
+    if o.get("drafted") and o.get("stage") in ("", "saved"):
+        o["stage"] = "contacted"
     store.put("outcome", ws, key, o)
     return o
+
+
+# 파이프라인 단계 — 사용자가 손으로 옮기는 값. saved/drafted/replied는 사실
+# 기록(자동·명시)이고, stage는 '지금 어디쯤인가'다. 둘을 섞지 않는다: 답장이
+# 왔다는 사실은 남고, 미팅을 잡았는지는 사용자만 안다.
+STAGES = ("saved", "contacted", "replied", "meeting", "won", "lost")
 
 
 class OutcomeIn(BaseModel):
@@ -1064,6 +1077,33 @@ class OutcomeIn(BaseModel):
     사실이므로 서버가 자동 기록한다(사용자 신고보다 정확하다)."""
     saved: "bool | None" = None
     replied: "Literal['yes', 'no', ''] | None" = None
+    stage: "Literal['saved', 'contacted', 'replied', 'meeting', 'won', 'lost'] | None" = None
+    note: "str | None" = None
+
+
+@router.get("/pipeline")
+def pipeline(user: SaasUser = Depends(current_user)):
+    """워크스페이스의 저장한 리드를 요청 넘어 한 줄로. 단계별로 묶어 준다.
+
+    검색 한 번이 아니라 도구가 되려면 '지난주에 저장한 그 회사'가 어디쯤인지
+    보여야 한다. 원장(outcome)에 이미 있는 것을 모으는 것뿐이라 비용이 없다.
+    """
+    store = get_saas_store()
+    rows = [o for o in store.list("outcome", user.workspace_id, limit=500)
+            if o.get("saved")]
+    titles = {r["request_id"]: (r.get("title") or r["request_id"])
+              for r in store.list("lead_request", user.workspace_id, limit=200)}
+    board = {st: [] for st in STAGES}
+    for o in rows:
+        st = o.get("stage") or "saved"
+        if st not in board:
+            st = "saved"
+        board[st].append({
+            "request_id": o["request_id"], "request_title": titles.get(o["request_id"], o["request_id"]),
+            "company_id": o["company_id"], "name": o.get("name", ""),
+            "source_url": o.get("source_url", ""), "drafted": bool(o.get("drafted")),
+            "replied": o.get("replied", ""), "note": o.get("note", ""), "stage": st})
+    return {"stages": list(STAGES), "board": board, "total": len(rows)}
 
 
 # ── 심층 판독 — '닿기'의 마지막 1마일 ─────────────────────────────────
@@ -1199,6 +1239,13 @@ def set_outcome(rid: str, cid: str, body: OutcomeIn,
         fields["saved"] = body.saved
     if body.replied is not None:
         fields["replied"] = body.replied
+        # 답장 사실은 단계도 끌어올린다 — 사용자가 두 번 표시하게 하지 않는다.
+        if body.replied == "yes":
+            fields.setdefault("stage", "replied")
+    if body.stage is not None:
+        fields["stage"] = body.stage
+    if body.note is not None:
+        fields["note"] = body.note[:500]
     return _record_outcome(store, user.workspace_id, rid, cid, cand, **fields)
 
 
