@@ -1105,11 +1105,22 @@ def deep_read(rid: str, background: BackgroundTasks,
                 return cid, {"deep_read": {"status": "no_site",
                                            "note": "공식 사이트를 확신 있게 찾지 못함"}}
             found_via = f"검색으로 발견 (p={p_site:.2f})"
+        text = ""
         try:
             text = crawl_website(site, settings)
         except Exception as e:                       # noqa: BLE001
-            return cid, {"deep_read": {"status": "fetch_failed",
-                                       "note": type(e).__name__, "site": site}}
+            crawl_err = type(e).__name__
+            # 정적 크롤이 못 읽으면(SPA·본문 부족) 렌더링 폴백 — 접점은 보통
+            # 루트와 /contact·/about에 있다. 실측: 찾은 사이트 3곳이 전부 SPA였다.
+            from ..connectors.tavily import extract as tavily_extract
+            from urllib.parse import urljoin
+            pages = tavily_extract([site, urljoin(site, "/contact"),
+                                    urljoin(site, "/about")], settings)
+            text = "\n\n".join(f"[{u}]\n{t}" for u, t in pages.items())
+            if not text.strip():
+                return cid, {"deep_read": {"status": "fetch_failed",
+                                           "note": crawl_err, "site": site}}
+            found_via = (found_via + " · " if found_via else "") + "렌더링 폴백"
         if not text.strip():
             return cid, {"deep_read": {"status": "empty",
                                        "note": "본문을 읽지 못함(JS 렌더링 등)"}}

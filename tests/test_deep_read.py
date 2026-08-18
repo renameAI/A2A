@@ -125,3 +125,30 @@ def test_deep_read_requires_candidates(client, monkeypatch):
     rid = _seed_request(client, monkeypatch, [])
     assert client.post(f"/saas/lead-requests/{rid}/deep-read", headers=H,
                        json={}).status_code == 409
+
+
+def test_spa_falls_back_to_rendered_extract(client, monkeypatch):
+    """정적 크롤이 실패하면 렌더링 폴백으로 읽는다 — 실측: 찾은 사이트 3곳이 전부 SPA."""
+    import app.saas.router as R
+    from app.ingest import crawler
+    from app.connectors import tavily
+    from app.engine import company_ontology as CO
+    from app.schemas import CompanyOntology, OntologyAxis
+    def boom(url, s): raise RuntimeError("SPA")
+    monkeypatch.setattr(crawler, "crawl_website", boom)
+    monkeypatch.setattr(tavily, "extract", lambda urls, s: {urls[0]: "렌더된 본문"})
+    seen = {}
+    def fake_read(extractor, company, *, region="", purpose="revenue", site_text=""):
+        seen["text"] = site_text
+        return CompanyOntology(axes={k: OntologyAxis(value="v", status="confirmed", evidence="e") for k in _AXES},
+                               search_keywords=[], signals=[], contacts=[])
+    monkeypatch.setattr(CO, "read_company", fake_read)
+    monkeypatch.setattr(R, "get_extractor", lambda s: object())
+    rid = _seed_request(client, monkeypatch, [
+        {"company_id": "c1", "name": "A", "source_url": "https://a.com", "source_kind": "own",
+         "what": "w", "signal": "", "pain_signal": "w", "ontology": None}])
+    res = _wait(client, client.post(f"/saas/lead-requests/{rid}/deep-read",
+                                    headers=H, json={}).json()["job_id"])
+    dr = res["candidates"][0]["deep_read"]
+    assert dr["status"] == "done" and "렌더링 폴백" in dr["note"]
+    assert "렌더된 본문" in seen["text"]

@@ -57,3 +57,37 @@ def search(query: str, settings: Settings, max_results: int = 8) -> list[dict]:
     except httpx.HTTPError as e:
         progress.log("검색", f"⚠ Tavily 실패({type(e).__name__}) — DuckDuckGo 폴백")
         return ddg_search(query, settings, max_results=max_results)
+
+
+_TAVILY_EXTRACT_URL = "https://api.tavily.com/extract"
+
+
+def extract(urls: list[str], settings: Settings) -> dict[str, str]:
+    """URL → 렌더된 본문. JS 렌더링 사이트(SPA)의 폴백이다.
+
+    우리 크롤러는 정적 HTML만 읽는다. 실측(프로덕션 심층 판독): varaha.earth·
+    pacificbiochar.com·zeroex.isometric.com이 전부 SPA라 본문 0자 — 사이트를
+    찾고도 못 읽었다. Tavily extract는 렌더링을 대신해 준다. 실패는 빈 dict —
+    호출자가 '못 읽음'으로 남긴다.
+    """
+    key = os.environ.get("TAVILY_API_KEY", "")
+    if not key or not urls:
+        return {}
+    try:
+        # extract_depth=advanced가 JS를 렌더한다. 기본(basic)은 정적 크롤과
+        # 같아서 SPA에 "Failed to fetch url"을 돌려줬다(실측 varaha.earth).
+        # advanced로 varaha·pacificbiochar가 각 11K자로 살아났다.
+        resp = httpx.post(_TAVILY_EXTRACT_URL, json={
+            "api_key": key, "urls": urls[:5], "extract_depth": "advanced",
+        }, timeout=max(settings.fetch_timeout, 90))
+        if resp.status_code != 200:
+            progress.log("수집", f"⚠ Tavily extract {resp.status_code}")
+            return {}
+        out = {}
+        for r in resp.json().get("results", []):
+            if r.get("url") and r.get("raw_content"):
+                out[r["url"]] = r["raw_content"]
+        return out
+    except httpx.HTTPError as e:
+        progress.log("수집", f"⚠ Tavily extract 실패({type(e).__name__})")
+        return {}
