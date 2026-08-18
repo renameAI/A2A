@@ -1227,7 +1227,8 @@ def make_insight(rid: str, cid: str, background: BackgroundTasks,
         ins = build_insight(
             get_extractor(settings), cid, profile, intent, thin,
             pain_signal=cand.get("pain_signal", ""),
-            source_urls=[u for u in [cand.get("source_url", "")] if u])
+            source_urls=[u for u in [cand.get("source_url", "")] if u],
+            ontology=cand.get("ontology"))
         store.put("insight", user.workspace_id, _derived_key(doc, rid, cid),
                   ins.model_dump(mode="json"))
         return {"insight": ins.model_dump(mode="json")}
@@ -1265,10 +1266,13 @@ def make_drafts(rid: str, cid: str, background: BackgroundTasks,
             requester_profile=profile, intent=intent, candidate_profile=thin,
             candidate_insight=CandidateInsight.model_validate(ins_doc),
             language=intent.outreach_language or "ko"))
-        store.put("email_draft", user.workspace_id, _derived_key(doc, rid, cid),
-                  res.model_dump(mode="json"))
+        out = res.model_dump(mode="json")
+        # 아웃리치 킷(누구에게·어디로·왜 지금·훅)을 초안과 함께 저장·반환한다 —
+        # 초안만 있고 보낼 곳이 없으면 사용자는 다시 사이트를 뒤져야 한다.
+        out["outreach"] = ins_doc.get("outreach") or {}
+        store.put("email_draft", user.workspace_id, _derived_key(doc, rid, cid), out)
         # 초안 생성은 서버가 아는 사실 — 결과 원장에 자동 기록 (B4)
         _record_outcome(store, user.workspace_id, rid, cid, cand, drafted=True)
-        return res.model_dump(mode="json")
+        return out
 
     return _submit(background, _run, user)

@@ -550,6 +550,9 @@ class CandidateInsight(BaseModel):
     personalization_hooks: list[str] = []
     uncertainties: list[str] = []
     source_urls: list[str] = []
+    # 아웃리치 킷 — 누구에게(역할)·어디로(채널)·왜 지금(신호)·첫 문장 훅.
+    # 심층 판독(사이트 본문)에서 읽은 접점·신호로 채운다. 근거 없으면 빈 문자열.
+    outreach: dict = {}
 
 
 class ComposeLeadRequest(BaseModel):

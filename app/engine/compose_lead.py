@@ -59,6 +59,23 @@ COMPOSE_LEAD_SCHEMA = {
 }
 
 
+def _kit_lines(kit: dict) -> str:
+    """아웃리치 킷 → 작성 지시. 있는 것만 적는다 — 없는 채널·역할을 본문에서
+    가정하게 만들면 안 된다."""
+    if not kit:
+        return ""
+    lines = []
+    if kit.get("to_role"):
+        lines.append(f"받는 사람의 역할: {kit['to_role']} — 그 역할에게 말하듯 쓴다")
+    if kit.get("why_now"):
+        lines.append(f"왜 지금인가(최근 신호): {kit['why_now']} — 첫 단락에서 이것을 짚는다")
+    if kit.get("hook"):
+        lines.append(f"첫 문장 훅: {kit['hook']}")
+    if kit.get("channel"):
+        lines.append(f"보낼 채널: {kit['channel']} — 폼이면 폼에 맞게 짧게")
+    return ("[아웃리치 킷 — 심층 판독에서 읽은 것]\n" + "\n".join(lines) + "\n") if lines else ""
+
+
 def _user(req: ComposeLeadRequest) -> str:
     ins = req.candidate_insight
     return (f"[요청 기업] {req.requester_profile.basic.name} — "
@@ -71,7 +88,8 @@ def _user(req: ComposeLeadRequest) -> str:
             f"연결점: {'; '.join(ins.value_bridge) or '없음'}\n"
             f"개인화 훅: {'; '.join(ins.personalization_hooks) or '없음'}\n"
             f"단정 금지(미확인): {'; '.join(ins.uncertainties) or '없음'}\n"
-            f"[지시] 언어={req.language} · {req.variants}개 안 · "
+            + _kit_lines(ins.outreach)
+            + f"[지시] 언어={req.language} · {req.variants}개 안 · "
             f"어조={req.tone or '정중하고 간결'} · "
             f"CTA={req.intent.call_to_action or '30분 온라인 소개'}")
 

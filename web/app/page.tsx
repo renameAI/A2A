@@ -26,6 +26,8 @@ type Ont = { axes: Record<string, { value: string; status: string }>;
 type Seg = { label: string; why: string };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
+type OutreachKit = { to_role?: string; channel?: string; channel_value?: string;
+  why_now?: string; hook?: string };
 type KwRec = { query: string; score: number; why: string };
 type ProfileDoc = {
   basic: { name: string; country?: string; industry?: string };
@@ -996,7 +998,8 @@ function Workspace({ who }: { who: string }) {
       const i = await api(`/lead-requests/${requestId}/candidates/${cid}/insight`, undefined, "POST");
       await waitJob(i.job_id);
       const c = await api(`/lead-requests/${requestId}/candidates/${cid}/compose`, undefined, "POST");
-      const res = (await waitJob(c.job_id)) as { drafts: Draft[] };
+      const res = (await waitJob(c.job_id)) as
+        { drafts: Draft[]; outreach?: OutreachKit };
       const d = res.drafts[0];
       setDerived((prev) => ({ ...prev, [cid]: { ...(prev[cid] ?? {}),
         draft: res, has_insight: true,
@@ -1004,7 +1007,7 @@ function Workspace({ who }: { who: string }) {
                    drafted: true } } }));
       push({
         who: "agent", text: "초안이에요. 발송은 직접 하셔야 해요.",
-        jsx: <MailDraft d={d} />,
+        jsx: <MailDraft d={d} kit={res.outreach} />,
       });
     } catch (e) { push({ who: "agent", text: (e as Error).message }); }
     finally { setBusy(false); }
@@ -1012,10 +1015,11 @@ function Workspace({ who }: { who: string }) {
 
   /** 저장된 초안을 다시 연다 — 다시 만들면 비용이 들고 문장이 바뀐다. */
   function reopenDraft(cid: string, name: string) {
-    const d = derived[cid]?.draft?.drafts?.[0];
+    const stored = derived[cid]?.draft as { drafts?: Draft[]; outreach?: OutreachKit } | null | undefined;
+    const d = stored?.drafts?.[0];
     if (!d) return;
     push({ who: "agent", text: `${name}에게 보낼 저장된 초안이에요.`,
-           jsx: <MailDraft d={d} /> });
+           jsx: <MailDraft d={d} kit={stored?.outreach} /> });
   }
 
   function send() {
@@ -1445,13 +1449,29 @@ function ProfileCard({ profile, onApprove, onFix }: {
 /** 메일 초안. 원문과 한국어 대역을 탭으로 오간다 —
  *  읽을 수 없는 메일을 승인해 보낼 수는 없다. 대역이 원문과 같으면
  *  (지정 언어가 한국어인 경우) 탭 자체를 띄우지 않는다. */
-function MailDraft({ d }: { d: Draft }) {
+function MailDraft({ d, kit }: { d: Draft; kit?: OutreachKit }) {
   const hasKo = !!d.body_ko && d.body_ko !== d.body;
   const [ko, setKo] = useState(hasKo);   // 기본은 읽을 수 있는 쪽
   const sub = ko && hasKo ? (d.subject_ko || d.subject) : d.subject;
   const body = ko && hasKo ? (d.body_ko || d.body) : d.body;
+  const kitRows: [string, string][] = kit ? ([
+    ["받는 사람", kit.to_role ?? ""],
+    ["보낼 곳", [kit.channel, kit.channel_value].filter(Boolean).join(" · ")],
+    ["왜 지금", kit.why_now ?? ""],
+  ] as [string, string][]).filter(([, v]) => v) : [];
   return (
     <div className="card">
+      {kitRows.length > 0 && (
+        <div className="mail-kit">
+          {kitRows.map(([k, v]) => (
+            <div className="mail-kit-row" key={k}>
+              <span className="mail-kit-k">{k}</span>
+              {/^https?:\/\//.test(v.split(" · ").pop() ?? "")
+                ? <a href={v.split(" · ").pop()} target="_blank" rel="noreferrer">{v}</a>
+                : <span>{v}</span>}
+            </div>))}
+        </div>
+      )}
       {hasKo && (
         <div className="mail-tabs">
           <button className={`mail-tab ${ko ? "on" : ""}`}
