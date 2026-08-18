@@ -7,8 +7,8 @@
  * 복원한다 (saas.html의 메모리 상태 소실 문제 해소).
  */
 import { useEffect, useRef, useState } from "react";
-import { authHeaders, DEV_USER, isConfigured, isMisconfigured, supabase }
-  from "./supabase";
+import { authHeaders, DEV_USER, emailLoginEnabled, isConfigured,
+  isMisconfigured, supabase } from "./supabase";
 
 type Msg = { who: "agent" | "user" | "stamp"; text: string; jsx?: React.ReactNode };
 type Cand = { company_id: string; name: string; name_ko?: string;
@@ -170,7 +170,10 @@ function loginError(raw: string): string {
  * 보내는 동안에도 로그인이 되어야 하므로, 코드 전환은 단절이 아니라 추가다. */
 export default function Gate() {
   const [ready, setReady] = useState(!isConfigured);
-  const [stage, setStage] = useState<"email" | "code">("email");
+  // 발송이 꺼져 있으면 '보내기' 단계가 존재하지 않는다 — 이메일과 코드를
+  // 한 화면에서 받는다. 단계가 하나뿐이므로 사용자가 막다른 길에 걸리지 않는다.
+  const [stage, setStage] = useState<"email" | "code">(
+    emailLoginEnabled ? "email" : "code");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
@@ -191,7 +194,10 @@ export default function Gate() {
       // Gate는 언마운트되지 않으므로 stage/code가 그대로 남는다 — 실측:
       // 로그아웃 직후 '코드를 보냈어요' 화면에 **직전 인증코드가 입력된 채**
       // 다시 나타났다. 공용 화면에서는 그 코드가 그대로 노출된다.
-      if (!sess) { setStage("email"); setCode(""); setErr(""); setCooldown(0); }
+      if (!sess) {
+        setStage(emailLoginEnabled ? "email" : "code");
+        setCode(""); setErr(""); setCooldown(0);
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -206,7 +212,8 @@ export default function Gate() {
 
   // 자동 제출 — 자릿수가 다 차면 사용자가 버튼을 찾지 않아도 된다.
   useEffect(() => {
-    if (stage === "code" && code.length === OTP_LEN && !busy) verify();
+    if (stage === "code" && code.length === OTP_LEN && !busy
+        && email.trim()) verify();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, stage]);
 
@@ -252,9 +259,15 @@ export default function Gate() {
           </>
         ) : (
           <>
-            <p className="login-msg">
-              <b>{email}</b>으로<br />{OTP_LEN}자리 코드를 보냈어요.
-            </p>
+            {emailLoginEnabled ? (
+              <p className="login-msg">
+                <b>{email}</b>으로<br />{OTP_LEN}자리 코드를 보냈어요.
+              </p>
+            ) : (
+              <input className="login-input" type="email" value={email}
+                placeholder="회사 이메일" autoComplete="email" disabled={busy}
+                onChange={(e) => setEmail(e.target.value)} />
+            )}
             {/* maxLength를 DOM에 걸지 않는다 — 브라우저는 숫자만 남기기
                 *전에* 원본 길이로 잘라서, 오타로 문자가 한 번 섞이면 그만큼
                 자릿수를 잃는다(실측: "12ab345678" → "123456"). 길이 제한은
@@ -267,22 +280,33 @@ export default function Gate() {
                 setCode(e.target.value.replace(/\D/g, "").slice(0, OTP_LEN))}
               onKeyDown={(e) => e.key === "Enter" && verify()} />
             <button className="btn pri login-btn" onClick={verify}
-              disabled={busy || code.length < OTP_MIN}>
+              disabled={busy || code.length < OTP_MIN || !email.trim()}>
               {busy ? "확인 중…" : "로그인"}
             </button>
-            <div className="login-alt">
-              <button className="linky" onClick={sendCode}
-                disabled={busy || cooldown > 0}>
-                {cooldown > 0 ? `코드 다시 받기 (${cooldown}초)` : "코드 다시 받기"}
-              </button>
-              <button className="linky" onClick={backToEmail} disabled={busy}>
-                다른 이메일로
-              </button>
-            </div>
-            <p className="login-note">
-              메일이 안 보이면 스팸함도 확인해 주세요.
-              코드는 1시간 뒤 만료됩니다.
-            </p>
+            {emailLoginEnabled ? (
+              <>
+                <div className="login-alt">
+                  <button className="linky" onClick={sendCode}
+                    disabled={busy || cooldown > 0}>
+                    {cooldown > 0
+                      ? `코드 다시 받기 (${cooldown}초)` : "코드 다시 받기"}
+                  </button>
+                  <button className="linky" onClick={backToEmail}
+                    disabled={busy}>
+                    다른 이메일로
+                  </button>
+                </div>
+                <p className="login-note">
+                  메일이 안 보이면 스팸함도 확인해 주세요.
+                  코드는 1시간 뒤 만료됩니다.
+                </p>
+              </>
+            ) : (
+              <p className="login-note">
+                지금은 메일 발송이 꺼져 있어요.<br />
+                관리자에게 로그인 코드를 요청해 주세요.
+              </p>
+            )}
           </>
         )}
         {err && <p className="login-err">{err}</p>}
@@ -295,6 +319,10 @@ export default function Gate() {
   }
 
   async function sendCode() {
+    // 발송이 꺼져 있으면 여기까지 오는 경로가 없어야 하지만, 화면에서 버튼을
+    // 감추는 것과 함수가 호출되지 않는 것은 다른 보장이다. 스위치는 호출
+    // 지점에서 막는다.
+    if (!emailLoginEnabled) return;
     if (!supabase || !email.trim() || busy) return;
     setBusy(true); setErr(""); setCode("");
     // emailRedirectTo를 유지해 링크 경로도 살려둔다 — 템플릿이 코드로 바뀌기

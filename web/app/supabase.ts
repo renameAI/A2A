@@ -31,6 +31,19 @@ export const supabase: SupabaseClient | null = isConfigured
     })
   : null;
 
+/** 메일 발송 스위치. NEXT_PUBLIC_AUTH_EMAIL=off 면 앱은 signInWithOtp를
+ *  **호출하지 않는다** — 발송 자체가 일어나지 않으므로 한도를 먹지 않는다.
+ *
+ *  끄더라도 로그인은 막히지 않는다: 코드 입력은 그대로 열려 있어, 관리자가
+ *  generate_link로 발급한 코드로 들어올 수 있다(scripts/issue_login_code.py).
+ *  검증은 여전히 Supabase가 하므로 우회로가 아니다 — 발급 경로만 메일에서
+ *  관리자로 바뀔 뿐, 유효한 OTP가 없으면 아무도 못 들어온다.
+ *
+ *  기본값은 on이다. 끄는 것은 명시적 선택이어야 하고, 설정을 빠뜨렸을 때
+ *  조용히 잠기는 쪽으로 기울면 안 된다. */
+export const emailLoginEnabled =
+  (process.env.NEXT_PUBLIC_AUTH_EMAIL ?? "on").trim().toLowerCase() !== "off";
+
 /** 로컬 dev 폴백 사용자 — Supabase 미설정일 때만 쓰인다. */
 export const DEV_USER = "boram";
 
