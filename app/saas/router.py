@@ -638,6 +638,9 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
         "segment": c["_seg"], "found_by": c["_q"], "wave": wave,
         "ontology": onts.get(c["_cid"]),
         "pain_signal": " ".join(x for x in (c["what"], c["signal"]) if x),
+        # 스카우트 판정 — p_eff = p·w(출처). 재랭킹이 이 값을 쓴다.
+        "p": c.get("p", 0.7), "p_raw": c.get("p_raw", c.get("p", 0.7)),
+        "source_kind": c.get("source_kind", "unknown"),
     } for c in companies]
 
 
@@ -690,8 +693,15 @@ def _rank_pool(profile, intent, pool: list[dict],
         if c is None:
             continue
         bonus = feedback_bonus(c, liked_toks, dis_toks)
+        # 기대 보완성 = P(실존·부합) × 보완성 점수. 보완성만 보면 기사에서
+        # 스쳐 언급된 대형 유통사(mention, p_eff≈0.3)가 회사 자신의 페이지에서
+        # 발굴된 소규모 적격 후보(own, p_eff≈0.8)와 같은 줄에 선다 — 할리케이
+        # 프로덕션 실측(하위 5곳이 뉴스·채용공고 출처). 사용자 피드백은 곱이
+        # 아니라 합으로 얹는다(출처와 무관한 별개 증거).
+        p = float(c.get("p", 0.7))
         ranked.append({**r.model_dump(mode="json"), **c,
-                       "retrieval_score": round(r.retrieval_score + bonus, 4),
+                       "retrieval_score": round(r.retrieval_score * p + bonus, 4),
+                       "complementarity": round(r.retrieval_score, 4),
                        "feedback_bonus": bonus})
     ranked.sort(key=lambda x: (-x["retrieval_score"], x["company_id"]))
     return ranked[:k]

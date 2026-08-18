@@ -14,7 +14,10 @@ type Msg = { who: "agent" | "user" | "stamp"; text: string; jsx?: React.ReactNod
 type Cand = { company_id: string; name: string; name_ko?: string;
   what?: string; signal?: string; source_url: string;
   pain_signal: string; retrieval_score: number; weak: boolean;
-  segment?: string; found_by?: string; ontology?: Ont | null };
+  segment?: string; found_by?: string; ontology?: Ont | null;
+  p?: number; source_kind?: string };
+const SRC_LABEL: Record<string, string> = {
+  own: "자사 페이지", directory: "디렉터리·협회", mention: "기사·언급" };
 type Ont = { axes: Record<string, { value: string; status: string }>;
   search_keywords: string[]; confirmed_ratio?: number;
   signals?: { category: string; evidence: string; observed_at: string }[];
@@ -814,6 +817,11 @@ function Workspace({ who }: { who: string }) {
                 <div className="cand-acts">
                   <a className="mini" href={c.source_url} target="_blank"
                     rel="noreferrer">원문</a>
+                  {c.source_kind && SRC_LABEL[c.source_kind] && (
+                    <span className="mini" title={`실존·부합 추정 p=${c.p ?? "?"}`}
+                      style={{ opacity: c.source_kind === "mention" ? 0.6 : 0.85 }}>
+                      {SRC_LABEL[c.source_kind]}{typeof c.p === "number" ? ` · p ${c.p.toFixed(2)}` : ""}
+                    </span>)}
                   <button
                     className={`mini ${saved.has(c.company_id) ? "saved" : ""}`}
                     onClick={async () => {

@@ -42,6 +42,23 @@ def _accept_tau() -> float:
     return float(_os.environ.get("EXTRACT_ACCEPT_TAU", "0.2"))
 
 
+# 출처 승수 — 모델이 판정한 source_kind를 p에 곱해 유효 확률 p_eff를 만든다.
+#   p_eff = p · w(source_kind)
+# 근거는 베이즈적이다: 스니펫이 '그 회사가 실존·부합한다'고 말할 때, 그 말의
+# 화자가 회사 자신(own)이면 증거 강도가 가장 높고, 구조화된 3자(directory)는
+# 중간, 스쳐 언급(mention)은 가장 약하다. 실측(할리케이 프로덕션 E2E): 최종
+# 10곳 중 5곳이 뉴스 기사·채용공고·블로그에서 스쳐 언급된 회사(Etsy·Mytheresa·
+# Vestiaire·Eco Brand Japan·Ethical-Clothing)였다 — 재랭킹은 보완성만 보고
+# 출처 신뢰도를 몰라 걸러지지 않았다.
+# 값은 하드코딩된 업종 어휘가 아니라 **증거 강도의 서열**이다. 실 답장률
+# (B4 원장)이 쌓이면 데이터로 재조정한다.
+_SOURCE_W = {"own": 1.0, "directory": 0.85, "mention": 0.55}
+
+
+def _source_weight(kind: str) -> float:
+    return _SOURCE_W.get((kind or "").strip().lower(), 0.7)   # 미상은 중간
+
+
 def filter_company_hits(hits: list[dict]) -> tuple[list[dict], int]:
     """비기업 도메인 제거. (남은 히트, 제외 수)."""
     kept = [h for h in hits
@@ -75,6 +92,14 @@ EXTRACT_SYSTEM = HARD_RULES + """
         확신이 아니라 **정직한 추정치**를 내라. 스니펫은 단편이므로 0.9를
         넘기 어렵고, 업이 맞아 보이면 0.5 아래로 내려갈 이유도 없다.
         채택·탈락은 네가 정하지 않는다 — p만 내면 시스템이 결정한다.
+  출처 — 관찰 단계에서 본 것을 source_kind로 남긴다. 이 회사 이름이 나온
+        페이지의 **주체**가 무엇인가:
+          own       그 회사 자신의 사이트(회사소개·제품·채용 등 1인칭 페이지)
+          directory 협회·회원사 목록·디렉터리·B2B 플랫폼처럼 회사를 소개하는
+                    구조화된 3자 페이지
+          mention   기사·블로그·비교글·채용공고 등에서 스쳐 언급된 경우
+        판정 기준은 페이지의 화자다 — 도메인 이름으로 짐작하지 말고 내용으로
+        본다. 이 값은 p와 별개다(회사가 훌륭해도 mention이면 mention이다).
 
 한 항목에서 회사가 여럿 발굴되면 각각 별도 행으로 낸다(디렉터리·비교 기사).
 어느 항목이 판정하기 어려워도 다른 항목의 p에 영향을 주지 마라.
@@ -94,13 +119,15 @@ EXTRACT_SCHEMA = {
             "type": "array", "maxItems": 30,
             "items": {
                 "type": "object", "additionalProperties": False,
-                "required": ["name", "what", "signal", "url", "p"],
+                "required": ["name", "what", "signal", "url", "p", "source_kind"],
                 "properties": {
                     "name": {"type": "string"},
                     "what": {"type": "string"},
                     "signal": {"type": "string"},
                     "url": {"type": "string"},
                     "p": {"type": "number", "minimum": 0, "maximum": 1},
+                    "source_kind": {"type": "string",
+                                    "enum": ["own", "directory", "mention"]},
                 },
             },
         },
@@ -140,9 +167,12 @@ def extract_companies(extractor, hits: list[dict], counterpart: str,
         # 계약 검증 — 입력에 없던 URL은 환각이다 (인용 계약과 같은 원리)
         if not name or name in seen or url not in valid_urls:
             continue
-        # 기대효용 결정 — 모델의 p가 임계 미만이면 코드가 탈락시킨다.
+        # 기대효용 결정 — 유효 확률 p_eff = p·w(source)가 임계 미만이면 탈락.
         # p 누락은 0.5로 본다(중립) — 스키마가 강제하므로 방어적 기본값일 뿐.
-        if float(c.get("p", 0.5)) < tau:
+        kind = (c.get("source_kind") or "").strip().lower()
+        p_raw = float(c.get("p", 0.5))
+        p_eff = round(p_raw * _source_weight(kind), 3)
+        if p_eff < tau:
             dropped_low_p += 1
             continue
         seen.add(name)
@@ -157,7 +187,7 @@ def extract_companies(extractor, hits: list[dict], counterpart: str,
         # 기업 폐기로 이어지는 결합이 생긴다(실측: 영문권 전멸 사고의 일부).
         out.append({"name": name, "name_ko": name, "what": what,
                     "signal": sig, "url": url,
-                    "p": round(float(c.get("p", 0.5)), 2)})
+                    "p": p_eff, "p_raw": round(p_raw, 2), "source_kind": kind or "unknown"})
     if dropped_low_p:
         from .. import progress
         progress.log("검색", f"저확률 후보 {dropped_low_p}건 탈락 (p < {tau})")
