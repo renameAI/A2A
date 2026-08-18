@@ -509,6 +509,73 @@ SEGMENT_SCHEMA = {
 }
 
 
+BRIEF_SYSTEM = HARD_RULES + """
+
+당신은 B2B 리드 발굴의 인터뷰어다. 승인된 회사 프로필만 보고, 사용자가
+'어떤 리드를 찾을까' 화면에서 **바로 시작할 수 있는 초안**을 제안한다.
+
+이 값들은 화면의 입력칸에 미리 채워져 사용자가 고쳐 쓴다. 그러므로:
+- 프로필에 **적힌 것에서만** 끌어낸다. 프로필에 없는 지역·업종을 지어내면
+  사용자는 그것을 '엔진이 내 자료를 읽고 판단한 것'으로 믿는다. 빈칸이
+  지어낸 값보다 낫다.
+- region: 프로필이 상대의 소재지를 시사할 때만 적는다. 요청 기업 자신의
+  소재지는 답이 아니다 — 찾는 것은 **상대**다. 근거가 없으면 빈 문자열.
+  (빈칸이면 시스템이 전 세계로 검색한다.)
+- target_type: 돈을 낼 쪽이 어떤 조직인지 한 줄. 회사 이름이 아니라
+  **유형**이다. 프로필의 타깃 고객 문장에서 가장 좁고 구체적인 유형 하나를
+  고른다.
+- notes: 그 상대에게 무엇을 제안하는지 한 줄. 회사 소개가 아니라 **제안**이다.
+- purpose: 프로필이 실증·파일럿 단계를 시사하면 "poc", 판매 준비가 된
+  제품·서비스로 읽히면 "revenue".
+- why: 이 셋을 왜 그렇게 골랐는지 한 문장. 사용자가 고칠지 판단할 근거다.
+
+지역·업종의 예시 어휘를 미리 갖고 있지 마라. 업종은 건마다 다르다."""
+
+BRIEF_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["region", "target_type", "notes", "purpose", "why"],
+    "properties": {
+        "region": {"type": "string"},
+        "target_type": {"type": "string"},
+        "notes": {"type": "string"},
+        "purpose": {"type": "string", "enum": ["revenue", "poc"]},
+        "why": {"type": "string"},
+    },
+}
+
+
+def propose_brief(profile) -> dict:
+    """승인된 프로필 → Lead Request 폼 초안.
+
+    실패하면 빈 초안을 돌려준다 — 승인이 이것 때문에 막히면 안 된다. 화면은
+    빈칸으로 열리고, 그건 지금까지의 동작과 같다.
+    """
+    from ..config import get_settings
+    from .llm import get_extractor
+    try:
+        d = get_extractor(get_settings()).extract_json(
+            BRIEF_SYSTEM,
+            f"[회사] {profile.basic.name} "
+            f"({profile.basic.country} · {profile.basic.industry})\n"
+            f"[소개] {profile.description}\n"
+            f"[푸는 문제] {profile.problem_solved.value}\n"
+            f"[솔루션] {profile.solution.value}\n"
+            f"[타깃 고객] {profile.target_customer.value}",
+            BRIEF_SCHEMA, deep=False, allow_foreign=True)
+        return {"region": (d.get("region") or "").strip(),
+                "target_type": (d.get("target_type") or "").strip(),
+                "notes": (d.get("notes") or "").strip(),
+                "purpose": d.get("purpose") if d.get("purpose") in
+                           ("revenue", "poc") else "revenue",
+                "why": (d.get("why") or "").strip()}
+    except Exception as e:                        # noqa: BLE001
+        from .. import progress
+        progress.log("온보딩", f"⚠ 리드 요청 초안 생성 실패({type(e).__name__}) "
+                               f"— 빈 폼으로 엽니다")
+        return {"region": "", "target_type": "", "notes": "",
+                "purpose": "revenue", "why": ""}
+
+
 def propose_segments(req: RetrieveRequest) -> list[dict]:
     """상대 업종 후보 — 실패해도 검색을 죽이지 않는다(빈 목록이면 UI가 자유 입력)."""
     from ..config import get_settings

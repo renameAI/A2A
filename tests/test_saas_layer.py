@@ -23,6 +23,14 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("SAAS_AUTH", "dev")
     monkeypatch.setenv("SAAS_DB_PATH", str(tmp_path / "saas.db"))
     monkeypatch.setenv("SAAS_ALLOWED_USERS", "boram")   # 기본: boram만 허용
+    # 승인은 폼 초안을 만들려고 LLM을 부른다. 스텁하지 않으면 이 스위트가
+    # 실제 API로 나가고(실측: 8초 → 114초), 네트워크·키 상태에 따라 붉어진다.
+    # 초안의 내용 자체는 tests/test_brief_draft.py가 본다 — 여기서는 승인이
+    # 초안을 실어 돌려주는 배관만 확인하면 된다.
+    import app.saas.router as router_mod
+    monkeypatch.setattr(router_mod, "propose_brief", lambda _p: {
+        "region": "", "target_type": "스텁", "notes": "스텁",
+        "purpose": "revenue", "why": "테스트 스텁"})
     store_module._store = None            # 싱글턴 초기화 (테스트 격리)
     from app.main import app
     return TestClient(app)
@@ -211,8 +219,14 @@ class TestJourney:
         j = self._poll(client, client.post(
             f"/saas/onboarding-sessions/{sid}/run", headers=H).json()["job_id"])
         assert j["status"] == "done" and j["result"]["needs_answers"] is False
-        vid = client.post(f"/saas/onboarding-sessions/{sid}/approve",
-                          headers=H).json()["version_id"]
+        appr = client.post(f"/saas/onboarding-sessions/{sid}/approve",
+                           headers=H).json()
+        vid = appr["version_id"]
+        # 승인 응답에 폼 초안이 실려 온다 — 화면이 이것으로 Lead Request를
+        # 미리 채운다. 빠지면 폼이 다시 빈칸으로 열린다(호텔 하드코딩을
+        # 걷어낸 뒤로 빈칸이 곧 아무 제안 없음이다).
+        assert appr["brief"]["target_type"] == "스텁"
+        assert appr["brief"]["purpose"] in ("revenue", "poc")
         # Request → brief → search
         rid = client.post("/saas/lead-requests", headers=H, json={
             "title": "일본 독립호텔", "profile_version_id": vid,

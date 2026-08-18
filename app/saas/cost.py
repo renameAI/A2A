@@ -48,6 +48,7 @@ ESTIMATE_USD = {
     "prospect": 0.02,        # 후보 1곳 부분 프로필
     "insight": 0.02,
     "compose": 0.03,
+    "brief": 0.01,           # 승인 직후 Lead Request 폼 초안 (프로필 1개 입력)
     "tavily": 0.0,           # 무료 티어 — 호출 수만 기록
 }
 

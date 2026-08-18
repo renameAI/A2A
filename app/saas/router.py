@@ -23,7 +23,8 @@ from ..engine.candidate_insight import build_insight
 from ..engine.compose_lead import compose_lead
 from ..engine.llm import get_extractor
 from ..engine.represent import represent
-from ..engine.retrieve import build_search_brief, retrieve, propose_segments
+from ..engine.retrieve import (build_search_brief, propose_brief,
+                              propose_segments, retrieve)
 from ..errors import EngineError, ProfileBelowMinimum
 from ..schemas import (Asset, BasicInfo, CandidateInsight, ComposeLeadRequest,
                        DialogueTurn, Intent, PoolChoice, Profile, ProvField,
@@ -319,7 +320,23 @@ def approve_profile(sid: str, user: SaasUser = Depends(current_user)):
                "approved_by": user.uid})
     doc["status"] = "completed"
     store.put("onboarding", user.workspace_id, sid, doc)
-    return {"version_id": vid}
+    # Lead Request 폼 초안을 같이 실어 보낸다. 별도 왕복을 만들면 화면이
+    # 빈 폼을 먼저 보여줬다가 값이 나중에 채워지는데, 사용자는 그 사이에
+    # 이미 타이핑을 시작한다. 승인은 의도적인 클릭이라 몇 초는 견딘다.
+    #
+    # 초안 생성이 실패해도 승인 자체는 성공해야 한다 — propose_brief가 빈
+    # 초안을 돌려주므로 폼은 지금까지처럼 빈칸으로 열린다.
+    brief = {"region": "", "target_type": "", "notes": "",
+             "purpose": "revenue", "why": ""}
+    try:
+        cost.reserve(store, user.workspace_id, vid, "brief")
+        brief = propose_brief(Profile.model_validate(doc["profile"]))
+    except EngineError:
+        raise                      # 캡 초과(402)는 삼키지 않는다
+    except Exception as e:         # noqa: BLE001
+        from .. import progress
+        progress.log("온보딩", f"⚠ 폼 초안 생략({type(e).__name__})")
+    return {"version_id": vid, "brief": brief}
 
 
 # ── Lead Request (이슈 #6-D, 기획서 §6) ─────────────────────────────

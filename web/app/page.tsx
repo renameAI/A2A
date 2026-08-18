@@ -732,13 +732,14 @@ function Workspace({ who }: { who: string }) {
     if (busy) return;
     setBusy(true);
     try {
-      const { version_id } = await api(
+      const { version_id, brief } = await api(
         `/onboarding-sessions/${sid}/approve`, undefined, "POST");
       setVersionId(version_id);
       push({ who: "stamp", text: "프로필을 승인했습니다" });
       push({
         who: "agent", text: "어떤 리드를 찾을까요?",
-        jsx: <BriefForm onSubmit={(intent) => createRequest(version_id, intent)} />,
+        jsx: <BriefForm draft={brief}
+          onSubmit={(intent) => createRequest(version_id, intent)} />,
       });
     } catch (e) {
       push({ who: "agent", text: `승인하지 못했어요 — ${(e as Error).message}` });
@@ -1549,18 +1550,23 @@ function SegmentPicker({ segments, recs, onSubmit }: {
   );
 }
 
-function BriefForm({ onSubmit }:
-  { onSubmit: (intent: Record<string, unknown>) => void }) {
+type BriefDraft = { region?: string; target_type?: string; notes?: string;
+  purpose?: "revenue" | "poc"; why?: string };
+
+function BriefForm({ onSubmit, draft }:
+  { onSubmit: (intent: Record<string, unknown>) => void;
+    draft?: BriefDraft }) {
   // 기본값을 비워 둔다. 예전엔 호텔 데모 값("일본"/"독립 호텔"/"객실
   // 리노베이션과 운영 개선")이 그대로 박혀 있어서, 프로필이 무엇이든 늘 그
   // 값으로 시작했다 — 탄소 MRV 회사에게 일본 호텔을 찾자고 제안하는 꼴이다.
   // 채워진 칸은 사용자가 '엔진이 내 프로필을 읽고 제안한 값'으로 읽는다.
   // 근거 없는 값을 채워 두는 것은 빈칸보다 나쁘다.
-  const [region, setRegion] = useState("");
-  const [ttype, setTtype] = useState("");
-  const [notes, setNotes] = useState("");
+  const [region, setRegion] = useState(draft?.region ?? "");
+  const [ttype, setTtype] = useState(draft?.target_type ?? "");
+  const [notes, setNotes] = useState(draft?.notes ?? "");
   const [count, setCount] = useState(10);
-  const [purpose, setPurpose] = useState<"revenue" | "poc">("revenue");
+  const [purpose, setPurpose] =
+    useState<"revenue" | "poc">(draft?.purpose ?? "revenue");
   return (
     <div className="card">
       <div className="card-head">Lead Request</div>
@@ -1590,6 +1596,11 @@ function BriefForm({ onSubmit }:
           <label>찾을 수<input type="number" min={1} max={30} value={count}
             onChange={(e) => setCount(+e.target.value || 10)} /></label>
         </div>
+        {draft?.why && (
+          <p className="brief-why">
+            프로필을 보고 위와 같이 채웠어요 — {draft.why} 고쳐도 됩니다.
+          </p>
+        )}
       </div>
       <div className="card-foot">
         <button className="btn pri" onClick={() => onSubmit({
