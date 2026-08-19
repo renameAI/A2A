@@ -406,6 +406,12 @@ def approve_profile(sid: str, user: SaasUser = Depends(current_user)):
     doc = store.get("onboarding", user.workspace_id, sid)
     if not doc or not doc.get("profile"):
         raise EngineError(409, "invalid_state", "승인할 프로필이 없습니다 — run 먼저")
+    # 멱등 — 같은 세션을 두 번 승인하면 같은 버전을 돌려준다. 이중 클릭이나
+    # 재시도가 버전을 두 개 만들면 화면에 Lead Request 폼이 두 벌 뜨고(실측),
+    # 각 폼이 서로 다른 초안을 들고 있어 사용자가 어느 것이 맞는지 알 수 없다.
+    if doc.get("status") == "completed" and doc.get("approved_version_id"):
+        return {"version_id": doc["approved_version_id"],
+                "brief": doc.get("approved_brief") or {}}
     vid = store.new_id("pv")
     store.put("profile_version", user.workspace_id, vid,
               {"version_id": vid, "profile": doc["profile"],
@@ -428,6 +434,10 @@ def approve_profile(sid: str, user: SaasUser = Depends(current_user)):
     except Exception as e:         # noqa: BLE001
         from .. import progress
         progress.log("온보딩", f"⚠ 폼 초안 생략({type(e).__name__})")
+    # 다음 승인 요청이 같은 것을 돌려줄 수 있도록 결과를 세션에 남긴다.
+    doc["approved_version_id"] = vid
+    doc["approved_brief"] = brief
+    store.put("onboarding", user.workspace_id, sid, doc)
     return {"version_id": vid, "brief": brief}
 
 

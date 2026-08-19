@@ -10,7 +10,11 @@ import { useEffect, useRef, useState } from "react";
 import { authHeaders, DEV_USER, emailLoginEnabled, isConfigured,
   isMisconfigured, supabase } from "./supabase";
 
-type Msg = { who: "agent" | "user" | "stamp"; text: string; jsx?: React.ReactNode };
+// kind: "candidates" — 후보 캐러셀이 붙는 자리. jsx로 박아 넣지 않는 이유는
+// 스냅샷이 되어 👍/저장/판독 갱신이 반영되지 않기 때문이다. 자리만 표시하고
+// 렌더는 현재 상태로 한다.
+type Msg = { who: "agent" | "user" | "stamp"; text: string;
+  jsx?: React.ReactNode; kind?: "candidates" };
 type Cand = { company_id: string; name: string; name_ko?: string;
   what?: string; signal?: string; source_url: string;
   pain_signal: string; retrieval_score: number; weak: boolean;
@@ -55,9 +59,21 @@ function humanTick(raw: string): string {
     [/접점|연락/, "연락할 곳을 찾는 중"],
     [/텍스트 생성|생성 대기/, "글을 쓰는 중"],
     [/정상 완료|완료되었습니다/, "마무리하는 중"],
+    // 모델 호출의 내부 단계 — 사용자에게는 전부 '생각하는 중' 하나다.
+    // (스키마 구조화 / 근거 매핑 / 호출 시작 / 응답 수신 / 토큰·엔드포인트…)
+    // 호출 로그가 먼저다 — "호출 시작 … 스키마 강제 …"가 '스키마'에 걸려
+    // 근거 정리로 새는 일이 있었다(실측).
+    [/^▶?\s*시작$|^시작 —|호출 시작|응답 수신|max_tokens|endpoint|reasoning|finish=|timeout/,
+     "생각하는 중"],
+    [/스키마 구조화|근거 매핑|evidence_chunk|provenance/, "근거를 정리하는 중"],
+    [/1층|2층|3층|4층|5층|상\(像\)|독해/, "회사를 여러 각도로 읽는 중"],
   ];
   for (const [re, label] of rules) if (re.test(t)) return label;
   // 규칙에 없으면 원문을 쓰되, 개발자용 찌꺼기만 떼어낸다.
+  // 규칙에 없더라도 영문 식별자·경로·토큰 수치가 섞였으면 사용자용 문구가
+  // 아니다. 원문을 노출하기보다 중립 문구로 돌린다.
+  if (/[a-z_]{4,}=|https?:\/\/|[a-z]+\.[a-z]{2,}\/|_id|tokens?\b/i.test(t))
+    return "생각하는 중";
   return t
     .replace(/\([A-Za-z]*Error\)/g, "")        // (KeyError)
     .replace(/\s*\(p\s*<\s*[\d.]+\)/g, "")     // (p < 0.2)
@@ -492,6 +508,8 @@ function Workspace({ who }: { who: string }) {
   const [replied, setReplied] = useState<Set<string>>(new Set());
   // 후보별 파생물(초안·인사이트·결과) — 서버에 이미 저장돼 있던 것을 복원 때
   // 받아 둔다. 없으면 화면은 매번 처음인 것처럼 보였다.
+  // 승인 중복 방지 — state가 아니라 ref다(위 approve의 주석 참조).
+  const approvingRef = useRef<string | null>(null);
   const [derived, setDerived] =
     useState<Record<string, { draft?: { drafts?: Draft[] } | null;
                               has_insight?: boolean;
@@ -535,7 +553,12 @@ function Workspace({ who }: { who: string }) {
   const [keyInput, setKeyInput] = useState("");
   const [keySaving, setKeySaving] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // 진행 상태 — 한 줄이 아니라 여러 줄이다. 엔진은 업종별 검색·후보별 판독을
+  // 실제로 나눠서 돌리므로(심층 판독은 4개 동시), 한 줄만 보여주면 그 병렬성이
+  // 사라지고 "멈춘 것 같다"는 인상만 남는다. 최근 것들을 쌓아 보여주되 마지막
+  // 줄만 살아 움직인다.
   const [tick, setTick] = useState<{ msg: string; sec: number } | null>(null);
+  const [ticks, setTicks] = useState<{ label: string; done: boolean }[]>([]);
   const bottom = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -596,7 +619,7 @@ function Workspace({ who }: { who: string }) {
           + `${(doc.candidates ?? []).length}곳 (${doc.wave ?? 1}차 검색까지)` });
       if ((doc.clarify ?? []).length) askClarify(rid, doc.clarify);
       else if ((doc.candidates ?? []).length)
-        push({ who: "agent",
+        push({ who: "agent", kind: "candidates",
           text: "이어서 후보에 반응을 남기거나, 메일 초안을 만들 수 있어요. "
             + "지난 대화 내용은 저장되지 않아 후보 목록부터 다시 보여드려요." });
     } catch (e) {
@@ -682,11 +705,21 @@ function Workspace({ who }: { who: string }) {
           const last = logs[logs.length - 1];
           setTick({ msg: last?.message ?? last?.stage ?? "처리 중",
                     sec: Math.round(elapsed) });
+          // 같은 문구가 이어지면 한 줄로 접는다 — 로그는 건마다 찍히지만
+          // 사용자에게는 "무슨 일이 몇 갈래로 도는가"만 의미가 있다.
+          const labels: string[] = [];
+          for (const l of logs) {
+            const t = humanTick(l.message ?? l.stage ?? "");
+            if (t && labels[labels.length - 1] !== t) labels.push(t);
+          }
+          const tail = labels.slice(-4);
+          setTicks(tail.map((label, i) => ({ label, done: i < tail.length - 1 })));
         },
       });
     } finally {
       abortRef.current = null;
       setTick(null);
+      setTicks([]);
     }
   }
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
@@ -840,7 +873,12 @@ function Workspace({ who }: { who: string }) {
   async function approve(sid: string) {
     // 형제 함수들과 같은 형태 — 이전엔 try/catch가 없어 승인이 실패하면
     // 화면에 아무 흔적도 남지 않았다(사용자는 버튼이 먹통이라고 느낀다).
-    if (busy) return;
+    //
+    // busy(state)로는 이중 클릭을 못 막는다: 두 번째 클릭 핸들러가 잡고 있는
+    // busy는 첫 클릭의 setBusy가 반영되기 전 값이라 둘 다 통과한다. 실측으로
+    // 승인이 두 번 나가 Lead Request 폼이 두 벌 떴다. ref는 즉시 반영된다.
+    if (busy || approvingRef.current === sid) return;
+    approvingRef.current = sid;
     setBusy(true);
     try {
       const { version_id, brief } = await api(
@@ -854,6 +892,7 @@ function Workspace({ who }: { who: string }) {
       });
     } catch (e) {
       push({ who: "agent", text: `승인하지 못했어요 — ${(e as Error).message}` });
+      approvingRef.current = null;   // 실패했으면 다시 눌러볼 수 있어야 한다
     } finally { setBusy(false); }
   }
 
@@ -980,9 +1019,10 @@ function Workspace({ who }: { who: string }) {
           text: "이 조건으로는 후보를 못 찾았어요. 지역을 넓히거나, 업종을 "
             + "다시 고르거나, 검색어를 직접 추가해 보세요." });
       } else {
-        push({ who: "agent", text: `일단 ${res.candidates.length}곳 찾았어요.`
+        push({ who: "agent", kind: "candidates",
+          text: `일단 ${res.candidates.length}곳 찾았어요.`
           + (brk ? ` (${brk})` : "")
-          + " 후보마다 '이런 곳 더/아니에요'로 알려주시면 더 정확해져요." });
+          + " 좌우로 넘겨 보시고, '이런 곳 더/아니에요'로 알려주시면 더 정확해져요." });
       }
       askClarify(rid, res.clarify);
       return true;
@@ -1027,10 +1067,10 @@ function Workspace({ who }: { who: string }) {
       if (res.final) {
         push({ who: "stamp", text: "후보를 확정했습니다" });
         void deepRead(rid);
-        push({ who: "agent",
+        push({ who: "agent", kind: "candidates",
           text: `최종 ${res.candidates.length}곳이에요. 저장한 후보만 메일 초안으로 이어져요.` });
       } else {
-        push({ who: "agent",
+        push({ who: "agent", kind: "candidates",
           text: res.note ?? `${res.new_found ?? 0}곳을 새로 찾아 다시 정렬했어요 (${res.wave}차).` });
         askClarify(rid, res.clarify);
       }
@@ -1221,16 +1261,39 @@ function Workspace({ who }: { who: string }) {
         )}
         <div className="msgs">
           <div className="day"><span>오늘</span></div>
-          {cands.length > 0 && (
-            <div className="msg them">
-              <div className="ava agent">r.</div>
+          {msgs.map((m, i) => m.who === "stamp" ? (
+            <div className="stamp" key={i}><b>보람</b>님이 {m.text}</div>
+          ) : (
+            <div className={`msg ${m.who === "user" ? "me" : "them"}`} key={i}>
+              <div className={`ava ${m.who}`}>r.</div>
               <div className="body">
-                <div className="who">rename 에이전트<span className="tag">앱</span></div>
-                <div className="bubble bubble-wide">
-                  후보 {cands.length}곳이에요. 좌우로 넘겨 보세요.
-                </div>
-                {/* 캐러셀 — 후보 10곳을 버블 10개로 쌓으면 대화가 목록이 된다.
-                    하나의 메시지 안에서 가로로 넘긴다. */}
+                {m.who === "agent" && (
+                  <div className="who">rename 에이전트<span className="tag">앱</span></div>
+                )}
+                {m.text && (
+                  <div className="bubble">
+                    {m.text}
+                    {busy && i === msgs.length - 1 && m.who === "agent" &&
+                      <span className="typing"><i /><i /><i /></span>}
+                  </div>
+                )}
+                {/* 무엇을 하고 있는지 한 줄 — 애니메이션만 돌면 멈춘 건지
+                    도는 건지 알 수 없다. 문구는 사람의 말로 옮겨 보여준다. */}
+                {busy && i === msgs.length - 1 && m.who === "agent"
+                  && (ticks.length > 0 || tick) && (
+                  <div className="ticks">
+                    {(ticks.length ? ticks
+                      : [{ label: humanTick(tick!.msg), done: false }]
+                     ).map((t, k, arr) => (
+                      <div className={`tick ${t.done ? "done" : "live"}`} key={k}>
+                        <span className="tick-dot" />
+                        {t.label}
+                        {k === arr.length - 1 && tick ? ` · ${tick.sec}초` : ""}
+                      </div>))}
+                  </div>
+                )}
+                {m.jsx && <div className="attach">{m.jsx}</div>}
+                {m.kind === "candidates" && cands.length > 0 && (
                 <div className="carousel">
                   {cands.map((c, i) => (
                     <div className="cand-card" key={c.company_id}>
@@ -1358,31 +1421,7 @@ function Workspace({ who }: { who: string }) {
                     </div>
                   ))}
                 </div>
-              </div>
-            </div>
-          )}
-          {msgs.map((m, i) => m.who === "stamp" ? (
-            <div className="stamp" key={i}><b>보람</b>님이 {m.text}</div>
-          ) : (
-            <div className={`msg ${m.who === "user" ? "me" : "them"}`} key={i}>
-              <div className={`ava ${m.who}`}>r.</div>
-              <div className="body">
-                {m.who === "agent" && (
-                  <div className="who">rename 에이전트<span className="tag">앱</span></div>
                 )}
-                {m.text && (
-                  <div className="bubble">
-                    {m.text}
-                    {busy && i === msgs.length - 1 && m.who === "agent" &&
-                      <span className="typing"><i /><i /><i /></span>}
-                  </div>
-                )}
-                {/* 무엇을 하고 있는지 한 줄 — 애니메이션만 돌면 멈춘 건지
-                    도는 건지 알 수 없다. 문구는 사람의 말로 옮겨 보여준다. */}
-                {busy && tick && i === msgs.length - 1 && m.who === "agent" && (
-                  <div className="tick">{humanTick(tick.msg)} · {tick.sec}초</div>
-                )}
-                {m.jsx && <div className="attach">{m.jsx}</div>}
               </div>
             </div>
           ))}
