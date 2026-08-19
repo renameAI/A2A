@@ -28,7 +28,9 @@ type Ont = { reachability?: number | null; reachability_why?: string;
   search_keywords: string[]; confirmed_ratio?: number;
   signals?: { category: string; evidence: string; observed_at: string }[];
   contacts?: { channel: string; value: string; role_hint: string }[] };
-type Seg = { label: string; why: string };
+type Seg = { label: string; why: string; reach?: string };
+const REACH_TAG: Record<string, [string, string]> = {
+  low: ["문턱 낮음", "ok"], mid: ["문턱 중간", "inf"], high: ["문턱 높음", "ask"] };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
 /** 진행 문구를 사람의 말로.
@@ -1891,7 +1893,12 @@ function SegmentPicker({ segments, recs, onSubmit }: {
           <button key={sg.label} disabled={done}
             className={`seg-opt ${picked.has(sg.label) ? "on" : ""}`}
             onClick={() => toggle(picked, setPicked, sg.label)}>
-            <span className="seg-lb">{sg.label}</span>
+            <span className="seg-lb">{sg.label}
+              {sg.reach && REACH_TAG[sg.reach] && (
+                <span className={`chip ${REACH_TAG[sg.reach][1]}`}
+                  title="이 경로에서 첫 콜드 아웃리치가 실무자 답장으로 이어질 문턱">
+                  {REACH_TAG[sg.reach][0]}</span>)}
+            </span>
             <span className="seg-why">{sg.why}</span>
           </button>
         ))}

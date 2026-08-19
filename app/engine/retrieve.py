@@ -489,6 +489,15 @@ SEGMENT_SYSTEM = HARD_RULES + """
   이 회사·이 시장에서 실제로 성립하는 구조를 찾아라.
 - 뻔한 정공법 1~2개, 덜 뻔하지만 근거 있는 경로 2~3개를 섞는다. 사용자가 몰랐던
   경로를 찾아주는 것이 이 단계의 값어치다.
+- **체급을 본다.** 요청 기업의 규모·단계를 프로필에서 읽고, 각 경로에 대해
+  그 체급의 회사가 첫 콜드 아웃리치로 실무자 답장을 받을 문턱을 reach로
+  표시한다(low/mid/high). 대형 유통·대기업 조달은 벤더 등록과 MD 절차 뒤에
+  있어 신생·소규모에게 high다 — 그런 경로만 내놓으면 검색 결과 전체가 닿을
+  수 없는 목록이 된다(실측: 소규모 브랜드에게 백화점 경로만 제안되어 상위가
+  전부 대기업이었다). **low 또는 mid 경로를 최소 2개** 포함하라: 같은 체급의
+  전문 유통사·편집숍·지역 체인·온라인 셀렉트숍처럼 의사결정이 짧은 상대가
+  거기 있다. high 경로를 빼라는 뜻이 아니다 — 성장 방향으로 가치가 있으니
+  reach를 정직하게 붙여서 내놓아라.
 - why는 '왜 이 업종이 이 회사를 살 만한가'를 한 문장으로. 일반론 금지.
 - 근거가 자료에 없으면 만들지 마라. 확신이 없는 경로는 why에 '추정'이라 밝힌다.
 - 지역이 지정돼 있으면 그 지역의 거래 관행과 시장 구조를 반영한다.
@@ -502,9 +511,11 @@ SEGMENT_SCHEMA = {
         "type": "array", "minItems": 3, "maxItems": 6,
         "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["label", "why"],
+            "required": ["label", "why", "reach"],
             "properties": {"label": {"type": "string"},
-                           "why": {"type": "string"}}},
+                           "why": {"type": "string"},
+                           "reach": {"type": "string",
+                                     "enum": ["low", "mid", "high"]}}},
     }},
 }
 
@@ -598,8 +609,19 @@ def propose_segments(req: RetrieveRequest) -> list[dict]:
                if req.intent.purpose == "poc" else
                "매출 리드 — 실제 구매·조달로 이어질 거래 경로를 찾는다"),
             SEGMENT_SCHEMA, deep=False, allow_foreign=True)
-        return [{"label": s["label"].strip(), "why": s["why"].strip()}
-                for s in data.get("segments", []) if s.get("label", "").strip()]
+        out = [{"label": s["label"].strip(), "why": s["why"].strip(),
+                "reach": (s.get("reach") or "").strip().lower()}
+               for s in data.get("segments", []) if s.get("label", "").strip()]
+        for seg in out:
+            if seg["reach"] not in ("low", "mid", "high"):
+                seg["reach"] = ""            # 모르는 값은 표시하지 않는다
+        # 판정은 모델, 검사는 코드 — 전부 high면 그 사실을 로그로 남긴다.
+        # 여기서 경로를 지어내 채우지는 않는다(없는 시장을 만들 수는 없다).
+        if out and all(s["reach"] == "high" for s in out if s["reach"]):
+            from .. import progress
+            progress.log("검색", "⚠ 제안된 경로가 전부 문턱 높음 — 체급 맞는 "
+                                 "경로를 찾지 못했습니다. 직접 입력을 고려하세요")
+        return out
     except Exception as e:
         from .. import progress
         progress.log("검색", f"⚠ 업종 후보 생성 실패({type(e).__name__}) — 직접 입력")

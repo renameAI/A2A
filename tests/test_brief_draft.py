@@ -81,3 +81,57 @@ def test_prompt_carries_no_industry_vocabulary():
     for word in ("호텔", "객실", "음료", "리노베이션", "일본", "패션", "탄소"):
         assert word not in own, f"업종 어휘 '{word}'가 초안 프롬프트에 있다"
     assert "지역·업종의 예시 어휘를 미리 갖고 있지 마라" in own
+
+
+class TestSegmentReach:
+    """업종 제안의 체급 규율 — 실측: 소규모 브랜드에게 백화점 경로만 제안되어
+    검색 상위가 전부 대기업이었다. 문턱은 풀 안에서 순서만 바꿀 수 있으므로,
+    닿을 수 있는 경로는 제안 단계에서 섞여 들어와야 한다."""
+
+    def _req(self):
+        from app.schemas import (BasicInfo, Intent, PoolChoice, Profile,
+                                 Provenance, ProvField, RetrieveDirection,
+                                 RetrieveRequest)
+        prof = Profile(
+            basic=BasicInfo(name="A", country="한국", industry="x"),
+            description="d",
+            problem_solved=ProvField(value="p", provenance=Provenance.stated, confidence=.9),
+            solution=ProvField(value="s", provenance=Provenance.stated, confidence=.9),
+            target_customer=ProvField(value="t", provenance=Provenance.stated, confidence=.9))
+        return RetrieveRequest(
+            requester_profile=prof,
+            intent=Intent(value_props=["revenue_growth"], lead_count=5),
+            direction=RetrieveDirection.sell_outreach, pool=PoolChoice.both, k=5)
+
+    def _run(self, monkeypatch, segments):
+        import app.engine.llm as llm
+        class _C:
+            def extract_json(self, *a, **k): return {"segments": segments}
+        monkeypatch.setattr(llm, "get_extractor", lambda s: _C())
+        from app.engine.retrieve import propose_segments
+        return propose_segments(self._req())
+
+    def test_reach_passes_through_and_unknown_values_blank(self, monkeypatch):
+        out = self._run(monkeypatch, [
+            {"label": "편집숍", "why": "w", "reach": "LOW"},
+            {"label": "백화점", "why": "w", "reach": "high"},
+            {"label": "협회", "why": "w", "reach": "몰라"},
+            {"label": "구버전", "why": "w"}])
+        assert [s["reach"] for s in out] == ["low", "high", "", ""]
+
+    def test_prompt_demands_low_or_mid_paths(self):
+        from app.engine.retrieve import SEGMENT_SYSTEM
+        assert "체급" in SEGMENT_SYSTEM
+        assert "low 또는 mid 경로를 최소 2개" in SEGMENT_SYSTEM
+        # high를 숨기라는 게 아니다 — 정직하게 표시하고 내놓는다
+        assert "high 경로를 빼라는 뜻이 아니다" in SEGMENT_SYSTEM
+
+    def test_all_high_is_logged_not_fabricated(self, monkeypatch):
+        from app import progress
+        logged = []
+        monkeypatch.setattr(progress, "log", lambda st, m: logged.append(m))
+        out = self._run(monkeypatch, [
+            {"label": "대기업 조달", "why": "w", "reach": "high"},
+            {"label": "백화점", "why": "w", "reach": "high"}])
+        assert len(out) == 2                      # 지어내 채우지 않는다
+        assert any("전부 문턱 높음" in m for m in logged)
