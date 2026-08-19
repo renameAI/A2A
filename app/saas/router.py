@@ -685,17 +685,26 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
     known_urls = {c.get("source_url") for c in doc.get("pool", [])}
     total_q = sum(len(qs) for _, qs in plans)
     cost.reserve(store, user.workspace_id, rid, "tavily", count=total_q)
+    # 검색은 서로 독립이라 병렬이 이득이다 — 실측: 직렬 10쿼리 ~35초가 첫
+    # 부분 결과(66초)의 절반이었다. 결과 병합(순서 의존: src_of·중복 제거)은
+    # 제출 순서대로 메인 스레드에서 한다 — found_by 귀속이 실행마다 흔들리면
+    # 원장 통계가 안 맞는다. progress.log는 contextvar라 워커에서 no-op이므로
+    # 여기(메인)에서만 찍는다.
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    flat = [(seg, q) for seg, qs in plans for q in qs]
+    with _TPE(max_workers=4) as _ex:
+        results = list(_ex.map(lambda t: web_search(t[1], settings), flat))
+    for (seg, q), found in zip(flat, results):
+        for h in found:
+            url = h["url"]
+            src_of.setdefault(url, []).append((seg, q))
+            if url in seen or url in known_urls:
+                continue            # 이전 웨이브에서 본 URL 재수집 금지 (추출은 1회)
+            seen.add(url)
+            hits.append(h)
     for seg, qs in plans:
-        for q in qs:
-            for h in web_search(q, settings):
-                url = h["url"]
-                src_of.setdefault(url, []).append((seg, q))
-                if url in seen or url in known_urls:
-                    continue        # 이전 웨이브에서 본 URL 재수집 금지 (추출은 1회)
-                seen.add(url)
-                hits.append(h)
         progress.log("검색", f"{seg or '기본'} — 검색어 {len(qs)}개")
-    progress.log("검색", f"웨이브 {wave}: 웹 수집 {len(hits)}건 (중복 제거)")
+    progress.log("검색", f"웨이브 {wave}: 웹 수집 {len(hits)}건 (중복 제거·병렬)")
 
     hits, dropped = filter_company_hits(hits)
     if dropped:
