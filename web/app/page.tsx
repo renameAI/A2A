@@ -961,9 +961,11 @@ function Workspace({ who }: { who: string }) {
   function askClarify(rid: string, qs: ClarifyQ[]) {
     push({
       who: "agent",
+      // 문구는 후보를 **본 뒤**의 말이어야 한다. 캐러셀이 위에 있으므로
+      // "이런 방향으로 찾을까요?"처럼 결과를 안 본 것처럼 묻지 않는다.
       text: qs.length
-        ? "몇 가지만 확인할게요 — 답해주시면 다음 검색이 좁혀져요."
-        : "방향이 맞는지 후보에 반응을 남겨주세요. 충분하면 확정할게요.",
+        ? "위 후보를 보고 몇 가지만 알려주세요 — 다음 검색이 좁혀져요."
+        : "위 후보 중 마음에 드는 곳에 👍, 아닌 곳에 👋를 눌러주세요. 충분하면 확정할게요.",
       jsx: <ClarifyCard qs={qs}
         onRefine={(answers) => refine(rid, answers, false)}
         onDone={() => refine(rid, [], true)} />,
@@ -1180,6 +1182,146 @@ function Workspace({ who }: { who: string }) {
         )}
         <div className="msgs">
           <div className="day"><span>오늘</span></div>
+          {cands.length > 0 && (
+            <div className="msg them">
+              <div className="ava agent">r.</div>
+              <div className="body">
+                <div className="who">rename 에이전트<span className="tag">앱</span></div>
+                <div className="bubble bubble-wide">
+                  후보 {cands.length}곳이에요. 좌우로 넘겨 보세요.
+                </div>
+                {/* 캐러셀 — 후보 10곳을 버블 10개로 쌓으면 대화가 목록이 된다.
+                    하나의 메시지 안에서 가로로 넘긴다. */}
+                <div className="carousel">
+                  {cands.map((c, i) => (
+                    <div className="cand-card" key={c.company_id}>
+  <div className="bubble">
+                    <b>{i + 1}위 · {c.name_ko && c.name_ko !== c.name
+                      ? c.name_ko : c.name}</b>
+                    {c.name_ko && c.name_ko !== c.name && (
+                      <span className="orig"> {c.name}</span>)}
+                    {c.segment && <span className="chip seg">{c.segment}</span>}
+                    {c.weak && <span className="chip ask">임계 미만</span>}
+                    {"\n"}{c.what || c.pain_signal.slice(0, 140)}
+                    {c.signal ? `\n\n관측된 신호 — ${c.signal}` : ""}
+                  </div>
+                  {(c.ontology?.signals ?? []).length > 0 && (
+                    <div className="sig-badges">
+                      {c.ontology!.signals!.slice(0, 3).map((sg, i) => (
+                        <span className={`sig-cat ${sg.category}`} key={i}
+                          title={sg.evidence}>
+                          {SIGNAL_KO[sg.category] ?? sg.category}</span>
+                      ))}
+                    </div>
+                  )}
+                  {c.ontology && <OntologyView ont={c.ontology}
+                    sourceUrl={c.source_url} />}
+                  <div className="reacts">
+                    <button className={`react ${likedC.has(c.company_id) ? "on" : ""}`}
+                      onClick={() => setLikedC((v) => {
+                        const n = new Set(v);
+                        n.has(c.company_id) ? n.delete(c.company_id)
+                          : (n.add(c.company_id), dislikedC.delete(c.company_id));
+                        return n;
+                      })}>👍 이런 곳 더</button>
+                    <button className={`react ${dislikedC.has(c.company_id) ? "on" : ""}`}
+                      onClick={() => setDislikedC((v) => {
+                        const n = new Set(v);
+                        n.has(c.company_id) ? n.delete(c.company_id)
+                          : (n.add(c.company_id), likedC.delete(c.company_id));
+                        return n;
+                      })}>👋 아니에요</button>
+                  </div>
+                  <div className="cand-acts">
+                    <a className="mini" href={c.source_url} target="_blank"
+                      rel="noreferrer">원문</a>
+                    {c.deep_read && (
+                      <span className="mini" title={c.deep_read.note ?? ""}>
+                        {c.deep_read.status === "done"
+                          ? `사이트 읽음 · 접점 ${c.deep_read.contacts ?? 0}`
+                          : c.deep_read.status === "no_site" ? "사이트 미확인"
+                          : "사이트 못 읽음"}
+                      </span>)}
+                    {c.source_kind && SRC_LABEL[c.source_kind] && (
+                      <span className="mini" title={`실존·부합 추정 p=${c.p ?? "?"}`}
+                        style={{ opacity: c.source_kind === "mention" ? 0.6 : 0.85 }}>
+                        {SRC_LABEL[c.source_kind]}{typeof c.p === "number" ? ` · p ${c.p.toFixed(2)}` : ""}
+                      </span>)}
+                    <button
+                      className={`mini ${saved.has(c.company_id) ? "saved" : ""}`}
+                      onClick={async () => {
+                        const on = !saved.has(c.company_id);
+                        setSaved((sv) => {
+                          const n = new Map(sv);
+                          on ? n.set(c.company_id, c) : n.delete(c.company_id);
+                          return n;
+                        });
+                        if (!requestId) return;
+                        try {
+                          await api(
+                            `/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
+                            { saved: on });
+                        } catch (e) {
+                          // 기록에 실패하면 토글을 되돌린다 — 저장됐다고 표시해
+                          // 놓고 서버엔 없으면 다음 추천 가중이 어긋난다
+                          setSaved((sv) => {
+                            const n = new Map(sv);
+                            on ? n.delete(c.company_id) : n.set(c.company_id, c);
+                            return n;
+                          });
+                          push({ who: "agent",
+                            text: `저장을 기록하지 못했어요 — ${(e as Error).message}` });
+                        }
+                      }}>
+                      {saved.has(c.company_id) ? "저장됨" : "저장"}
+                    </button>
+                    {derived[c.company_id]?.draft?.drafts?.length ? (
+                      <>
+                        <button className="mini saved" title="저장된 초안 다시 열기"
+                          onClick={() => reopenDraft(c.company_id, c.name)}>초안 보기</button>
+                        <button className="mini" title="새로 씁니다 (비용 발생)"
+                          onClick={() => draftMail(c.company_id)}>다시 쓰기</button>
+                      </>
+                    ) : (
+                      <button className="mini"
+                        onClick={() => draftMail(c.company_id)}>메일 초안</button>
+                    )}
+                    <button
+                      className={`mini ${replied.has(c.company_id) ? "saved" : ""}`}
+                      onClick={async () => {
+                        const on = !replied.has(c.company_id);
+                        setReplied((rv) => {
+                          const n = new Set(rv);
+                          on ? n.add(c.company_id) : n.delete(c.company_id);
+                          return n;
+                        });
+                        if (!requestId) return;
+                        try {
+                          await api(
+                            `/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
+                            { replied: on ? "yes" : "" });
+                          // 성공한 뒤에 알린다 — 실패했는데 "기록했습니다"는 거짓말
+                          if (on) push({ who: "stamp",
+                            text: "답장을 기록했습니다 — 다음 검색의 키워드 추천에 반영됩니다" });
+                        } catch (e) {
+                          setReplied((rv) => {
+                            const n = new Set(rv);
+                            on ? n.delete(c.company_id) : n.add(c.company_id);
+                            return n;
+                          });
+                          push({ who: "agent",
+                            text: `답장을 기록하지 못했어요 — ${(e as Error).message}` });
+                        }
+                      }}>
+                      {replied.has(c.company_id) ? "답장 받음 ✓" : "답장 받음"}
+                    </button>
+                  </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
           {msgs.map((m, i) => m.who === "stamp" ? (
             <div className="stamp" key={i}><b>보람</b>님이 {m.text}</div>
           ) : (
@@ -1197,135 +1339,6 @@ function Workspace({ who }: { who: string }) {
                   </div>
                 )}
                 {m.jsx && <div className="attach">{m.jsx}</div>}
-              </div>
-            </div>
-          ))}
-          {cands.map((c, i) => (
-            <div className="msg them" key={c.company_id}>
-              <div className="ava agent">r.</div>
-              <div className="body">
-                <div className="who">rename 에이전트<span className="tag">앱</span></div>
-                <div className="bubble">
-                  <b>{i + 1}위 · {c.name_ko && c.name_ko !== c.name
-                    ? c.name_ko : c.name}</b>
-                  {c.name_ko && c.name_ko !== c.name && (
-                    <span className="orig"> {c.name}</span>)}
-                  {c.segment && <span className="chip seg">{c.segment}</span>}
-                  {c.weak && <span className="chip ask">임계 미만</span>}
-                  {"\n"}{c.what || c.pain_signal.slice(0, 140)}
-                  {c.signal ? `\n\n관측된 신호 — ${c.signal}` : ""}
-                </div>
-                {(c.ontology?.signals ?? []).length > 0 && (
-                  <div className="sig-badges">
-                    {c.ontology!.signals!.slice(0, 3).map((sg, i) => (
-                      <span className={`sig-cat ${sg.category}`} key={i}
-                        title={sg.evidence}>
-                        {SIGNAL_KO[sg.category] ?? sg.category}</span>
-                    ))}
-                  </div>
-                )}
-                {c.ontology && <OntologyView ont={c.ontology}
-                  sourceUrl={c.source_url} />}
-                <div className="reacts">
-                  <button className={`react ${likedC.has(c.company_id) ? "on" : ""}`}
-                    onClick={() => setLikedC((v) => {
-                      const n = new Set(v);
-                      n.has(c.company_id) ? n.delete(c.company_id)
-                        : (n.add(c.company_id), dislikedC.delete(c.company_id));
-                      return n;
-                    })}>👍 이런 곳 더</button>
-                  <button className={`react ${dislikedC.has(c.company_id) ? "on" : ""}`}
-                    onClick={() => setDislikedC((v) => {
-                      const n = new Set(v);
-                      n.has(c.company_id) ? n.delete(c.company_id)
-                        : (n.add(c.company_id), likedC.delete(c.company_id));
-                      return n;
-                    })}>👋 아니에요</button>
-                </div>
-                <div className="cand-acts">
-                  <a className="mini" href={c.source_url} target="_blank"
-                    rel="noreferrer">원문</a>
-                  {c.deep_read && (
-                    <span className="mini" title={c.deep_read.note ?? ""}>
-                      {c.deep_read.status === "done"
-                        ? `사이트 읽음 · 접점 ${c.deep_read.contacts ?? 0}`
-                        : c.deep_read.status === "no_site" ? "사이트 미확인"
-                        : "사이트 못 읽음"}
-                    </span>)}
-                  {c.source_kind && SRC_LABEL[c.source_kind] && (
-                    <span className="mini" title={`실존·부합 추정 p=${c.p ?? "?"}`}
-                      style={{ opacity: c.source_kind === "mention" ? 0.6 : 0.85 }}>
-                      {SRC_LABEL[c.source_kind]}{typeof c.p === "number" ? ` · p ${c.p.toFixed(2)}` : ""}
-                    </span>)}
-                  <button
-                    className={`mini ${saved.has(c.company_id) ? "saved" : ""}`}
-                    onClick={async () => {
-                      const on = !saved.has(c.company_id);
-                      setSaved((sv) => {
-                        const n = new Map(sv);
-                        on ? n.set(c.company_id, c) : n.delete(c.company_id);
-                        return n;
-                      });
-                      if (!requestId) return;
-                      try {
-                        await api(
-                          `/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
-                          { saved: on });
-                      } catch (e) {
-                        // 기록에 실패하면 토글을 되돌린다 — 저장됐다고 표시해
-                        // 놓고 서버엔 없으면 다음 추천 가중이 어긋난다
-                        setSaved((sv) => {
-                          const n = new Map(sv);
-                          on ? n.delete(c.company_id) : n.set(c.company_id, c);
-                          return n;
-                        });
-                        push({ who: "agent",
-                          text: `저장을 기록하지 못했어요 — ${(e as Error).message}` });
-                      }
-                    }}>
-                    {saved.has(c.company_id) ? "저장됨" : "저장"}
-                  </button>
-                  {derived[c.company_id]?.draft?.drafts?.length ? (
-                    <>
-                      <button className="mini saved" title="저장된 초안 다시 열기"
-                        onClick={() => reopenDraft(c.company_id, c.name)}>초안 보기</button>
-                      <button className="mini" title="새로 씁니다 (비용 발생)"
-                        onClick={() => draftMail(c.company_id)}>다시 쓰기</button>
-                    </>
-                  ) : (
-                    <button className="mini"
-                      onClick={() => draftMail(c.company_id)}>메일 초안</button>
-                  )}
-                  <button
-                    className={`mini ${replied.has(c.company_id) ? "saved" : ""}`}
-                    onClick={async () => {
-                      const on = !replied.has(c.company_id);
-                      setReplied((rv) => {
-                        const n = new Set(rv);
-                        on ? n.add(c.company_id) : n.delete(c.company_id);
-                        return n;
-                      });
-                      if (!requestId) return;
-                      try {
-                        await api(
-                          `/lead-requests/${requestId}/candidates/${c.company_id}/outcome`,
-                          { replied: on ? "yes" : "" });
-                        // 성공한 뒤에 알린다 — 실패했는데 "기록했습니다"는 거짓말
-                        if (on) push({ who: "stamp",
-                          text: "답장을 기록했습니다 — 다음 검색의 키워드 추천에 반영됩니다" });
-                      } catch (e) {
-                        setReplied((rv) => {
-                          const n = new Set(rv);
-                          on ? n.delete(c.company_id) : n.add(c.company_id);
-                          return n;
-                        });
-                        push({ who: "agent",
-                          text: `답장을 기록하지 못했어요 — ${(e as Error).message}` });
-                      }
-                    }}>
-                    {replied.has(c.company_id) ? "답장 받음 ✓" : "답장 받음"}
-                  </button>
-                </div>
               </div>
             </div>
           ))}

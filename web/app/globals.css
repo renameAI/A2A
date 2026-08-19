@@ -1,23 +1,27 @@
 /* ═══════════ 토큰 ═══════════ */
+/* 다크 톤 — 리드 발굴은 오래 들여다보는 작업이라 밝은 종이보다 눈이 편하고,
+   B2B 도구다운 무게가 생긴다. 색은 토큰에만 있으므로 값만 바꾸면 전체가
+   따라온다(컴포넌트에 색을 박지 않은 덕). 강조는 코랄 하나로 유지 —
+   다크에서 색을 늘리면 금세 산만해진다. */
 :root{
-  --ink:#131A2A;          /* 사이드바 잉크 네이비 */
-  --ink-2:#1C2438;        /* 사이드바 hover */
-  --ink-3:#0D1220;        /* 워크스페이스 레일 */
-  --paper:#FBFBF9;        /* 채팅 배경 */
-  --white:#FFFFFF;
-  --line:#E7E5DF;
-  --line-soft:#F0EEE8;
-  --txt:#1F2430;
-  --txt-2:#6B7280;
-  --txt-3:#9AA1AC;
-  --coral:#F2542D;        /* rename 도장 */
-  --coral-soft:#FEEEE8;
-  --green:#1F8A5D;        /* 승인 */
-  --green-soft:#E9F5EF;
-  --blue:#3C6FF2;         /* 데이터·학습 */
-  --blue-soft:#EDF2FE;
-  --amber:#B45309;
-  --amber-soft:#FDF3E7;
+  --ink:#0B0D11;          /* 사이드바 */
+  --ink-2:#161A21;        /* 사이드바 hover */
+  --ink-3:#07080B;        /* 워크스페이스 레일 */
+  --paper:#0E1116;        /* 채팅 배경 */
+  --white:#151A21;        /* 카드·버블 표면 (이름은 '표면'의 뜻으로 유지) */
+  --line:#242A33;
+  --line-soft:#1B2028;
+  --txt:#E8EAED;
+  --txt-2:#A3AAB5;
+  --txt-3:#6E7681;
+  --coral:#FF6B45;        /* rename 도장 — 어두운 배경에서 살짝 밝게 */
+  --coral-soft:#2A1710;
+  --green:#3DD68C;        /* 승인 */
+  --green-soft:#10241A;
+  --blue:#6E9BFF;         /* 데이터·학습 */
+  --blue-soft:#131C2E;
+  --amber:#E9A23B;
+  --amber-soft:#2A1F0E;
   --mono:"SF Mono","D2Coding",ui-monospace,Menlo,monospace;
   --r:8px;
 }
@@ -30,6 +34,9 @@ body{
 }
 button{font:inherit;cursor:pointer;border:none;background:none}
 ::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#2A313B;border-radius:8px}
+::-webkit-scrollbar-track{background:transparent}
+:root{color-scheme:dark}
 ::-webkit-scrollbar-thumb{background:#C9CDD6;border-radius:4px}
 .app{display:grid;grid-template-columns:44px 256px 1fr 360px;height:100vh}
 
@@ -540,3 +547,18 @@ a.ct-v{color:var(--blue)}
 .chan-row:hover .chan-del{opacity:1}
 .chan-del:hover{background:rgba(255,255,255,.1);color:var(--coral)}
 .chan-del:disabled{opacity:0}
+
+
+/* ═══════════ 후보 캐러셀 ═══════════ */
+/* 후보 10곳을 버블 10개로 쌓으면 대화가 목록이 된다 — 한 메시지 안에서
+   가로로 넘긴다. 스크롤 스냅으로 카드 단위가 또렷하게 멈춘다. */
+.bubble-wide{max-width:none}
+.carousel{display:flex;gap:10px;overflow-x:auto;padding:10px 2px 12px;
+  scroll-snap-type:x mandatory;scrollbar-width:thin}
+.carousel .cand-card{flex:0 0 320px;scroll-snap-align:start;
+  background:var(--white);border:1px solid var(--line);border-radius:12px;
+  padding:12px 13px;display:flex;flex-direction:column;gap:8px}
+.carousel .cand-card .bubble{background:none;border:none;padding:0;
+  max-width:none;box-shadow:none}
+.carousel .cand-acts,.carousel .cand-react{flex-wrap:wrap}
+@media (max-width:720px){ .carousel .cand-card{flex-basis:82vw} }

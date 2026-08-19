@@ -104,9 +104,15 @@ contacts: 자료에 실제로 나온 공개 접촉 경로만.
 - channel: 문의 폼 / 대표 메일 / 전화 / 파트너 모집 페이지 / SNS 등.
   자료의 표기를 따른다 — 자료가 "인스타그램 DM"이면 그대로 "인스타그램 DM"이지
   "다이렉트 메시지"로 풀어 쓰지 않는다(전사 계약은 여기도 적용된다).
-- value: URL·메일 주소·전화번호를 자료에 있는 그대로. 주소가 없이 **창구
-  부서만 명시된 경우**("문의는 상품통괄부로")는 그 부서명이 value다 —
-  주소가 없다고 접점을 버리면 사용자는 그 문이 있는 줄도 모른다.
+- value: **닿을 수 있는 것**이어야 한다 — URL·메일 주소·전화번호를 자료에 있는
+  그대로. 링크의 **글자(라벨)를 value로 쓰지 마라**: 자료가 `お問い合わせ`라는
+  글자에 /contact 링크를 걸었다면 value는 그 주소이지 `お問い合わせ`가 아니다.
+  채널 이름을 value에 되풀이하는 것도 같은 잘못이다 — 사용자가 클릭할 것이
+  없어진다(실측: 일본어 사이트에서 `お問い合わせ: お問い合わせ`가 나왔다).
+  상대 경로(/contact)는 회사 사이트 주소를 붙여 절대 주소로 만든다.
+  주소가 전혀 없이 **창구 부서만 명시된 경우**("문의는 상품통괄부로")만
+  그 부서명이 value다 — 그때는 role_hint에도 같은 부서명을 넣어, 주소가 아니라
+  부서 안내임이 드러나게 한다.
 - role_hint: 그 경로를 담당하는 부서·직함이 자료에 있으면 **반드시** 옮긴다
   (예: 구매팀 메일이면 role_hint=구매팀). 없으면 빈 문자열.
 - value와 role_hint는 **원어 표기 그대로**다(회사명과 같은 이유의 한국어 규칙
@@ -169,6 +175,34 @@ ONTOLOGY_SCHEMA = {
 SITE_TEXT_MAX = 9000
 
 
+def _clean_contacts(raw: "list[dict]", site_url: str) -> "list[ContactPath]":
+    """접점 정제 — 판정은 모델, 정리는 코드.
+
+    프롬프트로 "라벨을 쓰지 마라"라고만 하면 다국어 사이트에서 계속 새어 나온다
+    (실측: `お問い合わせ: お問い合わせ`). 값이 채널 이름과 같으면 주소가 아니라
+    링크 글자를 옮긴 것이므로, 그런 접점은 **주소 없는 창구 안내**로 강등한다 —
+    버리지는 않는다(문이 있다는 사실 자체는 정보다).
+    상대 경로는 회사 사이트에 붙여 클릭 가능한 절대 주소로 만든다.
+    """
+    from urllib.parse import urljoin
+    out = []
+    for x in raw:
+        value = (x.get("value") or "").strip()
+        channel = (x.get("channel") or "").strip()
+        role = (x.get("role_hint") or "").strip()
+        if not value:
+            continue
+        if value.startswith("/") and site_url:
+            value = urljoin(site_url, value)
+        looks_reachable = ("@" in value or value.startswith(("http://", "https://"))
+                           or any(ch.isdigit() for ch in value))
+        if not looks_reachable and value.casefold() == channel.casefold():
+            # 라벨을 그대로 옮긴 것 — 주소가 아니다. 창구 안내로 남긴다.
+            role = role or value
+        out.append(ContactPath(channel=channel, value=value, role_hint=role))
+    return out
+
+
 def read_company(extractor, company: dict, *, region: str = "",
                  purpose: str = "revenue", site_text: str = "") -> CompanyOntology:
     """한 기업의 온톨로지를 판독한다.
@@ -215,11 +249,7 @@ def read_company(extractor, company: dict, *, region: str = "",
                               evidence=x["evidence"].strip(),
                               observed_at=x.get("observed_at", "").strip())
                  for x in data.get("signals", []) if x.get("evidence", "").strip()],
-        contacts=[ContactPath(channel=x["channel"].strip(),
-                              value=x["value"].strip(),
-                              role_hint=x.get("role_hint", "").strip())
-                  for x in data.get("contacts", [])
-                  if x.get("value", "").strip()],
+        contacts=_clean_contacts(data.get("contacts", []), company.get("url", "")),
     )
 
 

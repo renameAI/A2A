@@ -79,3 +79,24 @@ def test_no_hits_returns_empty_without_calling_model():
         assert SD.find_official_site(Boom(), None, "없는회사") == ("", 0.0)
     finally:
         ws.web_search = ws_orig
+
+
+class TestDomainShapedNames:
+    """이름이 곧 도메인인 회사 — 디렉터리에 'awear.nl'처럼 실린다.
+
+    실측(할리케이 요청): awear.nl·firemission.nl을 검색 경로로는 못 찾아
+    no_site로 빠졌다. 이름 자체가 답인데 모델까지 태울 이유가 없다.
+    """
+    def test_domain_names_resolve_without_search_or_model(self):
+        class Boom:
+            def extract_json(self, *a, **k): raise AssertionError("모델 호출 금지")
+        for name, want in (("awear.nl", "https://awear.nl"),
+                           ("firemission.nl", "https://firemission.nl"),
+                           (" zeroex.io ", "https://zeroex.io"),
+                           ("www.a.com", "https://www.a.com")):
+            assert SD.find_official_site(Boom(), None, name) == (want, 1.0)
+
+    def test_company_names_are_not_mistaken_for_domains(self):
+        """상호 표기가 도메인으로 오해되면 없는 사이트를 크롤한다."""
+        for name in ("Project Cece", "UNDO", "Rifò", "Novo.Carbo", "a.company"):
+            assert SD._name_as_domain(name) == "", name

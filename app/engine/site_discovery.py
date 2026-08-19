@@ -10,6 +10,7 @@ _NON_COMPANY 도메인으로 미리 거르고, 모델이 고른 URL이 후보 �
 코드가 검사한다(인용 계약). 확신이 낮으면 빈 값 — 남의 사이트를 그 회사로
 읽는 것이 못 읽는 것보다 나쁘다.
 """
+import re as _re
 from urllib.parse import urlparse
 
 from .candidate_extract import _NON_COMPANY, _site_of
@@ -40,9 +41,46 @@ DISCOVER_SCHEMA = {
 _ACCEPT = 0.6
 
 
+# 이름이 곧 도메인인 회사 — 디렉터리 목록에 'awear.nl', 'firemission.nl'처럼
+# 실린다. 검색으로 찾으려면 모델까지 태워야 하는데, 이름 자체가 답이다.
+_DOMAINISH = _re.compile(
+    r"^(?:https?://)?(?:www\.)?"
+    r"([a-z0-9][a-z0-9-]{1,62}(?:\.[a-z0-9-]{1,63})+)$", _re.I)
+
+
+_TLDS = {
+    "com", "net", "org", "io", "co", "ai", "app", "dev", "earth", "eco",
+    "bio", "tech", "shop", "store", "world", "life", "green", "energy",
+    "kr", "jp", "cn", "tw", "hk", "sg", "in", "id", "vn", "th", "my",
+    "us", "uk", "de", "fr", "it", "es", "nl", "be", "se", "no", "dk",
+    "fi", "pl", "pt", "ch", "at", "ie", "cz", "gr", "tr", "ru", "ua",
+    "ca", "mx", "br", "ar", "cl", "co.uk", "com.au", "au", "nz", "za",
+}
+
+
+def _name_as_domain(name: str) -> str:
+    """이름이 도메인 꼴이면 그 주소. 아니면 빈 문자열."""
+    m = _DOMAINISH.match((name or "").strip())
+    if not m:
+        return ""
+    host = m.group(1).lower()
+    # 마지막 조각이 **실재하는 TLD**여야 한다. 글자 수만 보면 'Novo.Carbo'
+    # 같은 상호 표기가 도메인으로 오해된다(실측). 목록은 회사 이름에 흔히
+    # 쓰이는 것만 — 여기 없으면 검색 경로로 넘어가므로 놓쳐도 손해가 없다.
+    tld = host.rsplit(".", 1)[-1]
+    return f"https://{host}" if tld in _TLDS else ""
+
+
 def find_official_site(extractor, settings, name: str, what: str = "",
                        exclude_site: str = "") -> "tuple[str, float]":
-    """(공식 사이트 URL 또는 "", p). 검색 1회 + 판정 1회."""
+    """(공식 사이트 URL 또는 "", p). 보통 검색 1회 + 판정 1회.
+
+    이름이 도메인 꼴이면 검색·판정 없이 그 주소를 쓴다 — 확인은 크롤이 한다
+    (못 읽으면 호출자가 fetch_failed로 남긴다).
+    """
+    direct = _name_as_domain(name)
+    if direct:
+        return direct, 1.0
     from ..ingest.websearch import web_search
     # 1순위: 이름만(실측으로 잘 듣는다). 이름이 일반명사('Mati')라 결과가
     # 없거나 후보가 안 남을 때만 업을 한 조각 붙인 2순위로 넘어간다 — 힌트를
