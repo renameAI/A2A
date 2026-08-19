@@ -119,6 +119,14 @@ contacts: 자료에 실제로 나온 공개 접촉 경로만.
   예외). 商品統括部를 '상품통괄부'로 번역하면 실물 부서명과 달라져 연락이
   닿지 않는다. 번역·독음은 금지, 자료의 문자 그대로 옮긴다.
 - 거래·제휴와 무관한 접점(공장 견학 신청, 채용 문의)은 넣지 않는다.
+- business_language: 이 회사가 **거래 문의를 받는 언어**의 BCP-47 코드
+  (ko/en/ja/zh/de/fr/es/it/nl/vi/id/th 등). 사이트 본문이 쓰인 언어를 따르되,
+  다국어 사이트면 회사소개·문의 페이지의 주 언어를 고른다. 판단이 안 서면
+  빈 문자열 — 그때는 시스템이 한국어로 쓰고 사용자가 고른다.
+- signals의 source_url: 그 문장을 읽은 페이지 주소. 자료가 "[페이지: URL]"로
+  구분돼 있으면 그 문장이 속한 페이지의 URL을 그대로 옮긴다. 메일에서
+  "이 페이지에서 봤습니다"라고 밝히는 데 쓰이므로, 없는 주소를 지어내면
+  상대가 열어보고 어긋난다. 확실하지 않으면 빈 문자열.
 - 자료에 없으면 빈 배열. 회사 규모로 짐작해 만들지 마라 — 홈페이지가
   있다는 사실만으로 "문의 폼"을 만들면 존재하지 않는 문이다.
 
@@ -131,7 +139,8 @@ search_keywords: 이 회사와 **같은 성격의 회사를 더 찾을 때** 쓸
 
 ONTOLOGY_SCHEMA = {
     "type": "object", "additionalProperties": False,
-    "required": ["axes", "search_keywords", "signals", "contacts"],
+    "required": ["axes", "search_keywords", "signals", "contacts",
+                 "business_language"],
     "properties": {
         "axes": {
             "type": "object", "additionalProperties": False,
@@ -150,14 +159,16 @@ ONTOLOGY_SCHEMA = {
                             "items": {"type": "string"}},
         "signals": {"type": "array", "maxItems": 6, "items": {
             "type": "object", "additionalProperties": False,
-            "required": ["category", "evidence", "observed_at"],
+            "required": ["category", "evidence", "observed_at", "source_url"],
             "properties": {
                 "category": {"type": "string",
                              "enum": ["expansion", "investment", "leadership",
                                       "new_offering", "partnership",
                                       "procurement", "cost_cutting", "other"]},
                 "evidence": {"type": "string"},
-                "observed_at": {"type": "string"}}}},
+                "observed_at": {"type": "string"},
+                "source_url": {"type": "string"}}}},
+        "business_language": {"type": "string"},
         "contacts": {"type": "array", "maxItems": 4, "items": {
             "type": "object", "additionalProperties": False,
             "required": ["channel", "value", "role_hint"],
@@ -173,6 +184,36 @@ ONTOLOGY_SCHEMA = {
 # 페이지를 우선 모으므로 앞쪽에 접점·신호가 몰린다. 너무 길면 스니펫 판독보다
 # 느리고 비싸지기만 한다.
 SITE_TEXT_MAX = 9000
+
+
+# 허용 언어 — 모델이 "영어"·"English"·"en-US"처럼 제각각 돌려주므로 코드가
+# 좁힌다. 목록에 없으면 빈 문자열이고, 그때는 한국어로 쓴다(정직한 기본값).
+_LANGS = {"ko", "en", "ja", "zh", "de", "fr", "es", "it", "nl", "pt",
+          "vi", "id", "th", "sv", "da", "no", "fi", "pl", "tr", "ru"}
+_LANG_ALIAS = {"korean": "ko", "한국어": "ko", "english": "en", "영어": "en",
+               "japanese": "ja", "일본어": "ja", "chinese": "zh", "중국어": "zh",
+               "german": "de", "french": "fr", "spanish": "es",
+               "italian": "it", "dutch": "nl", "vietnamese": "vi",
+               "indonesian": "id", "thai": "th"}
+
+
+def _lang_code(raw: str) -> str:
+    v = (raw or "").strip().lower().replace("_", "-")
+    v = _LANG_ALIAS.get(v, v).split("-")[0]
+    return v if v in _LANGS else ""
+
+
+def _cited_url(url: str, site_text: str) -> str:
+    """모델이 준 출처가 자료에 실제로 있던 주소인지 검사한다.
+
+    메일이 "이 페이지에서 봤습니다"라며 링크를 다는데 그 주소가 지어낸 것이면,
+    상대가 열어보는 순간 신뢰가 무너진다. 자료(크롤 본문)는 페이지마다
+    "[페이지: URL]"로 구분돼 있으므로, 거기 없는 주소는 버린다.
+    """
+    u = (url or "").strip()
+    if not u.startswith(("http://", "https://")):
+        return ""
+    return u if u in (site_text or "") else ""
 
 
 def _clean_contacts(raw: "list[dict]", site_url: str) -> "list[ContactPath]":
@@ -247,9 +288,11 @@ def read_company(extractor, company: dict, *, region: str = "",
         source_url=company.get("url", ""),
         signals=[TimingSignal(category=SignalCategory(x["category"]),
                               evidence=x["evidence"].strip(),
-                              observed_at=x.get("observed_at", "").strip())
+                              observed_at=x.get("observed_at", "").strip(),
+                              source_url=_cited_url(x.get("source_url", ""), site_text))
                  for x in data.get("signals", []) if x.get("evidence", "").strip()],
         contacts=_clean_contacts(data.get("contacts", []), company.get("url", "")),
+        business_language=_lang_code(data.get("business_language", "")),
     )
 
 

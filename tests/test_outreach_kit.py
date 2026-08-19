@@ -60,7 +60,8 @@ def test_missing_outreach_in_model_output_becomes_empty_kit():
             return {"observed_needs": [], "need_evidence": [], "value_bridge": [],
                     "personalization_hooks": [], "uncertainties": []}
     ins = build_insight(NoKit(), "c1", _p(), INTENT, _p("B"), ontology=ONT)
-    assert set(ins.outreach) == {"to_role", "channel", "channel_value", "why_now", "hook"}
+    assert set(ins.outreach) == {"to_role", "channel", "channel_value",
+                                 "why_now", "hook", "hook_url"}
 
 
 def test_ontology_block_prefers_confirmed_axes_only():
@@ -68,3 +69,54 @@ def test_ontology_block_prefers_confirmed_axes_only():
                            "axes": {"a": {"value": "확정값", "status": "confirmed"},
                                     "b": {"value": "추정값", "status": "assumed"}}})
     assert "확정값" in blk and "추정값" not in blk
+
+
+class TestEvidenceLinkAndLanguage:
+    """메일이 '무엇을 보고 연락하는지'를 링크로 밝히고, 상대의 말로 쓰인다."""
+
+    def test_hook_url_must_be_a_url_the_reader_actually_saw(self):
+        ont = {"contacts": [], "signals": [
+            {"category": "partnership", "evidence": "e",
+             "source_url": "https://a.com/news"}], "axes": {}}
+        x = _Canned({"to_role": "", "channel": "", "channel_value": "",
+                     "why_now": "", "hook": "h", "hook_url": "https://a.com/news"})
+        assert build_insight(x, "c", _p(), INTENT, _p("B"),
+                             ontology=ont).outreach["hook_url"] == "https://a.com/news"
+
+    def test_invented_hook_url_is_stripped(self):
+        """상대가 열어보는 순간 어긋나는 링크는 없느니만 못하다."""
+        ont = {"contacts": [], "signals": [
+            {"category": "partnership", "evidence": "e",
+             "source_url": "https://a.com/news"}], "axes": {}}
+        x = _Canned({"to_role": "", "channel": "", "channel_value": "",
+                     "why_now": "", "hook": "h", "hook_url": "https://a.com/made-up"})
+        assert build_insight(x, "c", _p(), INTENT, _p("B"),
+                             ontology=ont).outreach["hook_url"] == ""
+
+    def test_signal_source_urls_reach_the_prompt(self):
+        ont = {"contacts": [], "axes": {}, "signals": [
+            {"category": "investment", "evidence": "시리즈 B",
+             "source_url": "https://a.com/press"}]}
+        x = _Canned({k: "" for k in ("to_role", "channel", "channel_value",
+                                     "why_now", "hook", "hook_url")})
+        build_insight(x, "c", _p(), INTENT, _p("B"), ontology=ont)
+        assert "출처 https://a.com/press" in x.src
+
+    def test_compose_is_told_to_quote_the_link(self):
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM, _kit_lines
+        assert "무엇을 보고 연락하는지 밝힌다" in COMPOSE_LEAD_SYSTEM
+        assert "근거 링크(본문에 그대로 인용): https://a.com/x" in _kit_lines(
+            {"hook": "h", "hook_url": "https://a.com/x"})
+        assert "근거 링크" not in _kit_lines({"hook": "h", "hook_url": ""})
+
+    def test_language_codes_are_normalised_and_unknown_falls_back(self):
+        from app.engine.company_ontology import _lang_code
+        assert _lang_code("English") == "en" and _lang_code("ja-JP") == "ja"
+        assert _lang_code("일본어") == "ja" and _lang_code("우주어") == ""
+
+    def test_cited_url_requires_the_page_to_be_in_the_material(self):
+        from app.engine.company_ontology import _cited_url
+        text = "[페이지: https://a.com/news]\n본문"
+        assert _cited_url("https://a.com/news", text) == "https://a.com/news"
+        assert _cited_url("https://a.com/other", text) == ""
+        assert _cited_url("news", text) == ""

@@ -1319,14 +1319,21 @@ def make_drafts(rid: str, cid: str, background: BackgroundTasks,
                                      confidence=0.4),
             solution=ProvField(value="", provenance=Provenance.ask),
             target_customer=ProvField(value="", provenance=Provenance.ask))
+        # 상대의 언어로 쓴다 — 판독이 사이트에서 읽어 둔 값. 사용자가 명시했으면
+        # 그것이 우선이고, 둘 다 없을 때만 한국어다. 지금까지는 지정이 없어
+        # 싱가포르·일본 상대에게도 한국어 메일이 나갔다.
+        lang = (intent.outreach_language
+                or ((cand.get("ontology") or {}).get("business_language"))
+                or "ko")
         res = compose_lead(get_extractor(settings), ComposeLeadRequest(
             requester_profile=profile, intent=intent, candidate_profile=thin,
             candidate_insight=CandidateInsight.model_validate(ins_doc),
-            language=intent.outreach_language or "ko"))
+            language=lang))
         out = res.model_dump(mode="json")
         # 아웃리치 킷(누구에게·어디로·왜 지금·훅)을 초안과 함께 저장·반환한다 —
         # 초안만 있고 보낼 곳이 없으면 사용자는 다시 사이트를 뒤져야 한다.
         out["outreach"] = ins_doc.get("outreach") or {}
+        out["language"] = lang          # 화면이 "어느 말로 쓴 메일"인지 밝힌다
         store.put("email_draft", user.workspace_id, _derived_key(doc, rid, cid), out)
         # 초안 생성은 서버가 아는 사실 — 결과 원장에 자동 기록 (B4)
         _record_outcome(store, user.workspace_id, rid, cid, cand, drafted=True)

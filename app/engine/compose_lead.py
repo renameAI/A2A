@@ -17,13 +17,21 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
   밖의 사실·수치·고객명을 만들면 환각이다.
 - uncertainties에 있는 내용은 본문에서 단정하지 마라 — 아예 빼는 것이 기본이다.
 - 첫 문장은 personalization_hooks 중 하나로 시작한다 — 템플릿 인사말 금지.
+- **무엇을 보고 연락하는지 밝힌다.** 킷에 근거 링크가 있으면 첫 단락에서
+  그 주소를 본문에 그대로 적는다("귀사의 https://… 페이지에서 …를 보았습니다").
+  링크 없이 "보았습니다"라고만 하면 상대는 확인할 방법이 없어 대량 발송으로
+  읽는다. 링크가 없으면 무엇을 보았는지 구체적으로 쓰되 지어낸 주소는 절대
+  넣지 마라.
 - CTA는 과하지 않게 하나만 (예: 30분 온라인 소개).
 - 지정 언어로 쓰되, 회사명 등 고유명사는 원어 유지.
 - claim_trace: 본문의 구체적 주장(수치·고유명사·사실 서술이 든 문장)마다
   그 근거가 된 인사이트 항목을 짝지어 기록한다.
 - subject_ko / body_ko: 작성한 메일의 **한국어 대역**. 보내는 사람이 내용을
   확인하고 승인해야 하므로, 읽을 수 없는 메일을 그대로 내보내면 안 된다.
-  지정 언어가 한국어면 subject·body와 같게 쓴다."""
+  지정 언어가 한국어면 subject·body와 같게 쓴다. 그 밖의 언어면 대역을
+  **반드시** 채운다 — 빈 대역은 사용자가 내용을 모른 채 보내게 만든다.
+  대역은 요약이 아니라 같은 뜻의 한국어 문장이어야 하고, 본문에 넣은 링크는
+  대역에도 같은 주소로 남긴다."""
 
 COMPOSE_LEAD_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -71,6 +79,8 @@ def _kit_lines(kit: dict) -> str:
         lines.append(f"왜 지금인가(최근 신호): {kit['why_now']} — 첫 단락에서 이것을 짚는다")
     if kit.get("hook"):
         lines.append(f"첫 문장 훅: {kit['hook']}")
+    if kit.get("hook_url"):
+        lines.append(f"근거 링크(본문에 그대로 인용): {kit['hook_url']}")
     if kit.get("channel"):
         lines.append(f"보낼 채널: {kit['channel']} — 폼이면 폼에 맞게 짧게")
     return ("[아웃리치 킷 — 심층 판독에서 읽은 것]\n" + "\n".join(lines) + "\n") if lines else ""

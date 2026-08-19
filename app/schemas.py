@@ -139,6 +139,9 @@ class TimingSignal(BaseModel):
     category: SignalCategory
     evidence: str
     observed_at: str = ""            # 자료에 날짜가 있으면 그대로, 없으면 빈 문자열
+    # 이 문장을 읽은 페이지. 메일이 "여기서 봤습니다"라고 링크로 밝히려면
+    # 사건마다 출처가 있어야 한다 — 사이트 단위로는 상대가 확인할 수 없다.
+    source_url: str = ""
 
 
 class ContactPath(BaseModel):
@@ -165,6 +168,9 @@ class CompanyOntology(BaseModel):
     # 구조화 확장 (2026-08): 축이 '상태'라면 signals는 '사건', contacts는 '문'이다.
     signals: list[TimingSignal] = []
     contacts: list[ContactPath] = []
+    # 상대가 거래 문의를 받는 언어(BCP-47). 메일을 어느 말로 쓸지 정한다 —
+    # 지금까지는 지정이 없어 상대가 누구든 한국어로 나갔다.
+    business_language: str = ""
 
 
 class RiskType(str, Enum):            # 리스크 3분류 (가이드 §4)

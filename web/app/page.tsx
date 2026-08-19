@@ -1090,7 +1090,7 @@ function Workspace({ who }: { who: string }) {
       await waitJob(i.job_id);
       const c = await api(`/lead-requests/${requestId}/candidates/${cid}/compose`, undefined, "POST");
       const res = (await waitJob(c.job_id)) as
-        { drafts: Draft[]; outreach?: OutreachKit };
+        { drafts: Draft[]; outreach?: OutreachKit; language?: string };
       const d = res.drafts[0];
       setDerived((prev) => ({ ...prev, [cid]: { ...(prev[cid] ?? {}),
         draft: res, has_insight: true,
@@ -1098,7 +1098,7 @@ function Workspace({ who }: { who: string }) {
                    drafted: true } } }));
       push({
         who: "agent", text: "초안이에요. 발송은 직접 하셔야 해요.",
-        jsx: <MailDraft d={d} kit={res.outreach} />,
+        jsx: <MailDraft d={d} kit={res.outreach} lang={res.language} />,
       });
     } catch (e) { push({ who: "agent", text: (e as Error).message }); }
     finally { setBusy(false); }
@@ -1106,11 +1106,12 @@ function Workspace({ who }: { who: string }) {
 
   /** 저장된 초안을 다시 연다 — 다시 만들면 비용이 들고 문장이 바뀐다. */
   function reopenDraft(cid: string, name: string) {
-    const stored = derived[cid]?.draft as { drafts?: Draft[]; outreach?: OutreachKit } | null | undefined;
+    const stored = derived[cid]?.draft as
+      { drafts?: Draft[]; outreach?: OutreachKit; language?: string } | null | undefined;
     const d = stored?.drafts?.[0];
     if (!d) return;
     push({ who: "agent", text: `${name}에게 보낼 저장된 초안이에요.`,
-           jsx: <MailDraft d={d} kit={stored?.outreach} /> });
+           jsx: <MailDraft d={d} kit={stored?.outreach} lang={stored?.language} /> });
   }
 
   function send() {
@@ -1583,10 +1584,23 @@ function PipelineBoard({ pipe, onOpen, onStage }: {
   );
 }
 
+/** 본문 속 URL을 클릭 가능한 링크로. 표시만 바꾸고 원문은 건드리지 않는다. */
+function linkify(text: string): React.ReactNode[] {
+  return text.split(/(https?:\/\/[^\s<>()"']+)/g).map((part, i) =>
+    /^https?:\/\//.test(part)
+      ? <a key={i} href={part} target="_blank" rel="noreferrer">{part}</a>
+      : <span key={i}>{part}</span>);
+}
+
 /** 메일 초안. 원문과 한국어 대역을 탭으로 오간다 —
  *  읽을 수 없는 메일을 승인해 보낼 수는 없다. 대역이 원문과 같으면
  *  (지정 언어가 한국어인 경우) 탭 자체를 띄우지 않는다. */
-function MailDraft({ d, kit }: { d: Draft; kit?: OutreachKit }) {
+const LANG_LABEL: Record<string, string> = {
+  ko: "한국어", en: "영어", ja: "일본어", zh: "중국어", de: "독일어",
+  fr: "프랑스어", es: "스페인어", it: "이탈리아어", nl: "네덜란드어",
+  pt: "포르투갈어", vi: "베트남어", id: "인도네시아어", th: "태국어" };
+
+function MailDraft({ d, kit, lang }: { d: Draft; kit?: OutreachKit; lang?: string }) {
   const hasKo = !!d.body_ko && d.body_ko !== d.body;
   const [ko, setKo] = useState(hasKo);   // 기본은 읽을 수 있는 쪽
   const sub = ko && hasKo ? (d.subject_ko || d.subject) : d.subject;
@@ -1614,12 +1628,16 @@ function MailDraft({ d, kit }: { d: Draft; kit?: OutreachKit }) {
           <button className={`mail-tab ${ko ? "on" : ""}`}
             onClick={() => setKo(true)}>한국어 대역</button>
           <button className={`mail-tab ${!ko ? "on" : ""}`}
-            onClick={() => setKo(false)}>보낼 원문</button>
+            onClick={() => setKo(false)}>
+            보낼 원문{lang ? ` (${LANG_LABEL[lang] ?? lang})` : ""}</button>
           {ko && <span className="mail-hint">이건 확인용이에요. 보내는 건 원문입니다.</span>}
         </div>
       )}
       <div className="mail-sub">{sub}</div>
-      <div className="mail-body">{body}</div>
+      {/* 본문의 URL은 눌러서 확인할 수 있어야 한다 — 메일이 "여기서 봤습니다"라고
+          말하는데 사용자가 그 페이지를 못 열면 검수가 안 된다. 복사는 원문
+          그대로 나가므로 표시만 링크로 바꾼다. */}
+      <div className="mail-body">{linkify(body)}</div>
       {d.warnings.map((w, k) => (
         <div className="mail-note" key={k}><b>제외됨</b> {w}</div>))}
       <div className="card-foot">

@@ -29,10 +29,15 @@ INSIGHT_SYSTEM = HARD_RULES + """
     why_now      왜 지금인가 — [타이밍 신호]에서 가장 최근·구체적인 것 하나를
                  한 문장으로. 신호가 없으면 빈 문자열(억지로 만들지 마라).
     hook         첫 문장 — 상대가 '우리를 봤구나' 느낄 구체적 사실 하나.
+    hook_url     그 사실을 읽은 페이지 주소. 위 [타이밍 신호]의 '출처'에 있는
+                 주소만 쓴다 — 없으면 빈 문자열. 메일이 "여기서 봤습니다"라며
+                 링크를 다는 데 쓰이므로, 지어낸 주소는 상대가 열어보는 순간
+                 어긋난다.
   이 넷은 전부 [접점]·[타이밍 신호]·[후보 자료]에서만 나온다. 자료에 없는
   채널·역할·사실을 채우면 이메일이 거짓말이 된다."""
 
-_OUTREACH_KEYS = ("to_role", "channel", "channel_value", "why_now", "hook")
+_OUTREACH_KEYS = ("to_role", "channel", "channel_value", "why_now",
+                  "hook", "hook_url")
 
 INSIGHT_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -61,6 +66,7 @@ def _ontology_block(ont: "dict | None") -> str:
                for c in contacts] or ["없음"]
     s_lines = [f"- [{s.get('category','')}] {s.get('evidence','')}"
                + (f" ({s.get('observed_at')})" if s.get("observed_at") else "")
+               + (f" · 출처 {s.get('source_url')}" if s.get("source_url") else "")
                for s in signals[:8]] or ["없음"]
     a_lines = [f"- {k}: {v.get('value','')}" for k, v in axes.items()
                if v.get("status") == "confirmed" and v.get("value")][:8]
@@ -101,5 +107,10 @@ def build_insight(extractor, candidate_id: str, requester: Profile,
     if kit["channel_value"] and kit["channel_value"].strip() not in known:
         kit["channel_value"] = ""
         kit["channel"] = ""
+    # 근거 링크도 같은 계약 — 판독이 실제로 읽은 페이지만 인용한다.
+    seen_urls = {(g.get("source_url") or "").strip()
+                 for g in ((ontology or {}).get("signals") or [])} | set(urls)
+    if kit["hook_url"] and kit["hook_url"].strip() not in seen_urls:
+        kit["hook_url"] = ""
     data["outreach"] = kit
     return CandidateInsight(candidate_id=candidate_id, source_urls=urls, **data)
