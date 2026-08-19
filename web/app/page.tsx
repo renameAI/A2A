@@ -19,7 +19,7 @@ type Cand = { company_id: string; name: string; name_ko?: string;
   what?: string; signal?: string; source_url: string;
   pain_signal: string; retrieval_score: number; weak: boolean;
   segment?: string; found_by?: string; ontology?: Ont | null;
-  p?: number; source_kind?: string; partial?: boolean;
+  p?: number; source_kind?: string; partial?: boolean; reach_fact?: boolean;
   deep_read?: { status: string; note?: string; contacts?: number; signals?: number } };
 const SRC_LABEL: Record<string, string> = {
   own: "자사 페이지", directory: "디렉터리·협회", mention: "기사·언급" };
@@ -471,7 +471,12 @@ export default function Gate() {
     // 전까지는 메일에 링크가 담기므로, 링크를 눌러도 로그인이 되어야 한다.
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+      // 로그인 화면은 계정을 만들지 않는다 — 만들면 아무 주소나 입력해
+      // 시간당 2통뿐인 메일 쿼터를 태울 수 있다(무인증 서비스 거부).
+      // 새 사용자는 운영자가 만든다(scripts의 admin 경로). anon 키로 API를
+      // 직접 치는 경로는 대시보드의 disable_signup이 마저 닫는다.
+      options: { emailRedirectTo: window.location.origin,
+                 shouldCreateUser: false },
     });
     setBusy(false);
     if (error) { setErr(loginError(error.message)); return; }
@@ -1351,6 +1356,10 @@ function Workspace({ who }: { who: string }) {
                       <span className="orig"> {c.name}</span>)}
                     {c.segment && <span className="chip seg">{c.segment}</span>}
                     {c.weak && <span className="chip ask">임계 미만</span>}
+                    {c.reach_fact && (
+                      <span className="chip ok"
+                        title="이 도메인에서 답장을 받은 적이 있어요 — 문턱 추정을 실측이 덮었습니다">
+                        답장 이력</span>)}
                     {/* 임계 0.25 — 실측 분포에서 대기업이 0.08~0.2, 중견이
                         0.28~0.45로 갈렸다. 0.4로 하면 1위에도 배지가 붙는다. */}
                     {typeof c.ontology?.reachability === "number"

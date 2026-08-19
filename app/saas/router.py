@@ -710,26 +710,70 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
     if dropped:
         progress.log("검색", f"비기업 도메인 {dropped}건 제외 (블로그·위키·SNS 등)")
     cost.reserve(store, user.workspace_id, rid, "insight")
-    companies = extract_companies(
-        extractor, hits, doc["search_brief"]["synthesized_counterpart"],
-        requester_name=profile.basic.name)
+
+    # 추출을 업종(세그먼트)별로 갈라 병렬로 돌린다 — 전체를 한 호출로 모으면
+    # 첫 후보가 마지막 검색·추출까지 기다린다(실측: 첫 부분 결과 41초의 대부분).
+    # 먼저 끝난 업종부터 화면에 뜬다. 배치가 작아져 배치 붕괴 가드(_split)도
+    # 덜 밟는다. 병합은 제출 순서 — found_by·cid 귀속이 실행마다 흔들리면
+    # 안 된다.
+    from ..engine.candidate_extract import _norm_name, _site_of
+    seg_of_url = {u: (pairs[0][0] if pairs else "")
+                  for u, pairs in src_of.items()}
+    batches: dict[str, list[dict]] = {}
+    for h in hits:
+        batches.setdefault(seg_of_url.get(h["url"], ""), []).append(h)
+    counterpart = doc["search_brief"]["synthesized_counterpart"]
+    keys = list(batches)
+    # 식별자 발급 기준 — 누적 발급 수. len(pool)로 세면 병합으로 풀이 준 만큼
+    # 다음 웨이브가 쓴 번호를 재발급한다(다른 회사가 같은 cid — 실측 사고).
+    # 옛 문서에는 이 값이 없으므로 len(pool)로 되돌아간다.
+    base = doc.get("cid_seq", len(doc.get("pool", [])))
+
+    def _emit_found(cs: "list[dict]") -> None:
+        """배치가 끝나는 대로 화면에 흘린다 — 온톨로지·순위는 뒤에 채워진다."""
+        progress.partial("검색", f"발굴 {len(cs)}곳 (추출 진행 중)", {
+            "candidates": [{
+                "company_id": c["_cid"], "name": c["name"],
+                "name_ko": c.get("name_ko", ""), "what": c["what"],
+                "signal": c["signal"], "source_url": c["url"],
+                "segment": c["_seg"], "source_kind": c.get("source_kind", ""),
+                "p": c.get("p", 0.7), "pain_signal": " ".join(
+                    x for x in (c["what"], c["signal"]) if x),
+                "retrieval_score": 0, "weak": False, "wave": wave,
+                "ontology": None, "partial": True,
+            } for c in cs]})
+    from concurrent.futures import ThreadPoolExecutor as _XTPE
+    with _XTPE(max_workers=min(4, max(1, len(keys)))) as _ex:
+        futs = {k: _ex.submit(extract_companies, extractor, batches[k],
+                              counterpart, profile.basic.name) for k in keys}
+        companies, seen_keys = [], set()
+        for k in keys:                       # 제출 순서대로 병합 (결정적)
+            try:
+                got = futs[k].result()
+            except Exception as e:           # noqa: BLE001 — 한 업종 실패가
+                progress.log("검색",         # 전체를 죽이면 안 된다
+                             f"⚠ {k or '기본'} 추출 실패({type(e).__name__})")
+                continue
+            fresh = 0
+            for c in got:
+                # 업종을 넘나드는 중복 — 배치별 호출이라 extract 내부 dedupe가
+                # 못 잡는다. 이름+사이트 키(dedupe_pool과 같은 규칙)로 거른다.
+                key = (_norm_name(c["name"]), _site_of(c["url"]))
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                # 식별자·귀속을 지금 확정한다 — URL이 아니라 순번이 키다
+                # (디렉터리 한 페이지에서 회사 여럿이 나오는 것이 정상이라,
+                # URL 키는 뒤 회사가 앞 회사를 덮어쓴다. 감사 확정 high).
+                c["_cid"] = f"web-{rid}-{base + len(companies) + 1:02d}"
+                c["_seg"], c["_q"] = (src_of.get(c["url"]) or [("", "")])[0]
+                companies.append(c)
+                fresh += 1
+            progress.log("검색", f"{k or '기본'} — 기업 {fresh}곳 추출")
+            if fresh:
+                _emit_found(companies)
     progress.log("검색", f"실존 기업 {len(companies)}곳 추출 (히트 {len(hits)}건 중)")
 
-    # 회사 식별자를 여기서 확정한다 — 이후 온톨로지·원장·스니펫 로그 전부
-    # 이 식별자로 귀속시킨다. **URL을 키로 쓰지 않는다**: extract_companies는
-    # 회사명으로만 중복을 거르므로(candidate_extract.py), 디렉터리·회원사
-    # 목록 페이지 하나에서 회사 여러 곳을 뽑는 것이 정상 동작이다. URL을 키로
-    # 쓰면 뒤 회사가 앞 회사의 온톨로지·연락처를 덮어써, 사용자가 A사 카드에서
-    # B사의 메일 주소를 보게 된다(감사 확정 high — 아웃리치 제품의 무성 오염).
-    # 발급 번호는 **누적 발급 수**로 센다. len(pool)로 세면 병합으로 풀이
-    # 줄어든 만큼 다음 웨이브가 이미 쓴 번호를 다시 발급해, 서로 다른 회사가
-    # 같은 company_id를 갖는다(저장 스냅샷·명확화 인용·반응이 엉뚱한 회사에
-    # 붙는다). 옛 문서에는 이 값이 없으므로 len(pool)로 되돌아간다 — 그때는
-    # 병합이 없었으니 두 값이 같다.
-    base = doc.get("cid_seq", len(doc.get("pool", [])))
-    for i, c in enumerate(companies):
-        c["_cid"] = f"web-{rid}-{base + i + 1:02d}"
-        c["_seg"], c["_q"] = (src_of.get(c["url"]) or [("", "")])[0]
     doc["cid_seq"] = base + len(companies)
 
     # 발굴 즉시 부분 결과를 흘린다 — 온톨로지 판독(가장 긴 구간)을 기다리는
@@ -865,7 +909,8 @@ def _merge_pool(pool: list[dict]) -> list[dict]:
 
 
 def _rank_pool(profile, intent, pool: list[dict],
-               liked: list[str], disliked: list[str], k: int) -> list[dict]:
+               liked: list[str], disliked: list[str], k: int,
+               reach_facts: "set[str] | None" = None) -> list[dict]:
     """풀 전체 재랭킹 + 피드백 보정 (결정=코드).
 
     retrieve의 보완성 점수에, '이런 곳 더/아니에요' 반응과의 온톨로지 축
@@ -927,7 +972,14 @@ def _rank_pool(profile, intent, pool: list[dict],
         # 판정이 없으면(구 데이터·판독 실패) 벌점 없음.
         reach = (c.get("ontology") or {}).get("reachability")
         reach_w = 1.0 if reach is None else 0.5 + 0.5 * float(reach)
+        # 실측이 판정을 이긴다 — 이 도메인에서 답장을 받아 본 적이 있으면
+        # 문턱은 열린 것으로 확정이다(추정치가 뭐라 하든).
+        from ..engine.candidate_extract import _site_of
+        replied_before = bool(reach_facts) and             _site_of(c.get("source_url", "")) in reach_facts
+        if replied_before:
+            reach_w = 1.0
         ranked.append({**r.model_dump(mode="json"), **c,
+                       "reach_fact": replied_before,
                        "retrieval_score": round(
                            r.retrieval_score * p * reach_w + bonus, 4),
                        "complementarity": round(r.retrieval_score, 4),
@@ -989,8 +1041,10 @@ def run_search(rid: str, body: SearchIn | None = None,
             store, user, rid, doc, profile, intent,
             settings, extractor, plans, wave=1))
         doc["searched"] = True        # 0곳이어도 '돌렸다'는 사실은 남는다
-        doc["candidates"] = _rank_pool(profile, intent, doc["pool"], [], [],
-                                       k=min(intent.lead_count or 10, 30))
+        doc["candidates"] = _rank_pool(
+            profile, intent, doc["pool"], [], [],
+            k=min(intent.lead_count or 10, 30),
+            reach_facts=_reach_facts(store, user.workspace_id))
         questions = generate_questions(
             extractor, doc["candidates"],
             doc["search_brief"]["synthesized_counterpart"], doc["asked"])
@@ -1061,8 +1115,9 @@ def refine_search(rid: str, body: RefineIn,
         k = min(intent.lead_count or 10, 30)
 
         if body.done:
-            doc["candidates"] = _rank_pool(profile, intent, doc["pool"],
-                                           fb["liked"], fb["disliked"], k)
+            doc["candidates"] = _rank_pool(
+                profile, intent, doc["pool"], fb["liked"], fb["disliked"], k,
+                reach_facts=_reach_facts(store, user.workspace_id))
             doc["status"] = "candidates_ready"
             doc["clarify"] = []
             store.put("lead_request", user.workspace_id, rid, doc)
@@ -1098,8 +1153,9 @@ def refine_search(rid: str, body: RefineIn,
             progress.log("검색", f"⚠ 재검색어 생성 실패({type(e).__name__})")
             queries = []
         if not queries:                     # 새 검색어가 없으면 풀 재랭킹만
-            doc["candidates"] = _rank_pool(profile, intent, doc["pool"],
-                                           fb["liked"], fb["disliked"], k)
+            doc["candidates"] = _rank_pool(
+                profile, intent, doc["pool"], fb["liked"], fb["disliked"], k,
+                reach_facts=_reach_facts(store, user.workspace_id))
             store.put("lead_request", user.workspace_id, rid, doc)
             return {"candidates": doc["candidates"], "clarify": [],
                     "final": False, "wave": wave,
@@ -1113,8 +1169,9 @@ def refine_search(rid: str, body: RefineIn,
         before = len(doc["pool"])
         doc["pool"] = _merge_pool(doc["pool"] + new_pool)
         gained = len(doc["pool"]) - before
-        doc["candidates"] = _rank_pool(profile, intent, doc["pool"],
-                                       fb["liked"], fb["disliked"], k)
+        doc["candidates"] = _rank_pool(
+            profile, intent, doc["pool"], fb["liked"], fb["disliked"], k,
+            reach_facts=_reach_facts(store, user.workspace_id))
         questions = generate_questions(
             extractor, doc["candidates"],
             doc["search_brief"]["synthesized_counterpart"], doc["asked"])
@@ -1131,6 +1188,19 @@ def refine_search(rid: str, body: RefineIn,
 
 # ── Insight · Compose V2 (이슈 #6-E) ────────────────────────────────
 
+def _reach_facts(store, ws: str) -> "set[str]":
+    """답장을 받아 본 도메인들 — 문턱 판정을 이기는 사실.
+
+    문턱(reachability)은 요청 한 건 안의 추정으로 끝나면 일회성이다. 답장이
+    왔다는 사실은 그 회사의 문이 우리에게 실제로 열렸다는 실측이므로,
+    워크스페이스 원장에 남겨 이후 모든 요청의 랭킹에서 판정을 덮어쓴다.
+    미답장은 기록하지 않는다 — 미관측은 부정이 아니다(Hu-Koren과 같은 규율).
+    """
+    from ..engine.candidate_extract import _site_of  # noqa: F401 (일관 규칙)
+    return {f.get("domain", "") for f in store.list("reach_fact", ws, limit=500)
+            if f.get("domain")}
+
+
 def _record_outcome(store, ws: str, rid: str, cid: str, cand: dict,
                     **fields) -> dict:
     """결과 원장 upsert — 어떤 검색어(found_by)·업종(segment)이 이 회사를
@@ -1144,7 +1214,19 @@ def _record_outcome(store, ws: str, rid: str, cid: str, cand: dict,
     # 보드용 스냅샷 — 후보 이름·출처는 요청을 다시 열지 않고도 보여야 한다.
     o["name"] = cand.get("name", o.get("name", ""))
     o["source_url"] = cand.get("source_url", o.get("source_url", ""))
+    # 판정 스냅샷 — 나중에 답장률이 쌓이면 τ·출처 승수·문턱 가중을 데이터로
+    # 보정할 때, 그 시점의 판정값이 함께 있어야 짝을 맞출 수 있다.
+    ont = cand.get("ontology") or {}
+    if ont.get("reachability") is not None and "reachability" not in o:
+        o["reachability"] = ont["reachability"]
     o.update(fields)
+    if fields.get("replied") == "yes":
+        from ..engine.candidate_extract import _site_of
+        domain = _site_of(cand.get("source_url", ""))
+        if domain:
+            store.put("reach_fact", ws, domain, {
+                "domain": domain, "name": cand.get("name", ""),
+                "request_id": rid, "company_id": cid})
     if o.get("saved") and not o.get("stage"):
         o["stage"] = "saved"
     if o.get("drafted") and o.get("stage") in ("", "saved"):
@@ -1306,12 +1388,17 @@ def deep_read(rid: str, background: BackgroundTasks,
         # 점수를 다시 접지 않으면 판정이 버려진다 — 보완성·p·피드백은 저장된
         # 값을 그대로 쓰고 reach 가중만 새로 곱해 재정렬한다.
         rescored = 0
+        facts = _reach_facts(store, user.workspace_id)
+        from ..engine.candidate_extract import _site_of as _dom
         for c in fresh.get("candidates") or []:
             comp = c.get("complementarity")
             if comp is None:
                 continue
             reach = (c.get("ontology") or {}).get("reachability")
             reach_w = 1.0 if reach is None else 0.5 + 0.5 * float(reach)
+            if facts and _dom(c.get("source_url", "")) in facts:
+                reach_w = 1.0            # 답장 사실이 추정을 이긴다
+                c["reach_fact"] = True
             c["reach_w"] = round(reach_w, 3)
             c["retrieval_score"] = round(
                 float(comp) * float(c.get("p", 0.7)) * reach_w

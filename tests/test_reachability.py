@@ -153,3 +153,66 @@ def test_deep_read_rescores_with_updated_reachability(client, monkeypatch):
     from app.saas.store import get_saas_store
     doc = get_saas_store().get("lead_request", "ws-boram", rid)
     assert [c["company_id"] for c in doc["candidates"]] == ["c2", "c1"]
+
+
+class TestReachFacts:
+    """답장 사실은 문턱 추정을 이긴다 — 문턱이 일회성 판정으로 끝나지 않게.
+
+    한 요청에서 답장을 받은 도메인은 워크스페이스 원장(reach_fact)에 남고,
+    이후 모든 요청의 랭킹·심층 재정렬에서 벌점 없이(가중 1.0) 오른다.
+    미답장은 기록하지 않는다 — 미관측은 부정이 아니다.
+    """
+    def _seed(self, client):
+        from app.saas.store import get_saas_store
+        store = get_saas_store()
+        pv = store.new_id("pv")
+        store.put("profile_version", "ws-boram", pv, {"version_id": pv, "profile": {
+            "basic": {"name": "A", "country": "한국", "industry": "x"},
+            "description": "d",
+            "problem_solved": {"value": "p", "provenance": "stated", "confidence": 0.9},
+            "solution": {"value": "s", "provenance": "stated", "confidence": 0.9},
+            "target_customer": {"value": "t", "provenance": "stated", "confidence": 0.9}}})
+        store.put("lead_request", "ws-boram", "lr-f", {
+            "request_id": "lr-f", "title": "t", "profile_version_id": pv,
+            "intent": {"value_props": ["revenue_growth"], "lead_count": 5},
+            "candidates": [{"company_id": "c1", "name": "MidCo",
+                            "source_url": "https://www.midco.com/about",
+                            "ontology": {"reachability": 0.3}}]})
+        return store
+
+    def test_replied_yes_writes_a_domain_fact_with_snapshot(self, client):
+        store = self._seed(client)
+        H = {"X-Dev-User": "boram"}
+        client.post("/saas/lead-requests/lr-f/candidates/c1/outcome",
+                    headers=H, json={"replied": "yes"})
+        fact = store.get("reach_fact", "ws-boram", "midco.com")
+        assert fact and fact["name"] == "MidCo"
+        o = store.get("outcome", "ws-boram", "lr-f::c1")
+        assert o["reachability"] == 0.3        # 보정용 판정 스냅샷
+        # saved만으로는 사실이 아니다
+        client.post("/saas/lead-requests/lr-f/candidates/c1/outcome",
+                    headers=H, json={"saved": True})
+        assert store.get("reach_fact", "ws-boram", "midco.com")  # 그대로 1건
+
+    def test_facts_override_judgment_in_ranking(self, client, monkeypatch):
+        from app.saas import router as R
+        class _Res:
+            def __init__(self, ids):
+                self.candidates = [NS(company_id=i, retrieval_score=0.30,
+                                      model_dump=lambda mode=None, i=i: {"company_id": i})
+                                   for i in ids]
+        monkeypatch.setattr(R, "retrieve", lambda req, candidate_records: _Res(
+            [r.company_id for r in candidate_records]))
+        monkeypatch.setattr(R, "candidate_record_from_profile",
+                            lambda cid, prof, url, pain_signal=None: NS(company_id=cid))
+        monkeypatch.setattr(R, "RetrieveRequest", lambda **kw: NS(**kw))
+        intent = NS(target_region="", target_industry="")
+        pool = [{"company_id": "c1", "name": "BigCorp", "what": "w", "signal": "",
+                 "source_url": "https://big.com/x", "pain_signal": "w",
+                 "ontology": {"reachability": 0.1, "reachability_why": "w"}, "p": 0.8}]
+        low = R._rank_pool(None, intent, pool, [], [], 10, reach_facts=set())
+        hi = R._rank_pool(None, intent, pool, [], [], 10,
+                          reach_facts={"big.com"})
+        assert low[0]["reach_w"] == 0.55 and low[0]["reach_fact"] is False
+        assert hi[0]["reach_w"] == 1.0 and hi[0]["reach_fact"] is True
+        assert hi[0]["retrieval_score"] > low[0]["retrieval_score"]
