@@ -562,3 +562,23 @@ a.ct-v{color:var(--blue)}
   max-width:none;box-shadow:none}
 .carousel .cand-acts,.carousel .cand-react{flex-wrap:wrap}
 @media (max-width:720px){ .carousel .cand-card{flex-basis:82vw} }
+
+
+/* ═══════════ 메일 아웃박스 (오른쪽 패널) ═══════════ */
+/* 여기서 할 일은 하나 — 쓴 메일을 읽고 내보내는 것. 발송은 사람이 한다. */
+.outbox{padding:10px 11px}
+.outbox-h{display:flex;align-items:center;gap:6px;width:100%;text-align:left;
+  color:var(--txt);font-size:13px}
+.outbox-tri{color:var(--txt-3);font-size:10px}
+.outbox-sub{font-size:12px;color:var(--txt-2);margin:4px 0 2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.outbox-to{font-size:11.5px;margin-bottom:6px;word-break:break-all}
+.outbox-to a{color:var(--coral)}
+.outbox-to .mono{font-family:var(--mono);color:var(--txt-2)}
+.outbox-body{white-space:pre-wrap;word-break:break-word;font-size:12px;
+  line-height:1.7;color:var(--txt);background:var(--paper);
+  border:1px solid var(--line-soft);border-radius:8px;padding:9px 10px;
+  margin:6px 0;max-height:340px;overflow:auto;font-family:inherit}
+.outbox-acts{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.outbox-acts a.mini{display:inline-block;text-decoration:none}
+.chip.ok{background:var(--green-soft);color:var(--green)}

@@ -1025,6 +1025,19 @@ function Workspace({ who }: { who: string }) {
     finally { setBusy(false); }
   }
 
+  /** 아웃박스 — 초안이 있는 후보만. 후보 목록에서 사라졌어도(재검색 등)
+   *  초안은 남아야 하므로 derived를 기준으로 만든다. */
+  const outbox = Object.entries(derived)
+    .map(([cid, v]) => {
+      const stored = v.draft as { drafts?: Draft[]; outreach?: OutreachKit } | null | undefined;
+      const d = stored?.drafts?.[0];
+      if (!d) return null;
+      const c = cands.find((x) => x.company_id === cid);
+      return { cid, name: c?.name_ko || c?.name || cid, draft: d,
+               kit: stored?.outreach };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+
   /** 저장된 초안을 다시 연다 — 다시 만들면 비용이 들고 문장이 바뀐다. */
   function reopenDraft(cid: string, name: string) {
     const stored = derived[cid]?.draft as { drafts?: Draft[]; outreach?: OutreachKit } | null | undefined;
@@ -1393,28 +1406,27 @@ function Workspace({ who }: { who: string }) {
         </div>
       )}
 
+      {/* 오른쪽 패널 = 아웃박스. 예전엔 '저장한 후보'로 카드에 있는 이름·설명을
+          되풀이했는데, 캐러셀과 파이프라인 보드가 생긴 뒤로는 값이 없다.
+          여기서 할 일은 하나다 — **쓴 메일을 실제로 읽고 내보내는 것**.
+          발송은 하지 않는다(사람이 결정한다). 대신 본문을 그대로 펼쳐 보여주고,
+          복사·메일앱 열기까지가 이 패널의 책임이다. */}
       <aside className="panel">
         <div className="pstat">
           <div className="cell"><div className="n">{cands.length}</div>
             <div className="l">후보</div></div>
-          <div className="cell"><div className="n">{saved.size}</div>
-            <div className="l">저장</div></div>
+          <div className="cell"><div className="n">{outbox.length}</div>
+            <div className="l">초안</div></div>
         </div>
-        <h3>저장한 후보</h3>
-        {saved.size === 0
-          ? <div className="empty">후보를 저장하면 여기에 쌓여요</div>
-          : [...saved.values()].map((c) => (
-              <div className="box" key={c.company_id}>
-                <b>{c.name_ko && c.name_ko !== c.name ? c.name_ko : c.name}</b>
-                {c.what && <div className="box-why">{c.what}</div>}
-                <a href={c.source_url} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 12 }}>{c.source_url}</a>
-                <button className="mini" style={{ marginTop: 6 }}
-                  onClick={() => derived[c.company_id]?.draft?.drafts?.length
-                    ? reopenDraft(c.company_id, c.name) : draftMail(c.company_id)}>
-                  {derived[c.company_id]?.draft?.drafts?.length ? "초안 보기" : "메일 초안"}
-                </button>
-              </div>
+        <h3>메일 아웃박스</h3>
+        {outbox.length === 0
+          ? <div className="empty">
+              후보 카드에서 <b>메일 초안</b>을 누르면 여기에 쌓여요.
+              발송은 직접 하셔야 해요.
+            </div>
+          : outbox.map(({ cid, name, draft, kit }) => (
+              <OutboxItem key={cid} name={name} draft={draft} kit={kit}
+                sent={replied.has(cid)} />
             ))}
       </aside>
     </div>
@@ -1520,6 +1532,55 @@ function PipelineBoard({ pipe, onOpen, onStage }: {
               </select>
             </div>))}
         </div>))}
+    </div>
+  );
+}
+
+/** 아웃박스 한 건 — 접어두되 펼치면 본문 전체가 보인다.
+ *  발송 버튼은 없다: 메일앱을 여는 것까지가 도구의 몫이고, 보내는 건 사람이다. */
+function OutboxItem({ name, draft, kit, sent }: {
+  name: string; draft: Draft; kit?: OutreachKit; sent: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState<"" | "본문" | "제목">("");
+  const body = draft.body_ko && draft.body_ko !== draft.body
+    ? draft.body : draft.body;          // 보낼 것은 언제나 원문
+  const to = kit?.channel_value ?? "";
+  const isMail = to.includes("@");
+  const copy = async (what: "본문" | "제목", text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(what); setTimeout(() => setCopied(""), 1500);
+  };
+  return (
+    <div className="box outbox">
+      <button className="outbox-h" onClick={() => setOpen(!open)}>
+        <span className="outbox-tri">{open ? "▾" : "▸"}</span>
+        <b>{name}</b>
+        {sent && <span className="chip ok">답장</span>}
+      </button>
+      <div className="outbox-sub">{draft.subject}</div>
+      {to && (
+        <div className="outbox-to">
+          {isMail ? <span className="mono">{to}</span>
+                  : <a href={to} target="_blank" rel="noreferrer">{to}</a>}
+        </div>
+      )}
+      {open && (
+        <>
+          <pre className="outbox-body">{body}</pre>
+          {draft.warnings.map((w, i) => (
+            <div className="mail-note" key={i}><b>제외됨</b> {w}</div>))}
+        </>
+      )}
+      <div className="outbox-acts">
+        <button className="mini" onClick={() => copy("본문", body)}>
+          {copied === "본문" ? "복사됨 ✓" : "본문 복사"}</button>
+        <button className="mini" onClick={() => copy("제목", draft.subject)}>
+          {copied === "제목" ? "복사됨 ✓" : "제목 복사"}</button>
+        {isMail && (
+          <a className="mini" href={`mailto:${to}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(body)}`}>
+            메일앱 열기</a>)}
+      </div>
     </div>
   );
 }
