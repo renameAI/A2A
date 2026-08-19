@@ -44,7 +44,8 @@ class RunLog:
         self._t_end = time.time()
 
     def add(self, stage: str, message: str, *, type: str = "log",
-            node: str | None = None, status: str | None = None) -> None:
+            node: str | None = None, status: str | None = None,
+            data: "dict | None" = None) -> None:
         with self._lock:
             entry = {
                 "t": round(time.time() - self._t0, 1),
@@ -52,6 +53,14 @@ class RunLog:
                 "stage": stage,
                 "message": message,
             }
+            if data is not None:
+                entry["data"] = data
+            if type == "partial":
+                # 부분 결과는 **최신 하나만** 남긴다. 매번 쌓으면 후보 목록이
+                # 방출 횟수만큼 중복 저장돼 job 문서가 부풀고, 클라이언트도
+                # 마지막 것만 쓴다.
+                self.entries = [e for e in self.entries
+                                if e.get("type") != "partial"]
             current_node = node or (self._node_stack[-1] if self._node_stack else None)
             if current_node:
                 entry["node"] = current_node
@@ -102,6 +111,18 @@ def bind() -> RunLog:
     run = RunLog()
     _current.set(run)
     return run
+
+
+def partial(stage: str, message: str, data: dict) -> None:
+    """진행 중인 job의 부분 결과를 클라이언트로 흘려보낸다.
+
+    웨이브1이 150~300초인데 결과가 끝에 한 번에 오면 그 시간이 통째로
+    침묵이다. 후보는 발굴되는 대로 보여야 한다 — 찾는 과정이 보이는 것
+    자체가 기능이다. job이 없으면(엔진 단독 사용) no-op.
+    """
+    rl = _current.get()
+    if rl is not None:
+        rl.add(stage, message, type="partial", data=data)
 
 
 def log(stage: str, message: str) -> None:

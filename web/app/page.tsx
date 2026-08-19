@@ -19,11 +19,12 @@ type Cand = { company_id: string; name: string; name_ko?: string;
   what?: string; signal?: string; source_url: string;
   pain_signal: string; retrieval_score: number; weak: boolean;
   segment?: string; found_by?: string; ontology?: Ont | null;
-  p?: number; source_kind?: string;
+  p?: number; source_kind?: string; partial?: boolean;
   deep_read?: { status: string; note?: string; contacts?: number; signals?: number } };
 const SRC_LABEL: Record<string, string> = {
   own: "자사 페이지", directory: "디렉터리·협회", mention: "기사·언급" };
-type Ont = { axes: Record<string, { value: string; status: string }>;
+type Ont = { reachability?: number | null; reachability_why?: string;
+  axes: Record<string, { value: string; status: string }>;
   search_keywords: string[]; confirmed_ratio?: number;
   signals?: { category: string; evidence: string; observed_at: string }[];
   contacts?: { channel: string; value: string; role_hint: string }[] };
@@ -147,7 +148,9 @@ const POLL_FAIL_MAX = 5;           // 연속 통신 실패 허용치
  */
 async function pollJob(jobId: string, opts: {
   signal?: AbortSignal;
-  onTick?: (logs: { stage?: string; message?: string }[], elapsed: number) => void;
+  onTick?: (logs: { stage?: string; message?: string;
+                    data?: Record<string, unknown> }[],
+            elapsed: number) => void;
 } = {}): Promise<Record<string, unknown>> {
   const started = Date.now();
   let fails = 0;
@@ -700,7 +703,8 @@ function Workspace({ who }: { who: string }) {
 
   /** 취소 가능한 job 대기. 진행 로그의 마지막 줄과 경과를 헤더에 흘린다 —
    *  사용자가 '무슨 일이 일어나는 중인지' 보이면 기다림이 견딜 만해진다. */
-  async function waitJob(jobId: string) {
+  async function waitJob(jobId: string,
+                         onPartial?: (cands: Cand[]) => void) {
     const ac = new AbortController();
     abortRef.current = ac;
     try {
@@ -710,6 +714,14 @@ function Workspace({ who }: { who: string }) {
           const last = logs[logs.length - 1];
           setTick({ msg: last?.message ?? last?.stage ?? "처리 중",
                     sec: Math.round(elapsed) });
+          // 부분 결과 — 서버가 발굴되는 대로 흘려보낸 후보. 최신 하나만 온다.
+          if (onPartial) {
+            const pt = [...logs].reverse().find(
+              (l) => (l as { data?: { candidates?: Cand[] } }).data?.candidates);
+            const cs = (pt as { data?: { candidates?: Cand[] } } | undefined)
+              ?.data?.candidates;
+            if (cs?.length) onPartial(cs);
+          }
           // 같은 문구가 이어지면 한 줄로 접는다 — 로그는 건마다 찍히지만
           // 사용자에게는 "무슨 일이 몇 갈래로 도는가"만 의미가 있다.
           const labels: string[] = [];
@@ -1008,7 +1020,11 @@ function Workspace({ who }: { who: string }) {
     try {
       const s2 = await api(`/lead-requests/${rid}/search`,
         { segments, extra_queries: extra });
-      const res = (await waitJob(s2.job_id)) as
+      // 캐러셀 자리를 지금 연다 — 후보는 발굴되는 대로 이 자리에 뜬다.
+      // 웨이브1이 2~5분인데 끝에 한 번에 보여주면 그 시간이 통째로 침묵이다.
+      push({ who: "agent", kind: "candidates",
+        text: "찾는 대로 여기에 띄울게요 — 판독과 순위는 이어서 채워집니다." });
+      const res = (await waitJob(s2.job_id, setCands)) as
         { candidates: Cand[]; keyword_recommendations: KwRec[];
           clarify: ClarifyQ[] };
       setCands(res.candidates);
@@ -1066,7 +1082,7 @@ function Workspace({ who }: { who: string }) {
     try {
       const r = await api(`/lead-requests/${rid}/refine`, {
         answers, liked: [...likedC], disliked: [...dislikedC], done });
-      const res = (await waitJob(r.job_id)) as {
+      const res = (await waitJob(r.job_id, done ? undefined : setCands)) as {
         candidates: Cand[]; clarify: ClarifyQ[]; final: boolean;
         wave: number; new_found?: number; note?: string };
       setCands(res.candidates);
@@ -1320,20 +1336,38 @@ function Workspace({ who }: { who: string }) {
                   </div>
                 )}
                 {m.jsx && <div className="attach">{m.jsx}</div>}
-                {m.kind === "candidates" && cands.length > 0 && (
+                {/* 자리가 여러 번 열려도(스트리밍 시작·완료·복원) 목록은
+                    마지막 자리 한 곳에만 — 두 벌 뜨면 어느 쪽이 최신인지 모른다. */}
+                {m.kind === "candidates" && cands.length > 0
+                  && i === msgs.reduce((a, x, j) =>
+                       x.kind === "candidates" ? j : a, -1) && (
                 <div className="carousel">
                   {cands.map((c, i) => (
                     <div className="cand-card" key={c.company_id}>
   <div className="bubble">
-                    <b>{i + 1}위 · {c.name_ko && c.name_ko !== c.name
-                      ? c.name_ko : c.name}</b>
+                    <b>{c.partial ? "발굴" : `${i + 1}위`} · {
+                      c.name_ko && c.name_ko !== c.name ? c.name_ko : c.name}</b>
                     {c.name_ko && c.name_ko !== c.name && (
                       <span className="orig"> {c.name}</span>)}
                     {c.segment && <span className="chip seg">{c.segment}</span>}
                     {c.weak && <span className="chip ask">임계 미만</span>}
+                    {typeof c.ontology?.reachability === "number"
+                      && c.ontology.reachability < 0.4 && (
+                      <span className="chip ask"
+                        title={c.ontology.reachability_why
+                          || "첫 콜드 아웃리치가 실무자에게 닿기 어려운 구조"}>
+                        문턱 높음</span>)}
                     {"\n"}{c.what || c.pain_signal.slice(0, 140)}
                     {c.signal ? `\n\n관측된 신호 — ${c.signal}` : ""}
                   </div>
+                  {c.partial && (
+                    <div className="quiet">판독 중 — 접점·신호·순위는 곧 채워져요</div>)}
+                  {c.deep_read?.status === "done"
+                    && !(c.ontology?.signals?.length) && (
+                    <div className="quiet">최근 신호 없음 — 시의성 없이 상시 제안으로 접근</div>)}
+                  {c.deep_read?.status === "done"
+                    && !(c.ontology?.contacts?.length) && (
+                    <div className="quiet">공개 접점 미확인 — 사이트에서 문의 창구를 찾지 못함</div>)}
                   {(c.ontology?.signals ?? []).length > 0 && (
                     <div className="sig-badges">
                       {c.ontology!.signals!.slice(0, 3).map((sg, i) => (

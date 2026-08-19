@@ -80,6 +80,11 @@ def _kit_lines(kit: dict) -> str:
         lines.append(f"받는 사람의 역할: {kit['to_role']} — 그 역할에게 말하듯 쓴다")
     if kit.get("why_now"):
         lines.append(f"왜 지금인가(최근 신호): {kit['why_now']} — 첫 단락에서 이것을 짚는다")
+    else:
+        # 신호가 없을 때 모델이 "요즘·마침·최근" 같은 가짜 시의성을 만드는 것이
+        # 최악이다 — 상대는 자기 회사에 그런 일이 없었음을 안다.
+        lines.append("최근 신호 없음 — '요즘·마침·최근 …하신 것을 보고' 류의 "
+                     "시의성 표현을 만들지 마라. 상시 제안으로 정직하게 쓴다")
     if kit.get("hook"):
         lines.append(f"첫 문장 훅: {kit['hook']}")
     if kit.get("hook_url"):

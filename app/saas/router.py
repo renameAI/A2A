@@ -723,23 +723,60 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
         c["_seg"], c["_q"] = (src_of.get(c["url"]) or [("", "")])[0]
     doc["cid_seq"] = base + len(companies)
 
+    # 발굴 즉시 부분 결과를 흘린다 — 온톨로지 판독(가장 긴 구간)을 기다리는
+    # 동안 사용자는 이름·설명이라도 본다. 점수·판독은 뒤에 채워진다.
+    def _emit_partial(read_done: int) -> None:
+        progress.partial("검색", f"후보 {len(companies)}곳 · 판독 {read_done}곳", {
+            "candidates": [{
+                "company_id": c["_cid"], "name": c["name"],
+                "name_ko": c.get("name_ko", ""), "what": c["what"],
+                "signal": c["signal"], "source_url": c["url"],
+                "segment": c["_seg"], "source_kind": c.get("source_kind", ""),
+                "p": c.get("p", 0.7), "pain_signal": " ".join(
+                    x for x in (c["what"], c["signal"]) if x),
+                "retrieval_score": 0, "weak": False, "wave": wave,
+                "ontology": onts.get(c["_cid"]),
+                "partial": True,
+            } for c in companies]})
+
     cost.reserve(store, user.workspace_id, rid, "insight", count=len(companies))
     onts: dict[str, dict] = {}
     ontology_failures = 0
-    for c in companies:
-        try:
-            ont = read_company(extractor, c, region=intent.target_region or "",
-                               purpose=intent.purpose)
-        except Exception as e:
-            ontology_failures += 1
-            progress.log("검색", f"⚠ {c['name']} 온톨로지 판독 실패({type(e).__name__})")
-            continue
-        d = ont.model_dump(mode="json")
-        d["confirmed_ratio"] = confirmed_ratio(ont)
-        onts[c["_cid"]] = d
-        store.put("company_ontology", user.workspace_id, f"{rid}::{c['_cid']}",
-                  {**d, "name": c["name"], "name_ko": c.get("name_ko", ""),
-                   "source_url": c["url"], "request_id": rid})
+    # reachability 판정의 기준 — 요청 기업이 누구인지 없이는 문턱을 잴 수 없다.
+    requester_line = f"{profile.basic.name} — {profile.description[:200]}"
+    _emit_partial(0)
+
+    # 판독은 IO 대기가 대부분이라 병렬이 이득이다(심층 판독과 같은 패턴).
+    # 실측: 직렬로 후보당 5~15초 × 10곳이 웨이브1에서 가장 긴 구간이었다.
+    # progress.log는 contextvar라 워커 스레드에서 죽으므로(no-op) 로그·저장·
+    # 방출은 전부 메인 스레드에서 한다.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _read_one(c: dict):
+        # 전달받은 extractor를 공유한다 — 호출은 무상태 HTTP라 스레드 안전하고,
+        # 테스트가 스텁한 extractor가 그대로 쓰여야 한다.
+        return c, read_company(extractor, c,
+                               region=intent.target_region or "",
+                               purpose=intent.purpose,
+                               requester=requester_line)
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = [ex.submit(_read_one, c) for c in companies]
+        for fut in as_completed(futures):
+            try:
+                c, ont = fut.result()
+            except Exception as e:                    # noqa: BLE001
+                ontology_failures += 1
+                progress.log("검색", f"⚠ 온톨로지 판독 실패({type(e).__name__})")
+                continue
+            d = ont.model_dump(mode="json")
+            d["confirmed_ratio"] = confirmed_ratio(ont)
+            onts[c["_cid"]] = d
+            store.put("company_ontology", user.workspace_id,
+                      f"{rid}::{c['_cid']}",
+                      {**d, "name": c["name"], "name_ko": c.get("name_ko", ""),
+                       "source_url": c["url"], "request_id": rid})
+            _emit_partial(len(onts))
     progress.log("검색", f"온톨로지 판독 {len(onts)}곳 ({ontology_failures}곳 실패)")
 
     # 실전 스니펫 캡처 (B5) — 라벨은 사람이 확정한다(모델 출력을 골드로 쓰면
@@ -873,9 +910,19 @@ def _rank_pool(profile, intent, pool: list[dict],
         # 프로덕션 실측(하위 5곳이 뉴스·채용공고 출처). 사용자 피드백은 곱이
         # 아니라 합으로 얹는다(출처와 무관한 별개 증거).
         p = float(c.get("p", 0.7))
+        # 문턱 — "이 회사가 우리에게 답장할 확률". 실측(귤메달): 보완성×실존만
+        # 보면 롯데·현대백화점이 1·2위인데, 소규모 브랜드의 콜드메일이 대기업
+        # 벤더 절차를 뚫을 확률은 낮다. 닿을 수 없는 후보가 위에 있으면 목록
+        # 전체가 안 믿긴다. 가중은 0.5+0.5·reach — 문턱이 순위를 조정하되
+        # 후보를 지우지는 않는다(문턱 높은 곳도 가치는 있다, 아래로 갈 뿐).
+        # 판정이 없으면(구 데이터·판독 실패) 벌점 없음.
+        reach = (c.get("ontology") or {}).get("reachability")
+        reach_w = 1.0 if reach is None else 0.5 + 0.5 * float(reach)
         ranked.append({**r.model_dump(mode="json"), **c,
-                       "retrieval_score": round(r.retrieval_score * p + bonus, 4),
+                       "retrieval_score": round(
+                           r.retrieval_score * p * reach_w + bonus, 4),
                        "complementarity": round(r.retrieval_score, 4),
+                       "reach_w": round(reach_w, 3),
                        "feedback_bonus": bonus})
     ranked.sort(key=lambda x: (-x["retrieval_score"], x["company_id"]))
     return ranked[:k]
@@ -1220,7 +1267,8 @@ def deep_read(rid: str, background: BackgroundTasks,
                  "what": c.get("what", ""), "signal": c.get("signal", ""),
                  "url": site},
                 region=intent.target_region or "", purpose=intent.purpose,
-                site_text=text)
+                site_text=text,
+                requester=f"{_profile.basic.name} — {_profile.description[:200]}")
         except Exception as e:                       # noqa: BLE001
             return cid, {"deep_read": {"status": "read_failed",
                                        "note": type(e).__name__}}

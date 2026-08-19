@@ -74,7 +74,7 @@ def test_only_own_sources_are_crawled_and_results_merge(client, monkeypatch):
     from app.ingest import crawler
     crawled = []
     monkeypatch.setattr(crawler, "crawl_website", lambda url, s: crawled.append(url) or "사이트 본문")
-    def fake_read(extractor, company, *, region="", purpose="revenue", site_text=""):
+    def fake_read(extractor, company, *, region="", purpose="revenue", site_text="", requester=""):
         assert site_text == "사이트 본문"
         return CompanyOntology(
             axes={k: OntologyAxis(value="v", status="confirmed", evidence="e") for k in _AXES},
@@ -138,7 +138,7 @@ def test_spa_falls_back_to_rendered_extract(client, monkeypatch):
     monkeypatch.setattr(crawler, "crawl_website", boom)
     monkeypatch.setattr(tavily, "extract", lambda urls, s: {urls[0]: "렌더된 본문"})
     seen = {}
-    def fake_read(extractor, company, *, region="", purpose="revenue", site_text=""):
+    def fake_read(extractor, company, *, region="", purpose="revenue", site_text="", requester=""):
         seen["text"] = site_text
         return CompanyOntology(axes={k: OntologyAxis(value="v", status="confirmed", evidence="e") for k in _AXES},
                                search_keywords=[], signals=[], contacts=[])

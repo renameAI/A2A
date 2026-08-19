@@ -95,7 +95,7 @@ def patched(monkeypatch, tmp_path):
     monkeypatch.setattr(r, "extract_companies",
                         lambda *a, **k: [dict(c) for c in COMPANIES])
 
-    def fake_read(extractor, company, region="", purpose="revenue"):
+    def fake_read(extractor, company, region="", purpose="revenue", site_text="", requester=""):
         # 회사마다 다른 판독 — 섞이면 테스트가 잡아낸다
         return CompanyOntology(
             axes={"offering": OntologyAxis(value=company["what"],
@@ -185,7 +185,8 @@ def test_failure_count_is_real(patched, monkeypatch, capsys):
     import app.engine.company_ontology as co
     calls = {"n": 0}
 
-    def flaky(extractor, company, region="", purpose="revenue"):
+    def flaky(extractor, company, region="", purpose="revenue",
+              site_text="", requester=""):
         calls["n"] += 1
         if company["name"] == "㈜한성상사":
             raise RuntimeError("판독 실패")
