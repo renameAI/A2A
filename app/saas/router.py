@@ -1293,6 +1293,26 @@ def deep_read(rid: str, background: BackgroundTasks,
                 upd = results.get(c["company_id"])
                 if upd:
                     c.update(upd)
+        # 사이트를 읽고 나면 문턱 판정이 갱신된다(창구 유무가 이제 근거가 된다).
+        # 점수를 다시 접지 않으면 판정이 버려진다 — 보완성·p·피드백은 저장된
+        # 값을 그대로 쓰고 reach 가중만 새로 곱해 재정렬한다.
+        rescored = 0
+        for c in fresh.get("candidates") or []:
+            comp = c.get("complementarity")
+            if comp is None:
+                continue
+            reach = (c.get("ontology") or {}).get("reachability")
+            reach_w = 1.0 if reach is None else 0.5 + 0.5 * float(reach)
+            c["reach_w"] = round(reach_w, 3)
+            c["retrieval_score"] = round(
+                float(comp) * float(c.get("p", 0.7)) * reach_w
+                + float(c.get("feedback_bonus") or 0), 4)
+            rescored += 1
+        if rescored:
+            fresh["candidates"].sort(
+                key=lambda x: (-(x.get("retrieval_score") or 0),
+                               x.get("company_id", "")))
+            progress.log("판독", f"문턱 반영 재정렬 — {rescored}곳")
         store.put("lead_request", user.workspace_id, rid, fresh)
         done = sum(1 for r in results.values()
                    if r["deep_read"]["status"] == "done")

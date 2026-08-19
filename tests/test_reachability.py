@@ -10,6 +10,8 @@
 """
 from types import SimpleNamespace as NS
 
+from tests.test_saas_layer import client  # noqa: F401
+
 from app.engine.company_ontology import _clamp_p, read_company
 
 
@@ -104,3 +106,50 @@ def test_fake_urgency_is_forbidden_when_no_signal():
     from app.engine.compose_lead import _kit_lines
     assert "시의성 표현을 만들지 마라" in _kit_lines({"hook": "h", "why_now": ""})
     assert "만들지 마라" not in _kit_lines({"hook": "h", "why_now": "MS 계약"})
+
+
+def test_deep_read_rescores_with_updated_reachability(client, monkeypatch):
+    """사이트를 읽고 문턱 판정이 갱신되면 순위도 갱신돼야 한다 — 아니면
+    판정이 버려진다. 보완성·p·피드백은 저장값 그대로, reach 가중만 새로."""
+    import app.saas.router as R
+    from app.engine import company_ontology as CO
+    from app.ingest import crawler
+    from app.schemas import CompanyOntology, OntologyAxis
+    from app.engine.company_ontology import AXES
+    from tests.test_deep_read import _seed_request, _wait, H
+
+    monkeypatch.setattr(crawler, "crawl_website", lambda url, s: "본문")
+    reach_by_name = {"BigCorp": 0.05, "MidCo": 0.9}
+
+    def fake_read(extractor, company, *, region="", purpose="revenue",
+                  site_text="", requester=""):
+        return CompanyOntology(
+            axes={k: OntologyAxis(value="v", status="confirmed", evidence="e")
+                  for k, _ in AXES},
+            search_keywords=[], signals=[], contacts=[],
+            reachability=reach_by_name[company["name"]],
+            reachability_why="w")
+    monkeypatch.setattr(CO, "read_company", fake_read)
+    monkeypatch.setattr(R, "get_extractor", lambda s: object())
+
+    rid = _seed_request(client, monkeypatch, [
+        {"company_id": "c1", "name": "BigCorp", "source_url": "https://big.com",
+         "source_kind": "own", "what": "w", "signal": "", "pain_signal": "w",
+         "ontology": None, "p": 0.8, "complementarity": 0.33,
+         "retrieval_score": 0.264, "feedback_bonus": 0},
+        {"company_id": "c2", "name": "MidCo", "source_url": "https://mid.com",
+         "source_kind": "own", "what": "w", "signal": "", "pain_signal": "w",
+         "ontology": None, "p": 0.7, "complementarity": 0.28,
+         "retrieval_score": 0.196, "feedback_bonus": 0},
+    ])
+    res = _wait(client, client.post(f"/saas/lead-requests/{rid}/deep-read",
+                                    headers=H, json={}).json()["job_id"])
+    order = [c["company_id"] for c in res["candidates"]]
+    # BigCorp: 0.33·0.8·0.525=0.139 < MidCo: 0.28·0.7·0.95=0.186 → 역전
+    assert order == ["c2", "c1"]
+    by = {c["company_id"]: c for c in res["candidates"]}
+    assert by["c1"]["reach_w"] == 0.525 and by["c2"]["reach_w"] == 0.95
+    # 저장본도 같은 순서
+    from app.saas.store import get_saas_store
+    doc = get_saas_store().get("lead_request", "ws-boram", rid)
+    assert [c["company_id"] for c in doc["candidates"]] == ["c2", "c1"]
