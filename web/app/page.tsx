@@ -1351,8 +1351,10 @@ function Workspace({ who }: { who: string }) {
                       <span className="orig"> {c.name}</span>)}
                     {c.segment && <span className="chip seg">{c.segment}</span>}
                     {c.weak && <span className="chip ask">임계 미만</span>}
+                    {/* 임계 0.25 — 실측 분포에서 대기업이 0.08~0.2, 중견이
+                        0.28~0.45로 갈렸다. 0.4로 하면 1위에도 배지가 붙는다. */}
                     {typeof c.ontology?.reachability === "number"
-                      && c.ontology.reachability < 0.4 && (
+                      && c.ontology.reachability < 0.25 && (
                       <span className="chip ask"
                         title={c.ontology.reachability_why
                           || "첫 콜드 아웃리치가 실무자에게 닿기 어려운 구조"}>
