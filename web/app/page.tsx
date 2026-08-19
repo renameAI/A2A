@@ -26,6 +26,45 @@ type Ont = { axes: Record<string, { value: string; status: string }>;
 type Seg = { label: string; why: string };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
+/** 진행 문구를 사람의 말로.
+ *
+ * 엔진 로그는 개발자가 읽으라고 쓴 것이라 그대로 노출하면 예외 클래스명
+ * (`KeyError`)·임계값(`p < 0.2`)·내부 용어(`온톨로지 판독`, `히트`)가 그대로
+ * 보인다. 사용자는 "지금 뭘 하고 있나"만 알면 되고, 그건 짧은 한 문장이다.
+ * 규칙에 걸리지 않으면 원문을 쓴다 — 모르는 상태를 "처리 중"으로 뭉개면
+ * 오래 걸릴 때 멈춘 것처럼 보인다. */
+function humanTick(raw: string): string {
+  const t = (raw || "").trim();
+  if (!t) return "생각하는 중";
+  // 순서가 곧 우선순위다 — 좁은 규칙을 먼저 둔다. "웨이브 1: 웹 수집"이
+  // '수집'에 걸려 자료 읽기로 새거나, "질문 선별 … 중복성 점검"이 '중복'에
+  // 걸려 병합으로 새는 일이 실제로 있었다.
+  const rules: [RegExp, string][] = [
+    [/질문|명확화|open_questions/, "더 좁히기 위한 질문을 고르는 중"],
+    [/Tavily|웹 수집|검색 결과|웨이브/, "웹에서 후보를 모으는 중"],
+    [/검색어|질의|쿼리/, "검색어를 만드는 중"],
+    [/비기업 도메인|도메인 필터/, "블로그·뉴스 같은 곳을 걸러내는 중"],
+    [/심층 판독|사이트 본문|크롤|자료를 읽고/, "회사 사이트를 읽는 중"],
+    [/실존 기업|추출|탈락/, "찾은 곳이 실제 회사인지 확인하는 중"],
+    [/온톨로지|판독/, "각 회사가 어떤 곳인지 살펴보는 중"],
+    [/병합|같은 회사/, "같은 회사가 겹친 것을 정리하는 중"],
+    [/재랭킹|정렬|순위/, "잘 맞는 순서로 줄 세우는 중"],
+    [/인사이트|수요 신호/, "이 회사에 무엇을 제안할지 정리하는 중"],
+    [/메일|초안|compose/, "메일 초안을 쓰는 중"],
+    [/프로필|represent/, "회사 프로필을 만드는 중"],
+    [/접점|연락/, "연락할 곳을 찾는 중"],
+    [/텍스트 생성|생성 대기/, "글을 쓰는 중"],
+    [/정상 완료|완료되었습니다/, "마무리하는 중"],
+  ];
+  for (const [re, label] of rules) if (re.test(t)) return label;
+  // 규칙에 없으면 원문을 쓰되, 개발자용 찌꺼기만 떼어낸다.
+  return t
+    .replace(/\([A-Za-z]*Error\)/g, "")        // (KeyError)
+    .replace(/\s*\(p\s*<\s*[\d.]+\)/g, "")     // (p < 0.2)
+    .replace(/^[⚠·\-\s]+/, "")
+    .trim() || "생각하는 중";
+}
+
 type PipeRow = { request_id: string; request_title: string; company_id: string;
   name: string; source_url: string; drafted: boolean; replied: string;
   note: string; stage: string };
@@ -1025,19 +1064,6 @@ function Workspace({ who }: { who: string }) {
     finally { setBusy(false); }
   }
 
-  /** 아웃박스 — 초안이 있는 후보만. 후보 목록에서 사라졌어도(재검색 등)
-   *  초안은 남아야 하므로 derived를 기준으로 만든다. */
-  const outbox = Object.entries(derived)
-    .map(([cid, v]) => {
-      const stored = v.draft as { drafts?: Draft[]; outreach?: OutreachKit } | null | undefined;
-      const d = stored?.drafts?.[0];
-      if (!d) return null;
-      const c = cands.find((x) => x.company_id === cid);
-      return { cid, name: c?.name_ko || c?.name || cid, draft: d,
-               kit: stored?.outreach };
-    })
-    .filter((x): x is NonNullable<typeof x> => x !== null);
-
   /** 저장된 초안을 다시 연다 — 다시 만들면 비용이 들고 문장이 바뀐다. */
   function reopenDraft(cid: string, name: string) {
     const stored = derived[cid]?.draft as { drafts?: Draft[]; outreach?: OutreachKit } | null | undefined;
@@ -1157,7 +1183,7 @@ function Workspace({ who }: { who: string }) {
           <h1><span className="hash">#</span> lead-discovery</h1>
           {busy && (
             <span className="pill run">
-              {tick ? `${tick.msg.slice(0, 34)} · ${tick.sec}s` : "작업 중"}
+              {tick ? `${humanTick(tick.msg)} · ${tick.sec}s` : "작업 중"}
             </span>
           )}
           {busy && abortRef.current && (
@@ -1351,6 +1377,11 @@ function Workspace({ who }: { who: string }) {
                       <span className="typing"><i /><i /><i /></span>}
                   </div>
                 )}
+                {/* 무엇을 하고 있는지 한 줄 — 애니메이션만 돌면 멈춘 건지
+                    도는 건지 알 수 없다. 문구는 사람의 말로 옮겨 보여준다. */}
+                {busy && tick && i === msgs.length - 1 && m.who === "agent" && (
+                  <div className="tick">{humanTick(tick.msg)} · {tick.sec}초</div>
+                )}
                 {m.jsx && <div className="attach">{m.jsx}</div>}
               </div>
             </div>
@@ -1406,29 +1437,6 @@ function Workspace({ who }: { who: string }) {
         </div>
       )}
 
-      {/* 오른쪽 패널 = 아웃박스. 예전엔 '저장한 후보'로 카드에 있는 이름·설명을
-          되풀이했는데, 캐러셀과 파이프라인 보드가 생긴 뒤로는 값이 없다.
-          여기서 할 일은 하나다 — **쓴 메일을 실제로 읽고 내보내는 것**.
-          발송은 하지 않는다(사람이 결정한다). 대신 본문을 그대로 펼쳐 보여주고,
-          복사·메일앱 열기까지가 이 패널의 책임이다. */}
-      <aside className="panel">
-        <div className="pstat">
-          <div className="cell"><div className="n">{cands.length}</div>
-            <div className="l">후보</div></div>
-          <div className="cell"><div className="n">{outbox.length}</div>
-            <div className="l">초안</div></div>
-        </div>
-        <h3>메일 아웃박스</h3>
-        {outbox.length === 0
-          ? <div className="empty">
-              후보 카드에서 <b>메일 초안</b>을 누르면 여기에 쌓여요.
-              발송은 직접 하셔야 해요.
-            </div>
-          : outbox.map(({ cid, name, draft, kit }) => (
-              <OutboxItem key={cid} name={name} draft={draft} kit={kit}
-                sent={replied.has(cid)} />
-            ))}
-      </aside>
     </div>
   );
 }
@@ -1532,55 +1540,6 @@ function PipelineBoard({ pipe, onOpen, onStage }: {
               </select>
             </div>))}
         </div>))}
-    </div>
-  );
-}
-
-/** 아웃박스 한 건 — 접어두되 펼치면 본문 전체가 보인다.
- *  발송 버튼은 없다: 메일앱을 여는 것까지가 도구의 몫이고, 보내는 건 사람이다. */
-function OutboxItem({ name, draft, kit, sent }: {
-  name: string; draft: Draft; kit?: OutreachKit; sent: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState<"" | "본문" | "제목">("");
-  const body = draft.body_ko && draft.body_ko !== draft.body
-    ? draft.body : draft.body;          // 보낼 것은 언제나 원문
-  const to = kit?.channel_value ?? "";
-  const isMail = to.includes("@");
-  const copy = async (what: "본문" | "제목", text: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopied(what); setTimeout(() => setCopied(""), 1500);
-  };
-  return (
-    <div className="box outbox">
-      <button className="outbox-h" onClick={() => setOpen(!open)}>
-        <span className="outbox-tri">{open ? "▾" : "▸"}</span>
-        <b>{name}</b>
-        {sent && <span className="chip ok">답장</span>}
-      </button>
-      <div className="outbox-sub">{draft.subject}</div>
-      {to && (
-        <div className="outbox-to">
-          {isMail ? <span className="mono">{to}</span>
-                  : <a href={to} target="_blank" rel="noreferrer">{to}</a>}
-        </div>
-      )}
-      {open && (
-        <>
-          <pre className="outbox-body">{body}</pre>
-          {draft.warnings.map((w, i) => (
-            <div className="mail-note" key={i}><b>제외됨</b> {w}</div>))}
-        </>
-      )}
-      <div className="outbox-acts">
-        <button className="mini" onClick={() => copy("본문", body)}>
-          {copied === "본문" ? "복사됨 ✓" : "본문 복사"}</button>
-        <button className="mini" onClick={() => copy("제목", draft.subject)}>
-          {copied === "제목" ? "복사됨 ✓" : "제목 복사"}</button>
-        {isMail && (
-          <a className="mini" href={`mailto:${to}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(body)}`}>
-            메일앱 열기</a>)}
-      </div>
     </div>
   );
 }
