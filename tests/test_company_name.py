@@ -96,3 +96,60 @@ def test_corrected_name_becomes_the_new_fact(client, monkeypatch):
     # 그 뒤 재생성이 일어나도 새 이름이 이긴다
     _run(client, sid)
     assert get_saas_store().get("onboarding", "ws-boram", sid)["profile"]["basic"]["name"] == "뉴톤"
+
+
+def test_latin_name_is_kept_and_not_transliterated(client, monkeypatch):
+    """해외 메일에 쓸 로마자 상호 — 사용자가 준 값만 쓰고 음역하지 않는다."""
+    from app.saas.store import get_saas_store
+    _stub_represent(monkeypatch, extracted_name="귤메달")
+    sid = client.post("/saas/onboarding-sessions", headers=H, json={
+        "assets": [{"type": "text", "content": "회사 소개"}],
+        "company_name": "귤메달", "company_name_latin": "Gyulmedal"}).json()["session_id"]
+    d = _run(client, sid)
+    assert d["result"]["session"]["profile"]["basic"]["name_latin"] == "Gyulmedal"
+    assert get_saas_store().get("onboarding", "ws-boram", sid)["company_name_latin"] == "Gyulmedal"
+
+
+def test_already_latin_name_needs_no_second_field(client, monkeypatch):
+    _stub_represent(monkeypatch, extracted_name="Hallikay")
+    d = _run(client, _new(client, "Hallikay"))
+    assert d["result"]["session"]["profile"]["basic"]["name_latin"] == "Hallikay"
+
+
+def test_non_latin_without_a_given_latin_name_stays_blank(client, monkeypatch):
+    """음역을 지어내면 실제 영문 상호와 어긋난다 — 비워 두는 편이 낫다."""
+    _stub_represent(monkeypatch, extracted_name="귤메달")
+    d = _run(client, _new(client, "귤메달"))
+    assert d["result"]["session"]["profile"]["basic"]["name_latin"] == ""
+
+
+class TestSenderSpelling:
+    def _req(self, language, name, latin):
+        from app.schemas import (BasicInfo, CandidateInsight, ComposeLeadRequest,
+                                 Intent, Profile, Provenance, ProvField)
+        def prof(n, l=""):
+            return Profile(basic=BasicInfo(name=n, name_latin=l, country="한국", industry="x"),
+                           description="d",
+                           problem_solved=ProvField(value="p", provenance=Provenance.stated, confidence=.9),
+                           solution=ProvField(value="s", provenance=Provenance.stated, confidence=.9),
+                           target_customer=ProvField(value="t", provenance=Provenance.stated, confidence=.9))
+        return ComposeLeadRequest(
+            requester_profile=prof(name, latin), candidate_profile=prof("B"),
+            intent=Intent(value_props=["revenue_growth"], lead_count=5),
+            candidate_insight=CandidateInsight(candidate_id="c"), language=language)
+
+    def test_foreign_mail_uses_the_latin_name(self):
+        from app.engine.compose_lead import _user
+        u = _user(self._req("ja", "귤메달", "Gyulmedal"))
+        assert "[요청 기업] Gyulmedal" in u
+        assert "본문에서 우리 회사는 'Gyulmedal'로 적는다" in u
+
+    def test_korean_mail_keeps_the_original_name(self):
+        from app.engine.compose_lead import _user
+        u = _user(self._req("ko", "귤메달", "Gyulmedal"))
+        assert "[요청 기업] 귤메달" in u and "표기 주의" not in u
+
+    def test_without_a_latin_name_the_original_is_used_not_invented(self):
+        from app.engine.compose_lead import _user
+        u = _user(self._req("ja", "귤메달", ""))
+        assert "[요청 기업] 귤메달" in u and "표기 주의" not in u

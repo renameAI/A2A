@@ -217,6 +217,10 @@ class ProvField(BaseModel):
 
 class BasicInfo(BaseModel):
     name: str
+    # 해외로 나가는 메일에 쓸 로마자 상호. 한글 상호를 그대로 넣으면 상대가
+    # 읽지 못한다(실측: 일본어 메일 본문에 "弊社の귤메달"). 비면 name을 쓴다 —
+    # 이미 로마자인 회사가 대부분이므로 그때는 채울 것이 없다.
+    name_latin: str = ""
     country: str
     city: Optional[str] = None
     founded_year: Optional[int] = None

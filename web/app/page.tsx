@@ -496,6 +496,10 @@ function Workspace({ who }: { who: string }) {
   // 회사명 — 사용자가 아는 사실이라 첫 턴에 직접 받는다. 자료에서 추론하면
   // '뉴턴/뉴톤'처럼 표기가 흔들리고, 자료가 얇으면 '미상'이 된다.
   const [companyName, setCompanyName] = useState<string | null>(null);
+  // 해외 메일에 쓸 로마자 상호. 한글·한자 상호일 때만 묻는다 — 이미 로마자인
+  // 회사에게 같은 걸 두 번 묻지 않는다.
+  const [companyLatin, setCompanyLatin] = useState<string | null>(null);
+  const [awaitingLatin, setAwaitingLatin] = useState(false);
   const [questions, setQuestions] = useState<string[]>([]);
   const [versionId, setVersionId] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -647,7 +651,8 @@ function Workspace({ who }: { who: string }) {
   /** 새 대화 — location.reload()는 상태를 통째로 버리는 대신 로그인 왕복까지
    *  일으킨다. 필요한 것만 비운다. */
   function newRequest() {
-    setRequestId(null); setVersionId(null); setSession(null); setCompanyName(null);
+    setRequestId(null); setVersionId(null); setSession(null); setCompanyName(null); setCompanyLatin(null);
+    setAwaitingLatin(false);
     setCands([]); setRecs([]); setQuestions([]);
     setSaved(new Map()); setReplied(new Set());
     setLikedC(new Set()); setDislikedC(new Set());
@@ -790,7 +795,8 @@ function Workspace({ who }: { who: string }) {
       if (!sid) {
         const s = await api("/onboarding-sessions",
           { assets: assets ?? [{ type: "text", content: text }],
-            company_name: companyName ?? undefined });
+            company_name: companyName ?? undefined,
+            company_name_latin: companyLatin ?? undefined });
         sid = s.session_id; setSession(sid);
       } else if (assets) {
         // 자료가 더 오면 **같은 세션에 붙인다.** 예전엔 새 세션을 만들어서,
@@ -1124,8 +1130,28 @@ function Workspace({ who }: { who: string }) {
     // 모델이 추론하고, 틀리면 정정 경로로 고친다).
     if (!session && !companyName && looksLikeName(v)) {
       setCompanyName(v);
+      if (needsLatinName(v)) {
+        // 해외 후보에게 보낼 메일에 한글 상호를 그대로 넣으면 상대가 못 읽는다
+        // (실측: 일본어 본문에 "弊社の귤메달"). 음역은 회사가 실제 쓰는 영문
+        // 상호와 다른 경우가 많아 지어내지 않고 묻는다.
+        setAwaitingLatin(true);
+        push({ who: "agent",
+          text: `${v}, 반가워요. 해외에 보낼 메일에 쓸 영문 상호가 있을까요? `
+            + `(없으면 "없어요"라고 답해 주세요)` });
+        return;
+      }
       push({ who: "agent",
         text: `${v}, 반가워요. 이제 회사 소개 텍스트를 붙여넣거나 PDF·Word를 올려주세요.` });
+      return;
+    }
+    if (awaitingLatin) {
+      setAwaitingLatin(false);
+      const skip = /^(없|없어요|없음|아니|패스|skip|no)/i.test(v);
+      if (!skip && looksLikeName(v)) setCompanyLatin(v);
+      push({ who: "agent",
+        text: (skip || !looksLikeName(v))
+          ? "네, 해외 메일에는 상호를 그대로 쓸게요. 이제 회사 소개 텍스트를 붙여넣거나 PDF·Word를 올려주세요."
+          : `${v}로 쓸게요. 이제 회사 소개 텍스트를 붙여넣거나 PDF·Word를 올려주세요.` });
       return;
     }
     if (!versionId) { runOnboard(v); return; }
@@ -1860,6 +1886,12 @@ function SegmentPicker({ segments, recs, onSubmit }: {
 
 /** 첫 입력이 회사명으로 보이는가. 짧은 한 줄이면 이름, 아니면 자료다.
  *  URL·이메일은 이름이 아니다(붙여넣은 홈페이지 주소가 회사명이 되면 안 된다). */
+/** 상호가 로마자가 아니면 영문 표기를 따로 받아야 한다 — 해외 메일에 한글·
+ *  한자 상호를 그대로 넣으면 상대가 읽지 못한다. */
+function needsLatinName(v: string): boolean {
+  return [...v].some((c) => c.charCodeAt(0) >= 0x2e80);
+}
+
 function looksLikeName(v: string): boolean {
   if (v.length > 40 || v.includes("\n")) return false;
   if (/https?:\/\/|www\.|@/i.test(v)) return false;

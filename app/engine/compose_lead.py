@@ -23,7 +23,10 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
   읽는다. 링크가 없으면 무엇을 보았는지 구체적으로 쓰되 지어낸 주소는 절대
   넣지 마라.
 - CTA는 과하지 않게 하나만 (예: 30분 온라인 소개).
-- 지정 언어로 쓰되, 회사명 등 고유명사는 원어 유지.
+- 지정 언어로 쓰되, 회사명 등 고유명사는 원어 유지. 다만 **우리 회사 상호는
+  [요청 기업]에 적힌 표기를 그대로** 쓴다 — 한국어가 아닌 메일에 한글 상호를
+  넣으면 상대가 읽지 못한다(실측: 일본어 본문에 "弊社の귤메달"). 상대 회사명은
+  상대의 표기를 따른다.
 - claim_trace: 본문의 구체적 주장(수치·고유명사·사실 서술이 든 문장)마다
   그 근거가 된 인사이트 항목을 짝지어 기록한다.
 - subject_ko / body_ko: 작성한 메일의 **한국어 대역**. 보내는 사람이 내용을
@@ -88,9 +91,16 @@ def _kit_lines(kit: dict) -> str:
 
 def _user(req: ComposeLeadRequest) -> str:
     ins = req.candidate_insight
-    return (f"[요청 기업] {req.requester_profile.basic.name} — "
+    b = req.requester_profile.basic
+    # 한국어가 아닌 메일에는 상대가 읽을 수 있는 상호를 쓴다. 로마자 표기가
+    # 있으면 그것을, 없으면 원 상호를 그대로 둔다(지어내지 않는다).
+    sender = (b.name_latin or b.name) if req.language != "ko" else b.name
+    return (f"[요청 기업] {sender} — "
             f"{req.requester_profile.solution.value}\n"
-            f"레퍼런스: {', '.join(req.requester_profile.references[:3]) or '없음'}\n"
+            + (f"[표기 주의] 본문에서 우리 회사는 '{sender}'로 적는다. "
+               f"다른 표기(원어·음역)를 섞지 마라 — 상대가 같은 회사인지 모른다.\n"
+               if sender != b.name else "")
+            + f"레퍼런스: {', '.join(req.requester_profile.references[:3]) or '없음'}\n"
             f"[후보] {req.candidate_profile.basic.name} "
             f"({req.candidate_profile.basic.country})\n"
             f"[인사이트]\n"

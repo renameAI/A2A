@@ -225,11 +225,26 @@ def me(user: SaasUser = Depends(current_user)):
 NAME_QUESTION = "회사 이름은 무엇인가요?"
 
 
+def _latin_or_blank(name: str) -> str:
+    """상호가 이미 로마자면 그대로, 아니면 빈 문자열.
+
+    한글·한자·가나를 자동 음역하지 않는다 — 회사가 실제로 쓰는 영문 상호는
+    음역과 다른 경우가 많고(귤메달 → Gyulmedal? Gyool?), 틀린 이름으로 나간
+    메일은 첫인상을 망친다. 모르면 비워 두고 사용자가 채우게 한다.
+    """
+    n = (name or "").strip()
+    if not n:
+        return ""
+    return n if all(ord(c) < 0x2E80 for c in n) else ""
+
+
 class OnboardingCreate(BaseModel):
     assets: list[Asset] = Field(min_length=1)
     # 회사명은 사용자가 아는 사실이다 — 자료에서 추론할 이유가 없다. 있으면
     # 프로필의 basic.name을 코드가 확정한다(LLM이 '뉴턴/뉴톤'을 오가던 근원).
     company_name: str | None = None
+    # 해외 아웃리치용 로마자 상호(선택). 사용자가 아는 값이므로 추론하지 않는다.
+    company_name_latin: str | None = None
 
 
 class OnboardingAnswer(BaseModel):
@@ -244,7 +259,8 @@ def create_session(req: OnboardingCreate,
     doc = {"session_id": sid, "status": "collecting",
            "assets": [a.model_dump(mode="json") for a in req.assets],
            "dialogue": [], "current_questions": [], "profile": None,
-           "company_name": (req.company_name or "").strip() or None}
+           "company_name": (req.company_name or "").strip() or None,
+           "company_name_latin": (req.company_name_latin or "").strip() or None}
     store.put("onboarding", user.workspace_id, sid, doc)
     return doc
 
@@ -299,6 +315,11 @@ def run_session(sid: str, background: BackgroundTasks,
         if known_name:
             # 판정은 모델, 결정은 코드 — 사용자가 준 이름을 추론값이 이길 수 없다.
             rep.profile.basic.name = known_name
+        latin = (doc.get("company_name_latin") or "").strip()
+        if latin:
+            rep.profile.basic.name_latin = latin
+        elif not rep.profile.basic.name_latin:
+            rep.profile.basic.name_latin = _latin_or_blank(rep.profile.basic.name)
         doc["status"] = "review_required"
         doc["profile"] = rep.profile.model_dump(mode="json")
         doc["current_questions"] = rep.open_questions
