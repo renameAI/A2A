@@ -34,7 +34,11 @@ type Ont = { reachability?: number | null; reachability_why?: string;
   contacts?: { channel: string; value: string; role_hint: string }[] };
 type Seg = { label: string; why: string; reach?: string };
 const REACH_TAG: Record<string, [string, string]> = {
-  low: ["문턱 낮음", "ok"], mid: ["문턱 중간", "inf"], high: ["문턱 높음", "ask"] };
+  // reach는 '닿을 가능성' — 클수록 좋다. 후보의 reachability와 같은 방향이며,
+  // 색도 그 방향을 따른다(high=초록). 한때 업종 쪽만 '문턱'(클수록 나쁨)이라
+  // 반대였는데, 라벨과 색이 뜻과 어긋나는 사고의 원인이 된다.
+  low: ["가능성 낮음", "ask"], mid: ["가능성 중간", "inf"],
+  high: ["가능성 높음", "ok"] };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
 /** 진행 문구를 사람의 말로.
@@ -757,7 +761,13 @@ function Workspace({ who }: { who: string }) {
   }
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
+  // 인사는 한 번만. StrictMode가 effect를 두 번 실행해 개발 중 인사말이 두
+  // 번 떴다(프로덕션 빌드는 한 번). 개발에서만 보이는 차이는 실제 중복과
+  // 구분이 안 되어 디버깅을 흐린다 — ref로 못 박는다.
+  const greeted = useRef(false);
   useEffect(() => {
+    if (greeted.current) return;
+    greeted.current = true;
     push({ who: "agent", text: "안녕하세요. 먼저 회사 이름을 알려주세요. 그다음 회사 소개 텍스트를 붙여넣거나 PDF·Word를 올리면 프로필을 만들고, 조건에 맞는 리드를 웹에서 찾아드려요." });
   }, []);
 
@@ -807,7 +817,8 @@ function Workspace({ who }: { who: string }) {
     setBusy(true);
     try {
       const assets = await uploadFiles(files);
-      push({ who: "agent", text: "자료를 읽고 있어요…" });
+      // 진행 문구는 runOnboard가 민다 — 여기서 또 밀면 "자료를 읽고 있어요"가
+      // 두 번 뜬다(실측). 업로드와 판독은 사용자에게 한 동작이다.
       await runOnboard("", assets);
     } catch (err) {
       push({ who: "agent", text: (err as Error).message });
@@ -1369,7 +1380,7 @@ function Workspace({ who }: { who: string }) {
                     {c.weak && <span className="chip ask">임계 미만</span>}
                     {c.reach_fact && (
                       <span className="chip ok"
-                        title="이 도메인에서 답장을 받은 적이 있어요 — 문턱 추정을 실측이 덮었습니다">
+                        title="이 도메인에서 답장을 받은 적이 있어요 — 가능성 추정을 실측이 덮었습니다">
                         답장 이력</span>)}
                     {/* 임계 0.25 — 실측 분포에서 대기업이 0.08~0.2, 중견이
                         0.28~0.45로 갈렸다. 0.4로 하면 1위에도 배지가 붙는다. */}
@@ -1378,7 +1389,7 @@ function Workspace({ who }: { who: string }) {
                       <span className="chip ask"
                         title={c.ontology.reachability_why
                           || "첫 콜드 아웃리치가 실무자에게 닿기 어려운 구조"}>
-                        문턱 높음</span>)}
+                        가능성 낮음</span>)}
                     {"\n"}{c.what || c.pain_signal.slice(0, 140)}
                     {c.signal ? `\n\n관측된 신호 — ${c.signal}` : ""}
                   </div>
@@ -1970,7 +1981,7 @@ function SegmentPicker({ segments, recs, onSubmit }: {
             <span className="seg-lb">{sg.label}
               {sg.reach && REACH_TAG[sg.reach] && (
                 <span className={`chip ${REACH_TAG[sg.reach][1]}`}
-                  title="이 경로에서 첫 콜드 아웃리치가 실무자 답장으로 이어질 문턱">
+                  title="이 경로에서 첫 콜드 아웃리치가 실무자 답장으로 이어질 가능성">
                   {REACH_TAG[sg.reach][0]}</span>)}
             </span>
             <span className="seg-why">{sg.why}</span>

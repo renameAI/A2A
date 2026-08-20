@@ -119,19 +119,32 @@ class TestSegmentReach:
             {"label": "구버전", "why": "w"}])
         assert [s["reach"] for s in out] == ["low", "high", "", ""]
 
-    def test_prompt_demands_low_or_mid_paths(self):
+    def test_prompt_demands_reachable_paths(self):
         from app.engine.retrieve import SEGMENT_SYSTEM
         assert "체급" in SEGMENT_SYSTEM
-        assert "low 또는 mid 경로를 최소 2개" in SEGMENT_SYSTEM
-        # high를 숨기라는 게 아니다 — 정직하게 표시하고 내놓는다
-        assert "high 경로를 빼라는 뜻이 아니다" in SEGMENT_SYSTEM
+        assert "high 또는 mid 경로를 최소 2개" in SEGMENT_SYSTEM
+        # 닿기 어려운 경로를 숨기라는 게 아니다 — 정직하게 표시하고 내놓는다
+        assert "low 경로를 빼라는 뜻이 아니다" in SEGMENT_SYSTEM
 
-    def test_all_high_is_logged_not_fabricated(self, monkeypatch):
+    def test_reach_has_one_direction_everywhere(self):
+        """업종 reach와 후보 reachability가 같은 방향이어야 한다.
+
+        한때 업종은 '문턱'(클수록 나쁨), 후보는 '가능성'(클수록 좋음)이라
+        반대였다. 화면이 둘을 같은 칩으로 보여주므로 방향이 엇갈리면 색과
+        뜻이 뒤집힌다.
+        """
+        from app.engine.retrieve import SEGMENT_SYSTEM
+        assert "high=닿기 쉬움" in SEGMENT_SYSTEM
+        assert "문턱" not in SEGMENT_SYSTEM
+        from app.engine.company_ontology import ONTOLOGY_SYSTEM
+        assert "답장으로 이어질 확률" in ONTOLOGY_SYSTEM
+
+    def test_all_unreachable_is_logged_not_fabricated(self, monkeypatch):
         from app import progress
         logged = []
         monkeypatch.setattr(progress, "log", lambda st, m: logged.append(m))
         out = self._run(monkeypatch, [
-            {"label": "대기업 조달", "why": "w", "reach": "high"},
-            {"label": "백화점", "why": "w", "reach": "high"}])
+            {"label": "대기업 조달", "why": "w", "reach": "low"},
+            {"label": "백화점", "why": "w", "reach": "low"}])
         assert len(out) == 2                      # 지어내 채우지 않는다
-        assert any("전부 문턱 높음" in m for m in logged)
+        assert any("전부 닿기 어려움" in m for m in logged)
