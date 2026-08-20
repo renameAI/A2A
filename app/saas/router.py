@@ -970,8 +970,15 @@ def _rank_pool(profile, intent, pool: list[dict],
         # 전체가 안 믿긴다. 가중은 0.5+0.5·reach — 문턱이 순위를 조정하되
         # 후보를 지우지는 않는다(문턱 높은 곳도 가치는 있다, 아래로 갈 뿐).
         # 판정이 없으면(구 데이터·판독 실패) 벌점 없음.
+        #
+        # 계수 0.35+0.65r: 처음 쓴 0.5+0.5r로는 문턱이 순위를 못 바꿨다 —
+        # 평가 하네스(app/eval/pipeline_eval)가 귤메달 시나리오에서 잡았다:
+        # 롯데백화점(문턱 0.08, 접점 0)이 보완성·p가 높다는 이유로 프레시스
+        # (문턱 0.58, 납품문의 창구 확보)를 0.1469 대 0.1438로 이겼다.
+        # 0.65로 올리면 뒤집히고, 할리케이 시나리오의 순서는 그대로다.
+        # 여전히 곱셈 가중이라 후보를 지우지는 않는다.
         reach = (c.get("ontology") or {}).get("reachability")
-        reach_w = 1.0 if reach is None else 0.5 + 0.5 * float(reach)
+        reach_w = 1.0 if reach is None else 0.35 + 0.65 * float(reach)
         # 실측이 판정을 이긴다 — 이 도메인에서 답장을 받아 본 적이 있으면
         # 문턱은 열린 것으로 확정이다(추정치가 뭐라 하든).
         from ..engine.candidate_extract import _site_of
@@ -1395,7 +1402,7 @@ def deep_read(rid: str, background: BackgroundTasks,
             if comp is None:
                 continue
             reach = (c.get("ontology") or {}).get("reachability")
-            reach_w = 1.0 if reach is None else 0.5 + 0.5 * float(reach)
+            reach_w = 1.0 if reach is None else 0.35 + 0.65 * float(reach)
             if facts and _dom(c.get("source_url", "")) in facts:
                 reach_w = 1.0            # 답장 사실이 추정을 이긴다
                 c["reach_fact"] = True

@@ -1,0 +1,105 @@
+{
+  "name": "gyulmedal",
+  "note": "소규모 제주 시트러스 브랜드 → 국내 식품 유통. 이 시나리오의 존재 이유는 체급 문제다: 실측에서 상위가 롯데·현대백화점으로 채워져 닿을 수 없는 목록이 나왔다.",
+  "requester": {
+    "name": "귤메달",
+    "name_latin": "Gyulmedal",
+    "description": "제주 시트러스 30여 종으로 신선과일과 착즙주스를 만드는 소규모 브랜드. 온라인 판매와 소량 B2B 유통 중.",
+    "language": "ko"
+  },
+  "segments": [
+    {
+      "label": "프리미엄 식품 편집숍",
+      "why": "취향 라벨링이 큐레이션과 맞는다",
+      "reach": "low"
+    },
+    {
+      "label": "지역 식자재 유통사",
+      "why": "소량 다품종 공급이 가능하다",
+      "reach": "mid"
+    },
+    {
+      "label": "백화점 프리미엄 식품 조달",
+      "why": "선물 시장 접점",
+      "reach": "high"
+    }
+  ],
+  "candidates": [
+    {
+      "company_id": "c1",
+      "name": "롯데백화점",
+      "site": "lotteshopping.com",
+      "source_url": "https://www.lotteshopping.com/store",
+      "source_kind": "own",
+      "p": 0.85,
+      "complementarity": 0.32,
+      "ontology": {
+        "reachability": 0.08,
+        "business_language": "ko",
+        "contacts": [],
+        "signals": []
+      }
+    },
+    {
+      "company_id": "c2",
+      "name": "글로벌 마씸",
+      "site": "massim.co.kr",
+      "source_url": "https://massim.co.kr/about",
+      "source_kind": "own",
+      "p": 0.72,
+      "complementarity": 0.28,
+      "ontology": {
+        "reachability": 0.32,
+        "business_language": "ko",
+        "contacts": [
+          {
+            "channel": "대표 메일",
+            "value": "glbmassim@naver.com",
+            "role_hint": ""
+          }
+        ],
+        "signals": []
+      }
+    },
+    {
+      "company_id": "c3",
+      "name": "프레시스",
+      "site": "fresys.co.kr",
+      "source_url": "https://fresys.co.kr/company",
+      "source_kind": "own",
+      "p": 0.7,
+      "complementarity": 0.26,
+      "ontology": {
+        "reachability": 0.58,
+        "business_language": "ko",
+        "contacts": [
+          {
+            "channel": "납품문의",
+            "value": "https://fresys.co.kr/bbs/board.php",
+            "role_hint": ""
+          }
+        ],
+        "signals": [
+          {
+            "category": "expansion",
+            "evidence": "신규 물류센터 가동",
+            "observed_at": "2026-01",
+            "source_url": "https://fresys.co.kr/company"
+          }
+        ]
+      }
+    }
+  ],
+  "expect": {
+    "top_is_not": [
+      "롯데백화점"
+    ],
+    "top_has_contact": true,
+    "segments_low_or_mid_min": 2,
+    "reach_weight": {
+      "c1": 0.402,
+      "c2": 0.558,
+      "c3": 0.727
+    }
+  }
+}

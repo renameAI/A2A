@@ -25,19 +25,14 @@ jobs:
       - name: 결정적 테스트
         # .env가 없는 환경이므로 실 API 키가 새어들 여지가 없다 —
         # 로컬에서 스텁을 빠뜨리면 CI가 잡아낸다.
-        run: |
-          python -m pytest -q \
-            tests/test_saas_layer.py \
-            tests/test_attack_surface.py \
-            tests/test_discover_identity.py \
-            tests/test_router_guards.py \
-            tests/test_failure_honesty.py \
-            tests/test_deletion.py \
-            tests/test_core_modules.py \
-            tests/test_supabase_store.py \
-            tests/test_clarify.py \
-            tests/test_outcome_loop.py \
-            tests/test_ontology_bench.py
+        #
+        # 목록은 tests/GATE에 있다 — 워크플로에 박아 두었더니 새 테스트
+        # 12개가 CI 밖에서 살았다(로컬에서만 돌고 있었다). 아래 확인 단계가
+        # 목록에 없는 새 파일을 실패로 잡으므로 같은 일이 되풀이되지 않는다.
+        run: python -m pytest -q -p no:cacheprovider $(cat tests/GATE | tr '\n' ' ')
+
+      - name: 게이트 누락 확인
+        run: python scripts/check_gate.py
 
   web:
     runs-on: ubuntu-latest

@@ -77,8 +77,8 @@ def test_rank_pool_sinks_high_threshold_candidates(monkeypatch):
     assert order[0] == "legacy"            # 판정 없음 → 가중 1.0 (벌점 없음)
     assert order[-1] == "lotte"            # 문턱 0.1 → 0.55배로 가라앉는다
     by = {r["company_id"]: r for r in ranked}
-    assert by["lotte"]["reach_w"] == 0.55
-    assert by["mid-distributor"]["reach_w"] == 0.9
+    assert by["lotte"]["reach_w"] == 0.415
+    assert by["mid-distributor"]["reach_w"] == 0.87
     assert by["legacy"]["reach_w"] == 1.0
     # 지워지지는 않는다 — 셋 다 목록에 남는다
     assert len(ranked) == 3
@@ -145,10 +145,10 @@ def test_deep_read_rescores_with_updated_reachability(client, monkeypatch):
     res = _wait(client, client.post(f"/saas/lead-requests/{rid}/deep-read",
                                     headers=H, json={}).json()["job_id"])
     order = [c["company_id"] for c in res["candidates"]]
-    # BigCorp: 0.33·0.8·0.525=0.139 < MidCo: 0.28·0.7·0.95=0.186 → 역전
+    # BigCorp: 0.33·0.8·0.383=0.101 < MidCo: 0.28·0.7·0.935=0.183 → 역전
     assert order == ["c2", "c1"]
     by = {c["company_id"]: c for c in res["candidates"]}
-    assert by["c1"]["reach_w"] == 0.525 and by["c2"]["reach_w"] == 0.95
+    assert by["c1"]["reach_w"] == 0.382 and by["c2"]["reach_w"] == 0.935
     # 저장본도 같은 순서
     from app.saas.store import get_saas_store
     doc = get_saas_store().get("lead_request", "ws-boram", rid)
@@ -213,6 +213,6 @@ class TestReachFacts:
         low = R._rank_pool(None, intent, pool, [], [], 10, reach_facts=set())
         hi = R._rank_pool(None, intent, pool, [], [], 10,
                           reach_facts={"big.com"})
-        assert low[0]["reach_w"] == 0.55 and low[0]["reach_fact"] is False
+        assert low[0]["reach_w"] == 0.415 and low[0]["reach_fact"] is False
         assert hi[0]["reach_w"] == 1.0 and hi[0]["reach_fact"] is True
         assert hi[0]["retrieval_score"] > low[0]["retrieval_score"]

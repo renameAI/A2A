@@ -1,0 +1,37 @@
+{
+  "name": "hallikay",
+  "note": "한국 업사이클링 핸드백 → 유럽·일본 유통. 크로스보더 시나리오: 메일 언어와 상호 표기가 여기서 깨졌었다(일본어 본문에 한글 상호).",
+  "requester": {
+    "name": "할리케이", "name_latin": "Hallikay",
+    "description": "바다에 버려진 폐어망을 재생한 소재로 핸드백을 만드는 한국의 업사이클링 패션 브랜드.",
+    "language": "ko"
+  },
+  "segments": [
+    {"label": "지속가능 패션 편집숍", "why": "재생 소재 서사가 큐레이션과 맞는다", "reach": "low"},
+    {"label": "유럽 패션 수입·유통사", "why": "국내외 판로 확대", "reach": "mid"}
+  ],
+  "candidates": [
+    {"company_id": "c1", "name": "Project Cece", "site": "projectcece.com",
+     "source_url": "https://www.projectcece.com/about", "source_kind": "own",
+     "p": 0.78, "complementarity": 0.36,
+     "ontology": {"reachability": 0.62, "business_language": "en",
+                  "contacts": [{"channel": "파트너 모집 페이지", "value": "https://www.projectcece.com/partners/", "role_hint": ""}],
+                  "signals": []}},
+    {"company_id": "c2", "name": "株式会社トーホー", "site": "to-ho.co.jp",
+     "source_url": "https://www.to-ho.co.jp/group/distributor.html", "source_kind": "own",
+     "p": 0.74, "complementarity": 0.33,
+     "ontology": {"reachability": 0.4, "business_language": "ja",
+                  "contacts": [{"channel": "문의 폼", "value": "https://www.to-ho.co.jp/contact", "role_hint": ""}],
+                  "signals": [{"category": "expansion", "evidence": "Golden Ocean Seafood 흡수합병", "observed_at": "2024-04-01", "source_url": "https://www.to-ho.co.jp/group/distributor.html"}]}},
+    {"company_id": "c3", "name": "Vestiaire Collective", "site": "worldfootwear.com",
+     "source_url": "https://www.worldfootwear.com/news/resale", "source_kind": "mention",
+     "p": 0.30, "complementarity": 0.34,
+     "ontology": null}
+  ],
+  "expect": {
+    "mail_language": {"c1": "en", "c2": "ja"},
+    "sender_name": {"c1": "Hallikay", "c2": "Hallikay"},
+    "cited_url_required": ["c2"],
+    "top_is_not": ["Vestiaire Collective"]
+  }
+}
