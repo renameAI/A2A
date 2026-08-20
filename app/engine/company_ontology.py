@@ -180,6 +180,11 @@ contacts: 자료에 실제로 나온 공개 접촉 경로만.
   아니라 요청 기업 입장에서의 유불리다 — 같은 "전세계 시장 대상"도 수출을
   원하는 회사에는 기회(높음)이고 지역 밀착 공급사에는 어긋남(낮음)이다.
   status가 unknown이면 0.5(모름은 나쁨이 아니다).
+  why: 그 숫자를 그렇게 준 이유 한 줄(40자 안팎). 화면이 능력치처럼
+  숫자와 함께 붙여 보여주므로, 숫자만 있고 이유가 없으면 사용자는 그
+  숫자를 믿을 근거가 없다. 값(value)을 되풀이하지 말고 **요청 기업 입장에서
+  왜 유리한지/불리한지**를 써라 — "전세계 대상"(값)이 아니라 "수출 경로가
+  이미 있어 추가 개설이 불필요"(이유).
   **축마다 다른 값이 나와야 한다.** 이 회사가 전체적으로 안 맞는다고 판단해
   열 축에 같은 점수를 주면 화면의 레이더가 원이 되어 아무것도 못 보여준다
   (실측: 전 축 0.1). 안 맞는 회사라도 지리·규모는 맞고 수요는 어긋나는 식으로
@@ -209,10 +214,11 @@ ONTOLOGY_SCHEMA = {
             "required": [k for k, _ in AXES],
             "properties": {
                 k: {"type": "object", "additionalProperties": False,
-                    "required": ["value", "status", "fit"],
+                    "required": ["value", "status", "fit", "why"],
                     "properties": {
                         "value": {"type": "string"},
                         "fit": {"type": "number", "minimum": 0, "maximum": 1},
+                        "why": {"type": "string"},
                         "status": {"type": "string",
                                    "enum": ["confirmed", "assumed", "unknown"]}}}
                 for k, _ in AXES
@@ -466,6 +472,7 @@ def read_company(extractor, company: dict, *, region: str = "",
             value="" if st == AxisStatus.unknown else a["value"].strip(),
             status=st,
             # 모름은 나쁨이 아니다 — 판정이 없으면 중립(0.5)으로 둔다.
+            why=(a.get("why") or "").strip()[:120],
             fit=_clamp_p(a.get("fit")) if a.get("fit") is not None
             else (0.5 if st == AxisStatus.unknown else None))
     ont = CompanyOntology(

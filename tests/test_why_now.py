@@ -128,3 +128,50 @@ class TestAxisFit:
         from app.engine.company_ontology import ONTOLOGY_SYSTEM
         assert "축마다 다른 값이 나와야 한다" in ONTOLOGY_SYSTEM
         assert "레이더가 원이 되어" in ONTOLOGY_SYSTEM
+
+
+class TestScoreCalibration:
+    """로지스틱 보정 — 순위는 그대로, 폭만 넓힌다."""
+
+    def test_monotonic(self):
+        """순위를 바꾸면 보정이 아니라 재정렬이다."""
+        from app.saas.router import calibrate_score
+        raw = [0.005, 0.045, 0.076, 0.099, 0.13, 0.174, 0.236, 0.303]
+        out = [calibrate_score(x) for x in raw]
+        assert out == sorted(out)
+
+    def test_spreads_the_measured_range(self):
+        """실측 구간(0.005~0.303)이 0.2~0.95로 펴져야 한다."""
+        from app.saas.router import calibrate_score
+        assert calibrate_score(0.005) < 0.25
+        assert calibrate_score(0.303) > 0.9
+        # 중앙값은 한가운데
+        assert abs(calibrate_score(0.10) - 0.5) < 0.01
+
+    def test_bounded_and_safe(self):
+        """0~1을 벗어나지 않고, 값이 없어도 터지지 않는다."""
+        from app.saas.router import calibrate_score
+        for x in (0.0, 1.0, 10.0, -5.0):
+            assert 0.0 <= calibrate_score(x) <= 1.0
+        assert calibrate_score(None) == 0.0
+
+
+class TestAxisWhy:
+    """축 수치의 근거 — 근거 없는 숫자는 판정이 아니라 장식이다."""
+
+    def test_why_is_parsed(self):
+        from app.schemas import OntologyAxis
+        a = OntologyAxis(value="전세계 시장", status="confirmed",
+                         fit=0.8, why="수출 경로가 이미 있어 개설이 불필요")
+        assert "수출 경로" in a.why
+
+    def test_why_defaults_empty(self):
+        """모델이 이유를 안 주면 빈 문자열 — 있는 척하지 않는다."""
+        from app.schemas import OntologyAxis
+        assert OntologyAxis(value="x", status="assumed").why == ""
+
+    def test_schema_requires_why(self):
+        from app.engine.company_ontology import ONTOLOGY_SCHEMA
+        ax = ONTOLOGY_SCHEMA["properties"]["axes"]["properties"]
+        one = next(iter(ax.values()))
+        assert "why" in one["required"]

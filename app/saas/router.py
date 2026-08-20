@@ -914,6 +914,30 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
     } for c in companies]
 
 
+# 점수 보정 — 곱셈으로 눌린 원점수를 사람이 읽을 수 있는 폭으로 편다.
+#
+# 원점수는 보완성 × p × 문턱가중이라 셋 다 1 미만이면 자연히 0.1 언저리로
+# 수렴한다. 실측(프로덕션 후보 55건): 0.005~0.303, 중앙값 0.099 — 1위와
+# 꼴찌가 0.3 차이라 "얼마나 좋은 후보인가"를 읽을 수 없었다.
+#
+# 로지스틱을 쓰는 이유: 단조증가라 **순위를 바꾸지 않고** 폭만 넓힌다.
+# 중앙을 실측 중앙값(0.10)에 두고 기울기 14 — 하위 0.21, 중앙 0.50,
+# 상위 0.94로 전 구간을 쓴다. 정렬은 원점수로 하고(부동소수 잡음 회피)
+# 보정값은 표시용으로만 싣는다.
+_SCORE_MID = 0.10
+_SCORE_K = 14.0
+
+
+def calibrate_score(raw: float) -> float:
+    """원점수 → 0~1 표시용 점수. 순위 불변(단조증가)."""
+    import math
+    try:
+        x = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(1.0 / (1.0 + math.exp(-_SCORE_K * (x - _SCORE_MID))), 3)
+
+
 def _merge_pool(pool: list[dict]) -> list[dict]:
     """풀을 중복 없는 상태로 유지한다. 웨이브를 넘나드는 중복은 여기서만 잡힌다."""
     from .. import progress
@@ -1000,10 +1024,11 @@ def _rank_pool(profile, intent, pool: list[dict],
         replied_before = bool(reach_facts) and             _site_of(c.get("source_url", "")) in reach_facts
         if replied_before:
             reach_w = 1.0
+        _raw = r.retrieval_score * p * reach_w + bonus
         ranked.append({**r.model_dump(mode="json"), **c,
                        "reach_fact": replied_before,
-                       "retrieval_score": round(
-                           r.retrieval_score * p * reach_w + bonus, 4),
+                       "retrieval_score": round(_raw, 4),
+                       "match": calibrate_score(_raw),
                        "complementarity": round(r.retrieval_score, 4),
                        "reach_w": round(reach_w, 3),
                        "feedback_bonus": bonus})
@@ -1487,9 +1512,10 @@ def deep_read(rid: str, background: BackgroundTasks,
                 reach_w = 1.0            # 답장 사실이 추정을 이긴다
                 c["reach_fact"] = True
             c["reach_w"] = round(reach_w, 3)
-            c["retrieval_score"] = round(
-                float(comp) * float(c.get("p", 0.7)) * reach_w
-                + float(c.get("feedback_bonus") or 0), 4)
+            _raw2 = (float(comp) * float(c.get("p", 0.7)) * reach_w
+                     + float(c.get("feedback_bonus") or 0))
+            c["retrieval_score"] = round(_raw2, 4)
+            c["match"] = calibrate_score(_raw2)
             rescored += 1
         if rescored:
             fresh["candidates"].sort(

@@ -620,9 +620,22 @@ a.ct-v{color:var(--blue)}
 .radar{display:flex;gap:12px;align-items:center;margin:8px 0 10px;flex-wrap:wrap}
 .radar-ring{fill:none;stroke:var(--line);stroke-width:1}
 .radar-area{fill:var(--coral);fill-opacity:.22;stroke:var(--coral);stroke-width:1.5}
-.radar-lg{flex:1;min-width:150px;display:flex;flex-direction:column;gap:2px}
-.radar-li{display:grid;grid-template-columns:auto 1fr;gap:6px;align-items:center;
+.radar-lg{flex:1;min-width:220px;display:flex;flex-direction:column;gap:3px}
+.radar-li{display:grid;grid-template-columns:64px 1fr 22px;gap:6px;align-items:center;
   font-size:10.5px;color:var(--txt-3)}
 .radar-n{white-space:nowrap}
 .radar-b{height:4px;background:var(--line);border-radius:3px;overflow:hidden}
 .radar-b i{display:block;height:100%;background:var(--coral);border-radius:3px}
+/* 능력치 색 — 숫자를 읽기 전에 강약이 먼저 보이게 (FM 능력치와 같은 문법) */
+.radar-b i.hi{background:#3fb950}
+.radar-b i.mid{background:#d29922}
+.radar-b i.lo{background:#6e7681}
+.radar-num{font-variant-numeric:tabular-nums;text-align:right;font-weight:600}
+.radar-num.hi{color:#3fb950}
+.radar-num.mid{color:#d29922}
+.radar-num.lo{color:var(--txt-2)}
+/* 근거는 셋째 줄로 흘려 막대 아래에 붙인다 — 숫자와 이유가 떨어지면 안 읽는다 */
+.radar-why{grid-column:2/4;color:var(--txt-2);font-size:11px;line-height:1.4;
+  margin:-1px 0 3px}
+.ont-head{font-size:12px;color:var(--txt-2);padding:2px 0;display:flex;
+  gap:8px;align-items:center}

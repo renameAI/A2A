@@ -29,7 +29,7 @@ type Ont = { reachability?: number | null; reachability_why?: string;
   why_now?: string; why_now_source?: string;
   reading?: { situation?: string; fit?: string; inference?: string;
               unknowns?: string[] };
-  axes: Record<string, { value: string; status: string; fit?: number | null }>;
+  axes: Record<string, { value: string; status: string; fit?: number | null; why?: string }>;
   search_keywords: string[]; confirmed_ratio?: number;
   signals?: { category: string; evidence: string; observed_at: string;
     source_url?: string }[];
@@ -1854,31 +1854,42 @@ function AxisRadar({ axes }: { axes: Ont["axes"] }) {
           <polygon key={f} points={ring(f)} className="radar-ring" />))}
         <polygon points={poly} className="radar-area" />
       </svg>
+      {/* 능력치 표 — 숫자만 있는 막대는 믿을 근거가 없다. FM의 선수 능력치처럼
+          수치·값·이유를 한 줄에 붙여, 왜 그 점수인지 눈으로 따라가게 한다. */}
       <div className="radar-lg">
-        {rows.map(([k, a]) => (
-          <div className="radar-li" key={k}>
-            <span className="radar-n">{AXIS_KO[k] ?? k}</span>
-            <span className="radar-b">
-              <i style={{ width: `${Math.round((a.fit as number) * 100)}%` }} />
-            </span>
-          </div>))}
+        {rows.map(([k, a]) => {
+          const n = Math.round((a.fit as number) * 100);
+          const tier = n >= 70 ? "hi" : n >= 40 ? "mid" : "lo";
+          return (
+            <div className="radar-li" key={k}>
+              <span className="radar-n">{AXIS_KO[k] ?? k}</span>
+              <span className="radar-b">
+                <i className={tier} style={{ width: `${Math.max(3, n)}%` }} />
+              </span>
+              <span className={`radar-num ${tier}`}>{n}</span>
+              <span className="radar-why">
+                {a.why || a.value}
+              </span>
+            </div>);
+        })}
       </div>
     </div>
   );
 }
 
 function OntologyView({ ont, sourceUrl }: { ont: Ont; sourceUrl: string }) {
-  const [open, setOpen] = useState(false);
   const known = Object.entries(ont.axes).filter(([, a]) => a.status !== "unknown");
   if (!known.length) return null;
   return (
     <div className="ont">
-      <button className="ont-toggle" onClick={() => setOpen((v) => !v)}>
-        {open ? "▾" : "▸"} 판독 {known.length}/{Object.keys(ont.axes).length}축
+      {/* 접지 않는다 — 판독은 "연락할까"를 정하는 재료다. 토글 뒤에 두면
+          대부분 열지 않고, 카드는 다시 한 줄 신호로 되돌아간다. */}
+      <div className="ont-head">
+        판독 {known.length}/{Object.keys(ont.axes).length}축
         {ont.confirmed_ratio !== undefined &&
           <span className="ont-ratio">근거 확인 {Math.round(ont.confirmed_ratio * 100)}%</span>}
-      </button>
-      {open && (
+      </div>
+      {(
         <div className="ont-body">
           {/* 읽기 층 — 축 나열은 "그래서 연락할까"에 답하지 못한다.
               관측(상황·접점)과 추론을 나눠 보여주는 것이 기획안 §7.2 원칙. */}
