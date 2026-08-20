@@ -428,7 +428,11 @@ class RetrieveRequest(BaseModel):
     intent: Intent
     direction: RetrieveDirection     # 검색 면 결정 (RET-02)
     pool: PoolChoice = PoolChoice.both
-    k: int = Field(default=30, ge=1, le=50)
+    # 상한 500 — k는 이미 점수를 매긴 목록을 자르기만 하므로 늘려도 호출·
+    # 비용이 늘지 않는다. 50이었을 때, 피드백 재랭킹이 풀 전체를 다시 매기려고
+    # k=len(pool)을 넘기다 풀이 51개가 되는 순간 422로 죽었다(실측: 풀 59).
+    # 상한은 터무니없는 입력을 막는 선이지, 내부 재랭킹을 막는 선이 아니다.
+    k: int = Field(default=30, ge=1, le=500)
     compare_api: bool = False        # True면 API(K-EXAONE-236B)도 같이 채점(비교용, 느림)
     # True면 강한 후보(τ 이상)가 없을 때 422 대신 최고점 약한 후보를 정직하게 반환
     # (CandidateOut.weak=True로 표시, 강한 후보와 섞어서 조용히 승격하지 않음).

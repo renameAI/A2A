@@ -294,3 +294,34 @@ class TestReachabilityWording:
     def test_version_bumped_so_old_reads_are_not_served(self):
         from app.engine.company_ontology import ONTOLOGY_VERSION
         assert ONTOLOGY_VERSION >= 4
+
+
+class TestRerankOverLargePool:
+    """풀이 상한을 넘어도 재랭킹이 죽지 않아야 한다."""
+
+    def test_k_accepts_a_pool_past_fifty(self):
+        """실측: 풀 59에서 '1 validation error … k … less_than_equal 50'."""
+        from app.schemas import (RetrieveRequest, RetrieveDirection,
+                                 PoolChoice, Profile, BasicInfo, ProvField,
+                                 Provenance, Intent)
+        prof = Profile(
+            basic=BasicInfo(name="우리", country="KR", industry="x"),
+            description="", problem_solved=ProvField(value="a",
+                provenance=Provenance.inferred, confidence=0.5),
+            solution=ProvField(value="b", provenance=Provenance.inferred,
+                               confidence=0.5),
+            target_customer=ProvField(value="c", provenance=Provenance.inferred,
+                                      confidence=0.5))
+        req = RetrieveRequest(requester_profile=prof, intent=Intent(value_props=["revenue_growth"]),
+                              direction=RetrieveDirection.sell_outreach,
+                              pool=PoolChoice.both, k=59)
+        assert req.k == 59
+
+    def test_call_site_clamps_to_the_schema_bound(self):
+        """상한을 코드에 다시 적으면 어긋나는 순간 같은 사고가 난다."""
+        from app.saas.router import _K_MAX
+        from app.schemas import RetrieveRequest
+        le = next(m.le for m in RetrieveRequest.model_fields["k"].metadata
+                  if hasattr(m, "le"))
+        assert _K_MAX == le
+        assert min(max(30, 1200), _K_MAX) == _K_MAX

@@ -945,6 +945,11 @@ def calibrate_score(raw: float) -> float:
     return round(1.0 / (1.0 + math.exp(-_SCORE_K * (x - _SCORE_MID))), 3)
 
 
+# RetrieveRequest.k의 상한을 한 곳에서 읽는다(하드코딩 금지 — 어긋나면 422).
+_K_MAX = next(m.le for m in RetrieveRequest.model_fields["k"].metadata
+              if hasattr(m, "le"))
+
+
 def _merge_pool(pool: list[dict]) -> list[dict]:
     """풀을 중복 없는 상태로 유지한다. 웨이브를 넘나드는 중복은 여기서만 잡힌다."""
     from .. import progress
@@ -992,7 +997,9 @@ def _rank_pool(profile, intent, pool: list[dict],
         # 상한을 두지 않는다 — retrieve가 자기 k로 먼저 자르고 그 뒤에
         # feedback_bonus를 적용하므로, 상한 밖 후보에게는 '이런 곳 더/
         # 아니에요' 반응이 아예 닿지 않는다(풀 전체 재랭킹 의도와 모순).
-        k=max(k, len(records)), allow_weak=True),
+        # 상한은 스키마에서 읽는다 — 숫자를 여기 적으면 둘이 어긋나는
+        # 순간 다시 422가 난다. 풀이 그보다 커지면 순위대로 잘리되 죽지 않는다.
+        k=min(max(k, len(records)), _K_MAX), allow_weak=True),
         candidate_records=records)
     liked_toks = axis_tokens([by_cid[c]["ontology"] for c in liked
                               if c in by_cid and by_cid[c].get("ontology")])

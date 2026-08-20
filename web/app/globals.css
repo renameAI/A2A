@@ -9,6 +9,10 @@
   --ink-3:#07080B;        /* 워크스페이스 레일 */
   --paper:#0E1116;        /* 채팅 배경 */
   --white:#151A21;        /* 카드·버블 표면 (이름은 '표면'의 뜻으로 유지) */
+  /* 후보 카드는 채팅과 같은 표면을 쓰면 안 된다 — 실측: 둘 다 #151A21이라
+     1px 테두리(#242A33)만 남아 카드로 읽히지 않았다. 한 단 띄운 면을 준다. */
+  --raise:#1C222B;
+  --raise-line:#333B47;
   --line:#242A33;
   --line-soft:#1B2028;
   --txt:#E8EAED;
@@ -329,6 +333,9 @@ button{font:inherit;cursor:pointer;border:none;background:none}
 .msg.me{flex-direction:row-reverse}
 .msg.me .ava{display:none}
 .msg .body{flex:0 1 auto;max-width:min(680px,78%)}
+/* 후보 목록이 든 말풍선만 680px 제약을 푼다 — 카드가 그 안에 갇히면
+   396px 카드가 한 장 반만 보인다. 글 말풍선의 읽기 폭은 그대로 둔다. */
+.msg .body:has(.carousel){max-width:none}
 .msg.me .body{display:flex;flex-direction:column;align-items:flex-end}
 
 /* 말풍선 */
@@ -555,15 +562,25 @@ a.ct-v{color:var(--blue)}
 /* 후보 10곳을 버블 10개로 쌓으면 대화가 목록이 된다 — 한 메시지 안에서
    가로로 넘긴다. 스크롤 스냅으로 카드 단위가 또렷하게 멈춘다. */
 .bubble-wide{max-width:none}
-.carousel{display:flex;gap:10px;overflow-x:auto;padding:10px 2px 12px;
-  scroll-snap-type:x mandatory;scrollbar-width:thin}
-.carousel .cand-card{flex:0 0 320px;scroll-snap-align:start;
-  background:var(--white);border:1px solid var(--line);border-radius:12px;
-  padding:12px 13px;display:flex;flex-direction:column;gap:8px}
+/* 캐러셀은 말풍선 폭(680px) 밖으로 나간다 — 카드가 열 줄짜리 판독을 담는데
+   680px 안에 320px 카드 두 장이면 어느 쪽도 제대로 안 읽힌다. */
+.carousel{display:flex;gap:12px;overflow-x:auto;padding:10px 2px 14px;
+  scroll-snap-type:x mandatory;scrollbar-width:thin;
+  width:min(1040px, calc(100vw - 640px));max-width:none}
+.carousel .cand-card{flex:0 0 396px;scroll-snap-align:start;
+  background:var(--raise);border:1px solid var(--raise-line);border-radius:14px;
+  box-shadow:0 1px 3px rgba(0,0,0,.35), 0 6px 16px rgba(0,0,0,.22);
+  padding:14px 15px;display:flex;flex-direction:column;gap:8px}
+.carousel .cand-card:hover{border-color:#414b59}
 .carousel .cand-card .bubble{background:none;border:none;padding:0;
   max-width:none;box-shadow:none}
 .carousel .cand-acts,.carousel .cand-react{flex-wrap:wrap}
-@media (max-width:720px){ .carousel .cand-card{flex-basis:82vw} }
+@media (max-width:1400px){ .carousel{width:calc(100vw - 620px)} }
+@media (max-width:1080px){ .carousel{width:calc(100vw - 340px)} }
+@media (max-width:720px){
+  .carousel{width:calc(100vw - 40px)}
+  .carousel .cand-card{flex-basis:86vw}
+}
 
 
 .chip.ok{background:var(--green-soft);color:var(--green)}
