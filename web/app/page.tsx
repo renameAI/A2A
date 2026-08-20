@@ -20,13 +20,16 @@ type Cand = { company_id: string; name: string; name_ko?: string;
   pain_signal: string; retrieval_score: number; weak: boolean;
   segment?: string; found_by?: string; ontology?: Ont | null;
   p?: number; source_kind?: string; partial?: boolean; reach_fact?: boolean;
-  deep_read?: { status: string; note?: string; contacts?: number; signals?: number } };
+  deep_read?: { status: string; note?: string; contacts?: number; signals?: number;
+    site?: string; chars?: number;
+    pages?: { url: string; kind: string; chars: number }[] } };
 const SRC_LABEL: Record<string, string> = {
   own: "자사 페이지", directory: "디렉터리·협회", mention: "기사·언급" };
 type Ont = { reachability?: number | null; reachability_why?: string;
   axes: Record<string, { value: string; status: string }>;
   search_keywords: string[]; confirmed_ratio?: number;
-  signals?: { category: string; evidence: string; observed_at: string }[];
+  signals?: { category: string; evidence: string; observed_at: string;
+    source_url?: string }[];
   contacts?: { channel: string; value: string; role_hint: string }[] };
 type Seg = { label: string; why: string; reach?: string };
 const REACH_TAG: Record<string, [string, string]> = {
@@ -1423,6 +1426,12 @@ function Workspace({ who }: { who: string }) {
                           : c.deep_read.status === "no_site" ? "사이트 미확인"
                           : "사이트 못 읽음"}
                       </span>)}
+                    {/* 근거 — "사이트를 읽었다"는 말만으로는 검증이 안 된다.
+                        어느 성격의 페이지를 열었는지, 거기서 무엇이 나왔는지를
+                        링크와 함께 보여 사용자가 직접 대조하게 한다. */}
+                    {c.deep_read?.status === "done"
+                      && (c.deep_read.pages?.length ?? 0) > 0 && (
+                      <ReadEvidence dr={c.deep_read!} ont={c.ontology} />)}
                     {c.source_kind && SRC_LABEL[c.source_kind] && (
                       <span className="mini" title={`실존·부합 추정 p=${c.p ?? "?"}`}
                         style={{ opacity: c.source_kind === "mention" ? 0.6 : 0.85 }}>
@@ -1658,6 +1667,56 @@ function PipelineBoard({ pipe, onOpen, onStage }: {
               </select>
             </div>))}
         </div>))}
+    </div>
+  );
+}
+
+/** 무엇을 읽고 이 판단을 했는지 — 페이지 성격과 거기서 나온 것을 잇는다.
+ *
+ *  URL 목록만 늘어놓으면 로그이지 근거가 아니다. 사용자가 알고 싶은 것은
+ *  "채용 페이지에서 이런 걸 봤구나"이지 경로 문자열이 아니다. 신호의 출처
+ *  URL을 페이지에 되짚어 그 페이지 아래에 붙이고, 분량이 너무 짧아 근거가
+ *  못 되는 페이지는 그렇게 표시한다. */
+function ReadEvidence({ dr, ont }: {
+  dr: NonNullable<Cand["deep_read"]>; ont?: Ont | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const pages = dr.pages ?? [];
+  const kinds = [...new Set(pages.map((p) => p.kind))];
+  const contacts = ont?.contacts ?? [];
+  return (
+    <div className="ev">
+      <button className="ev-h" onClick={() => setOpen(!open)}>
+        {open ? "▾" : "▸"} 읽은 곳 {pages.length}
+        <span className="ev-kinds">{kinds.slice(0, 3).join(" · ")}</span>
+      </button>
+      {open && (
+        <div className="ev-body">
+          {pages.map((p) => {
+            const sigs = (ont?.signals ?? []).filter(
+              (sg) => sg.source_url === p.url);
+            return (
+              <div className="ev-row" key={p.url}>
+                <a href={p.url} target="_blank" rel="noreferrer">{p.kind}</a>
+                {p.chars < 200 && (
+                  <span className="ev-thin">내용이 거의 없었어요</span>)}
+                {sigs.map((sg, i) => (
+                  <div className="ev-found" key={i}>
+                    여기서 확인 — {sg.evidence}
+                    {sg.observed_at ? ` (${sg.observed_at})` : ""}
+                  </div>))}
+              </div>);
+          })}
+          {contacts.length > 0 && (
+            <div className="ev-row">
+              <span className="ev-lb">확보한 연락 창구</span>
+              {contacts.map((k, i) => (
+                <div className="ev-found" key={i}>
+                  {k.channel}
+                  {k.value && k.value !== k.channel ? ` — ${k.value}` : ""}
+                </div>))}
+            </div>)}
+        </div>)}
     </div>
   );
 }

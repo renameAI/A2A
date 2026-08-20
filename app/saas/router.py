@@ -5,6 +5,7 @@
 Judge는 어떤 경로에서도 호출하지 않는다 (§2.3).
 """
 import os
+import re as _re
 import uuid
 from pathlib import Path
 
@@ -1328,6 +1329,46 @@ _DEEP_READ_TOP = 10
 _DEEP_READ_WORKERS = 4         # 크롤+판독은 IO 대기가 대부분 — 병렬이 이득
 
 
+_PAGE_MARK = _re.compile(r"^\[페이지: (\S+)\]$", _re.M)
+
+
+# 페이지 성격 — URL만 늘어놓으면 로그이지 근거가 아니다. 사용자는 "어느
+# 페이지에서 봤는가"를 알고 싶지 경로 문자열을 읽고 싶지 않다.
+_PAGE_KIND = [
+    (("contact", "inquiry", "문의", "연락", "お問"), "연락처 페이지"),
+    (("career", "careers", "job", "recruit", "채용", "採用"), "채용 페이지"),
+    (("news", "press", "media", "뉴스", "보도", "ニュース"), "뉴스·보도"),
+    (("partner", "supplier", "vendor", "파트너", "납품", "입점"), "파트너·납품 안내"),
+    (("about", "company", "회사", "소개", "会社"), "회사 소개"),
+    (("product", "brand", "제품", "상품"), "제품 소개"),
+]
+
+
+def _page_kind(url: str) -> str:
+    u = (url or "").lower()
+    for keys, label in _PAGE_KIND:
+        if any(k in u for k in keys):
+            return label
+    return "홈"
+
+
+def _pages_read(text: str) -> "list[dict]":
+    """크롤 본문 → 읽은 페이지 목록 (성격·분량 포함).
+
+    분량을 함께 남기는 이유: '읽었다'와 '읽을 게 있었다'는 다르다. 200자짜리
+    페이지는 열었어도 근거가 못 된다. 렌더링 폴백(Tavily)도 같은 표식을 쓰므로
+    경로가 달라도 같게 잡힌다.
+    """
+    marks = [(m.group(1), m.end()) for m in _PAGE_MARK.finditer(text)]
+    out = []
+    for i, (url, end) in enumerate(marks):
+        stop = (marks[i + 1][1] - len(f"[페이지: {marks[i + 1][0]}]")
+                if i + 1 < len(marks) else len(text))
+        out.append({"url": url, "kind": _page_kind(url),
+                    "chars": max(0, stop - end)})
+    return out
+
+
 class DeepReadIn(BaseModel):
     company_ids: list[str] | None = None     # 비우면 상위 _DEEP_READ_TOP
 
@@ -1406,7 +1447,13 @@ def deep_read(rid: str, background: BackgroundTasks,
                      "deep_read": {"status": "done", "chars": len(text),
                                    "contacts": len(ont.contacts),
                                    "signals": len(ont.signals),
-                                   "site": site, "note": found_via}}
+                                   "site": site, "note": found_via,
+                                   # 읽은 페이지 목록 — "사이트를 읽었다"는
+                                   # 말만으로는 검증할 수 없다. 어느 URL에서
+                                   # 무엇을 봤는지 남겨야 사용자가 직접 열어
+                                   # 대조한다. 크롤 본문의 [페이지: URL] 표식이
+                                   # 그대로 근거가 된다.
+                                   "pages": _pages_read(text)}}
 
     def _run() -> dict:
         from concurrent.futures import ThreadPoolExecutor

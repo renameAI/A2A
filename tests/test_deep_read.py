@@ -152,3 +152,56 @@ def test_spa_falls_back_to_rendered_extract(client, monkeypatch):
     dr = res["candidates"][0]["deep_read"]
     assert dr["status"] == "done" and "렌더링 폴백" in dr["note"]
     assert "렌더된 본문" in seen["text"]
+
+
+class TestReadEvidence:
+    """무엇을 읽고 판단했는지가 남아야 한다.
+
+    "사이트를 읽었다"는 말은 검증할 수 없다. 어느 성격의 페이지를 열었고
+    거기서 무엇이 나왔는지가 남아야 사용자가 직접 대조한다 — 크롤 본문의
+    [페이지: URL] 표식이 그대로 근거가 된다.
+    """
+    def test_pages_are_extracted_with_kind_and_size(self):
+        from app.saas.router import _pages_read
+        text = ("[페이지: https://x.co/]\n홈 내용\n\n"
+                "[페이지: https://x.co/recruit]\n" + "채" * 300 + "\n\n"
+                "[페이지: https://x.co/contact]\n문의")
+        pages = _pages_read(text)
+        assert [p["kind"] for p in pages] == ["홈", "채용 페이지", "연락처 페이지"]
+        assert pages[1]["chars"] > 200 and pages[2]["chars"] < 200
+
+    def test_kind_covers_multilingual_paths(self):
+        from app.saas.router import _page_kind
+        assert _page_kind("https://x.jp/採用") == "채용 페이지"
+        assert _page_kind("https://x.kr/채용안내") == "채용 페이지"
+        assert _page_kind("https://x.jp/お問い合わせ") == "연락처 페이지"
+        assert _page_kind("https://x.com/partners/") == "파트너·납품 안내"
+        assert _page_kind("https://x.com/") == "홈"
+
+    def test_empty_text_yields_no_pages(self):
+        from app.saas.router import _pages_read
+        assert _pages_read("") == [] and _pages_read("표식 없는 본문") == []
+
+    def test_deep_read_records_pages(self, client, monkeypatch):
+        import app.saas.router as R
+        from app.engine import company_ontology as CO
+        from app.engine.company_ontology import AXES
+        from app.ingest import crawler
+        from app.schemas import CompanyOntology, OntologyAxis
+        monkeypatch.setattr(crawler, "crawl_website", lambda url, s: (
+            "[페이지: https://a.com/]\n홈\n\n[페이지: https://a.com/careers]\n"
+            + "채용" * 200))
+        monkeypatch.setattr(CO, "read_company",
+                            lambda *a, **k: CompanyOntology(
+                                axes={x: OntologyAxis(value="v", status="confirmed",
+                                                      evidence="e") for x, _ in AXES},
+                                search_keywords=[], signals=[], contacts=[]))
+        monkeypatch.setattr(R, "get_extractor", lambda s, tier="default": object())
+        rid = _seed_request(client, monkeypatch, [
+            {"company_id": "c1", "name": "A", "source_url": "https://a.com",
+             "source_kind": "own", "what": "w", "signal": "", "pain_signal": "w",
+             "ontology": None}])
+        res = _wait(client, client.post(f"/saas/lead-requests/{rid}/deep-read",
+                                        headers=H, json={}).json()["job_id"])
+        pages = res["candidates"][0]["deep_read"]["pages"]
+        assert [p["kind"] for p in pages] == ["홈", "채용 페이지"]
