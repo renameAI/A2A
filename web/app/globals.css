@@ -639,3 +639,8 @@ a.ct-v{color:var(--blue)}
   margin:-1px 0 3px}
 .ont-head{font-size:12px;color:var(--txt-2);padding:2px 0;display:flex;
   gap:8px;align-items:center}
+/* 적합도 배지 — 능력치 막대와 같은 색 문법을 쓴다(초록 강·주황 중·회색 약) */
+.chip.fitc{font-variant-numeric:tabular-nums;font-weight:600}
+.chip.fitc.hi{background:rgba(63,185,80,.14);color:#3fb950;border-color:rgba(63,185,80,.3)}
+.chip.fitc.mid{background:rgba(210,153,34,.14);color:#d29922;border-color:rgba(210,153,34,.3)}
+.chip.fitc.lo{background:transparent;color:var(--txt-2)}

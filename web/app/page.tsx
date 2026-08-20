@@ -17,7 +17,7 @@ type Msg = { who: "agent" | "user" | "stamp"; text: string;
   jsx?: React.ReactNode; kind?: "candidates" };
 type Cand = { company_id: string; name: string; name_ko?: string;
   what?: string; signal?: string; source_url: string;
-  pain_signal: string; retrieval_score: number; weak: boolean;
+  pain_signal: string; retrieval_score: number; match?: number; weak: boolean;
   segment?: string; found_by?: string; ontology?: Ont | null;
   p?: number; source_kind?: string; partial?: boolean; reach_fact?: boolean;
   deep_read?: { status: string; note?: string; contacts?: number; signals?: number;
@@ -1378,6 +1378,14 @@ function Workspace({ who }: { who: string }) {
                       c.name_ko && c.name_ko !== c.name ? c.name_ko : c.name}</b>
                     {c.name_ko && c.name_ko !== c.name && (
                       <span className="orig"> {c.name}</span>)}
+                    {/* 적합도 — 원점수는 곱셈으로 눌려 실측이 0.005~0.303에
+                        뭉쳤다(중앙 0.099). 로지스틱으로 편 값을 보여준다;
+                        순위는 원점수 그대로라 배지와 순서가 어긋나지 않는다. */}
+                    {typeof c.match === "number" && !c.partial && (
+                      <span className={`chip fitc ${
+                        c.match >= 0.7 ? "hi" : c.match >= 0.4 ? "mid" : "lo"}`}
+                        title="이번 제안에 대한 적합도 — 보완성·출처 신뢰도·연락 가능성을 합친 값이에요">
+                        적합도 {Math.round(c.match * 100)}</span>)}
                     {c.segment && <span className="chip seg">{c.segment}</span>}
                     {c.weak && <span className="chip ask">임계 미만</span>}
                     {c.reach_fact && (
