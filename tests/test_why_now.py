@@ -197,3 +197,25 @@ class TestOntologyCacheVersion:
             assert m._cache_key(*args) != before
         finally:
             m.ONTOLOGY_VERSION = old
+
+
+class TestMailShape:
+    """메일이 한 덩어리로 나오지 않게 — 실측: 스페인어 초안 519자 1단락."""
+
+    def test_prompt_demands_blank_line_paragraphs(self):
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "빈 줄로 나눈 네 단락" in P
+        assert "개행 두 번" in P
+
+    def test_prompt_counts_sentences_not_characters(self):
+        """글자 수만 적으면 언어마다 다르게 해석된다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "2~4문장" in P
+
+
+class TestBusinessLanguage:
+    """번역 페이지를 읽고 그 언어로 메일을 쓰면 상대가 못 읽는다."""
+
+    def test_prompt_prefers_legal_form_over_page_language(self):
+        from app.engine.company_ontology import ONTOLOGY_SYSTEM as P
+        assert "GmbH" in P and "법인 쪽을 따른다" in P
