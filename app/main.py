@@ -36,8 +36,16 @@ async def _lifespan(_: FastAPI):
 
     on_event는 FastAPI에서 폐기됐다 — lifespan을 쓴다."""
     from .config import get_settings
+    from .engine.company_ontology import set_ontology_store
     from .saas import cost
+    from .saas.store import get_saas_store
     s = get_settings()
+    # 판독 캐시의 공유 백엔드 — 서버리스는 요청마다 새 인스턴스라 프로세스
+    # 메모리 캐시가 거의 안 맞는다(실측: 같은 요청을 두 번 돌려도 적중 0).
+    try:
+        set_ontology_store(get_saas_store())
+    except Exception:                        # noqa: BLE001 — 캐시는 편의다
+        _boot.warning("판독 캐시 백엔드 미연결 — 메모리 캐시만 사용")
     _boot.info("엔진 기동", extra={
         "llm_provider": s.llm_provider,
         "saas_auth": os.environ.get("SAAS_AUTH", "dev"),

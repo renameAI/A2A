@@ -114,3 +114,44 @@ class TestMeasuredSpend:
     def test_add_tokens_outside_a_job_is_a_noop(self):
         from app import progress
         progress.add_tokens(10, 10)     # 예외 없이 통과해야 한다
+
+
+class TestSharedCacheBackend:
+    """프로세스 캐시만으로는 서버리스에서 안 맞는다 — 요청마다 새 인스턴스다."""
+
+    def _store(self):
+        class S:
+            def __init__(self): self.d = {}
+            def get(self, kind, ws, key): return self.d.get((kind, ws, key))
+            def put(self, kind, ws, key, body): self.d[(kind, ws, key)] = body
+        return S()
+
+    def test_second_instance_reads_from_the_store(self, monkeypatch):
+        import app.engine.company_ontology as CO
+        st = self._store()
+        CO.set_ontology_store(st)
+        try:
+            spy = _Spy()
+            read_company(spy, _co("SharedCo"), requester="r")
+            assert spy.n == 1 and st.d, "저장소에 안 남았다"
+            CO._ont_cache.clear()          # 인스턴스가 바뀐 상황
+            spy2 = _Spy()
+            got = read_company(spy2, _co("SharedCo"), requester="r")
+            assert spy2.n == 0, "새 인스턴스가 모델을 다시 불렀다"
+            assert got.business_language == "en"
+        finally:
+            CO.set_ontology_store(None)
+
+    def test_store_failure_does_not_break_reading(self, monkeypatch):
+        """캐시는 편의다 — 백엔드가 죽어도 판독은 계속돼야 한다."""
+        import app.engine.company_ontology as CO
+
+        class Broken:
+            def get(self, *a): raise RuntimeError("down")
+            def put(self, *a): raise RuntimeError("down")
+        CO.set_ontology_store(Broken())
+        try:
+            spy = _Spy()
+            assert read_company(spy, _co("Z"), requester="r") is not None
+        finally:
+            CO.set_ontology_store(None)

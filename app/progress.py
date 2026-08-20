@@ -115,14 +115,21 @@ def bind() -> RunLog:
 
 # 실측 토큰 수집기 — job이 자기 실행 동안의 사용량을 합산하도록 붙인다.
 # contextvar라 job 밖(스크립트·테스트)에서는 그냥 no-op이다.
-_tokens: contextvars.ContextVar = contextvars.ContextVar("tokens", default=None)
+# 토큰 적산기는 contextvar가 아니라 모듈 전역이다: 판독·추출이 스레드 풀에서
+# 돌고, contextvar는 새 스레드에 전파되지 않아 워커의 호출이 통째로 누락된다
+# (실측: 프로덕션 심층 판독 9곳을 돌렸는데 spend가 붙지 않았다).
+# 서버리스에서 한 인스턴스는 사실상 한 job을 처리하므로 전역으로 충분하고,
+# 겹치더라도 합산이 과다 계상될 뿐 유실되지는 않는다.
+_tok_lock = threading.Lock()
+_tok_acc: "dict | None" = None
 
 
 def bind_tokens() -> dict:
     """이 실행의 토큰 적산기를 연다. job.run이 부른다."""
-    acc = {"in": 0, "out": 0, "calls": 0}
-    _tokens.set(acc)
-    return acc
+    global _tok_acc
+    with _tok_lock:
+        _tok_acc = {"in": 0, "out": 0, "calls": 0}
+        return _tok_acc
 
 
 def add_tokens(tokens_in: int, tokens_out: int) -> None:
@@ -131,11 +138,12 @@ def add_tokens(tokens_in: int, tokens_out: int) -> None:
     비용 원장이 지금까지 '선예약 추정치'만 갖고 있어서, 화면의 금액이 실제
     청구와 무관했다. 리드당 비용 같은 숫자를 말하려면 실측이 필요하다.
     """
-    acc = _tokens.get()
-    if acc is not None:
-        acc["in"] += int(tokens_in or 0)
-        acc["out"] += int(tokens_out or 0)
-        acc["calls"] += 1
+    with _tok_lock:
+        acc = _tok_acc
+        if acc is not None:
+            acc["in"] += int(tokens_in or 0)
+            acc["out"] += int(tokens_out or 0)
+            acc["calls"] += 1
 
 
 def partial(stage: str, message: str, data: dict) -> None:

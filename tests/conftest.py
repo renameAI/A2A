@@ -34,7 +34,9 @@ def _clear_ontology_cache():
     서로 다른 판정을 기대하는 테스트가 앞 테스트의 결과를 받아 조용히
     통과하거나 깨진다(실측: 게이트 10건 실패).
     """
-    from app.engine.company_ontology import _ont_cache
+    from app.engine.company_ontology import _ont_cache, set_ontology_store
     _ont_cache.clear()
+    set_ontology_store(None)          # 저장소 백엔드도 테스트 간 격리
     yield
     _ont_cache.clear()
+    set_ontology_store(None)

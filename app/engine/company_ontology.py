@@ -281,6 +281,22 @@ def _clean_contacts(raw: "list[dict]", site_url: str) -> "list[ContactPath]":
 _ONT_TTL = 24 * 3600
 _ont_cache: "dict[tuple, tuple[float, CompanyOntology]]" = {}
 
+# 프로세스 메모리 캐시만으로는 서버리스에서 거의 안 맞는다 — 요청마다 새
+# 인스턴스라 실측에서 적중 0이었다. 저장소 백엔드를 함께 쓴다(있을 때만).
+# 엔진 단독 실행·테스트에서는 store가 없으므로 메모리만 쓴다.
+_ont_store = None
+
+
+def set_ontology_store(store) -> None:
+    """판독 캐시의 공유 백엔드를 붙인다(앱 기동 시 주입). None이면 메모리만."""
+    global _ont_store
+    _ont_store = store
+
+
+def _store_key(key: tuple) -> str:
+    import hashlib
+    return hashlib.sha256("::".join(map(str, key)).encode()).hexdigest()[:32]
+
 
 def _cache_key(company: dict, region: str, purpose: str, requester: str,
                deep: bool) -> tuple:
@@ -308,6 +324,15 @@ def read_company(extractor, company: dict, *, region: str = "",
     hit = _ont_cache.get(key)
     if hit and _t.time() - hit[0] < _ONT_TTL:
         return hit[1]
+    if _ont_store is not None:
+        try:
+            d = _ont_store.get("ont_cache", "_shared", _store_key(key))
+            if d and _t.time() - float(d.get("at", 0)) < _ONT_TTL:
+                ont = CompanyOntology.model_validate(d["ont"])
+                _ont_cache[key] = (_t.time(), ont)
+                return ont
+        except Exception:                    # noqa: BLE001 — 캐시는 편의다
+            pass
 
     site_block = ""
     if site_text:
@@ -352,9 +377,15 @@ def read_company(extractor, company: dict, *, region: str = "",
         reachability=_clamp_p((data.get("reachability") or {}).get("p")),
         reachability_why=((data.get("reachability") or {}).get("why") or "").strip(),
     )
-    if len(_ont_cache) > 500:        # 캐시는 편의지 저장소가 아니다
+    if len(_ont_cache) > 500:        # 메모리 캐시는 편의지 저장소가 아니다
         _ont_cache.clear()
     _ont_cache[key] = (_t.time(), ont)
+    if _ont_store is not None:
+        try:
+            _ont_store.put("ont_cache", "_shared", _store_key(key),
+                           {"at": _t.time(), "ont": ont.model_dump(mode="json")})
+        except Exception:                    # noqa: BLE001
+            pass
     return ont
 
 
