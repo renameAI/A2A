@@ -744,7 +744,15 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
             } for c in cs]})
     from concurrent.futures import ThreadPoolExecutor as _XTPE
     with _XTPE(max_workers=min(4, max(1, len(keys)))) as _ex:
-        futs = {k: _ex.submit(extract_companies, extractor, batches[k],
+        # 추출은 자료에 적힌 이름을 추리는 일이라 판정이 아니다 — 가벼운
+        # 티어면 충분하고, 웨이브1에서 가장 오래 걸리던 구간이다.
+        # 티어 생성이 실패하면(설정 없음 등) 기본 extractor로 간다 —
+        # 속도 최적화가 검색을 못 돌게 만들면 안 된다.
+        try:
+            fast = get_extractor(settings, tier="fast")
+        except Exception:                            # noqa: BLE001
+            fast = extractor
+        futs = {k: _ex.submit(extract_companies, fast, batches[k],
                               counterpart, profile.basic.name) for k in keys}
         companies, seen_keys = [], set()
         for k in keys:                       # 제출 순서대로 병합 (결정적)

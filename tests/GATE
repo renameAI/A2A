@@ -35,3 +35,4 @@ tests/test_scorer.py
 tests/test_scorer_client.py
 tests/test_variance.py
 tests/test_job_resume.py
+tests/test_tiering_and_cache.py

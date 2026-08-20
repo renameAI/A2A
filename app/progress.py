@@ -113,6 +113,31 @@ def bind() -> RunLog:
     return run
 
 
+# 실측 토큰 수집기 — job이 자기 실행 동안의 사용량을 합산하도록 붙인다.
+# contextvar라 job 밖(스크립트·테스트)에서는 그냥 no-op이다.
+_tokens: contextvars.ContextVar = contextvars.ContextVar("tokens", default=None)
+
+
+def bind_tokens() -> dict:
+    """이 실행의 토큰 적산기를 연다. job.run이 부른다."""
+    acc = {"in": 0, "out": 0, "calls": 0}
+    _tokens.set(acc)
+    return acc
+
+
+def add_tokens(tokens_in: int, tokens_out: int) -> None:
+    """LLM 어댑터가 응답의 usage를 그대로 넘긴다 — 추정이 아니라 실측이다.
+
+    비용 원장이 지금까지 '선예약 추정치'만 갖고 있어서, 화면의 금액이 실제
+    청구와 무관했다. 리드당 비용 같은 숫자를 말하려면 실측이 필요하다.
+    """
+    acc = _tokens.get()
+    if acc is not None:
+        acc["in"] += int(tokens_in or 0)
+        acc["out"] += int(tokens_out or 0)
+        acc["calls"] += 1
+
+
 def partial(stage: str, message: str, data: dict) -> None:
     """진행 중인 job의 부분 결과를 클라이언트로 흘려보낸다.
 

@@ -447,6 +447,8 @@ class _OpenAICompatExtractor:
         choice = data["choices"][0]
         content = choice["message"].get("content") or ""
         usage = data.get("usage", {})
+        progress.add_tokens(usage.get("prompt_tokens", 0),
+                            usage.get("completion_tokens", 0))
         progress.log(self._label,
                      f"응답 수신 — {time.time() - t0:.1f}초 · "
                      f"완료 토큰 {usage.get('completion_tokens', '?')} · "
@@ -605,10 +607,13 @@ class OpenAIExtractor(_OpenAICompatExtractor):
     분리(추론→구조화)는 그대로 작동해 경량 티어(Luna)의 스키마 준수를 돕는다.
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, tier: str = "default"):
+        model = settings.openai_model
+        if tier == "fast" and settings.openai_model_fast:
+            model = settings.openai_model_fast
         super().__init__(
             settings.openai_base_url, settings.openai_api_key,
-            settings.openai_model, settings.llm_timeout, "OpenAI",
+            model, settings.llm_timeout, "OpenAI",
             thinking_kwargs=False, max_tokens_field="max_completion_tokens",
             supports_temperature=False, strict_schema=True)
 
@@ -627,8 +632,14 @@ class LocalExtractor(_OpenAICompatExtractor):
             f"Local({settings.local_model})", thinking_kwargs=False)
 
 
-def get_extractor(settings: Settings) -> Extractor:
+def get_extractor(settings: Settings, tier: str = "default") -> Extractor:
     """LLM_PROVIDER에 고정된 어댑터만 사용 (다른 모델 개입 없음).
+
+    tier="fast"는 **판정이 아닌 작업**(자료에 적힌 회사 이름을 추리는 추출,
+    표기 정리)에 쓴다. 그 작업들은 스키마가 좁고 정답이 자료 안에 있어 작은
+    모델로 충분한데, 지금은 문턱·언어 판정과 같은 모델을 써서 웨이브1에서
+    가장 오래 걸리는 구간이 됐다. OPENAI_MODEL_FAST가 비어 있으면 기본
+    모델을 그대로 쓴다 — 설정을 안 하면 아무것도 바뀌지 않는다.
 
     mock 제거 (2026-07): 예전엔 provider=mock이거나 키가 없으면 None을 돌려주고
     호출측이 규칙 기반 결과로 조용히 대체했다. 그 경로는 '가짜 결과가 진짜처럼
@@ -658,7 +669,7 @@ def get_extractor(settings: Settings) -> Extractor:
                           "없습니다 — 조용한 대체 없음")
     if provider == "openai":
         if settings.openai_api_key:
-            return OpenAIExtractor(settings)
+            return OpenAIExtractor(settings, tier=tier)
         raise EngineError(500, "config_error",
                           "LLM_PROVIDER=openai인데 OPENAI_API_KEY가 "
                           "없습니다 — 조용한 대체 없음")

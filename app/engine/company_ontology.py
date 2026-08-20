@@ -273,6 +273,23 @@ def _clean_contacts(raw: "list[dict]", site_url: str) -> "list[ContactPath]":
     return out
 
 
+# 판독 캐시 — 같은 회사를 요청마다 다시 읽고 다시 지불하던 것을 막는다.
+# 실측: 검증 실행들에서 UNDO·Project Cece를 매번 새로 판독했다. 사이트 본문은
+# 하루 단위로 거의 안 바뀌므로 그 정도면 충분하고, TTL이 지나면 자연히 갱신된다.
+# 키에 requester를 넣는 이유: 문턱(reachability)은 "누가 묻는가"에 달린 판정이라
+# 요청 기업이 다르면 다른 답이 나와야 한다. purpose·region도 판정을 바꾼다.
+_ONT_TTL = 24 * 3600
+_ont_cache: "dict[tuple, tuple[float, CompanyOntology]]" = {}
+
+
+def _cache_key(company: dict, region: str, purpose: str, requester: str,
+               deep: bool) -> tuple:
+    from .candidate_extract import _norm_name, _site_of
+    return (_norm_name(company.get("name", "")),
+            _site_of(company.get("url", "")),
+            region, purpose, requester[:80], deep)
+
+
 def read_company(extractor, company: dict, *, region: str = "",
                  purpose: str = "revenue", site_text: str = "",
                  requester: str = "") -> CompanyOntology:
@@ -286,6 +303,12 @@ def read_company(extractor, company: dict, *, region: str = "",
     호출자가 실패를 삼키지 않도록 예외를 그대로 올린다 — 온톨로지가 없는 후보는
     '온톨로지 없음'으로 남아야지, 빈 축으로 채워 있는 척하면 안 된다.
     """
+    import time as _t
+    key = _cache_key(company, region, purpose, requester, bool(site_text))
+    hit = _ont_cache.get(key)
+    if hit and _t.time() - hit[0] < _ONT_TTL:
+        return hit[1]
+
     site_block = ""
     if site_text:
         site_block = ("\n\n[회사 사이트 본문 — 접점과 신호는 여기서 읽는다. "
@@ -315,7 +338,7 @@ def read_company(extractor, company: dict, *, region: str = "",
         axes[k] = OntologyAxis(
             value="" if st == AxisStatus.unknown else a["value"].strip(),
             status=st)
-    return CompanyOntology(
+    ont = CompanyOntology(
         axes=axes,
         search_keywords=[q.strip() for q in data["search_keywords"] if q.strip()],
         source_url=company.get("url", ""),
@@ -329,6 +352,10 @@ def read_company(extractor, company: dict, *, region: str = "",
         reachability=_clamp_p((data.get("reachability") or {}).get("p")),
         reachability_why=((data.get("reachability") or {}).get("why") or "").strip(),
     )
+    if len(_ont_cache) > 500:        # 캐시는 편의지 저장소가 아니다
+        _ont_cache.clear()
+    _ont_cache[key] = (_t.time(), ont)
+    return ont
 
 
 def confirmed_ratio(ont: CompanyOntology) -> float:

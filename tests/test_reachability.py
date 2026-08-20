@@ -44,8 +44,9 @@ def test_reachability_is_parsed_and_clamped():
     ont = read_company(x, {"name": "A", "what": "w", "signal": "", "url": "u"})
     assert ont.reachability == 0.15
     assert ont.reachability_why == "대기업 벤더 등록 절차"
-    # 구형·비정상 응답은 판정 없음으로 — 벌점을 주지 않는다
-    assert read_company(_Canned(), {"name": "A", "what": "w", "signal": "",
+    # 구형·비정상 응답은 판정 없음으로 — 벌점을 주지 않는다.
+    # 이름을 달리한다: 판독 캐시가 회사 단위라 같은 이름이면 앞 결과가 온다.
+    assert read_company(_Canned(), {"name": "B", "what": "w", "signal": "",
                                     "url": "u"}).reachability is None
     assert _clamp_p(1.7) == 1.0 and _clamp_p("x") is None
 
@@ -130,7 +131,7 @@ def test_deep_read_rescores_with_updated_reachability(client, monkeypatch):
             reachability=reach_by_name[company["name"]],
             reachability_why="w")
     monkeypatch.setattr(CO, "read_company", fake_read)
-    monkeypatch.setattr(R, "get_extractor", lambda s: object())
+    monkeypatch.setattr(R, "get_extractor", lambda s, tier="default": object())
 
     rid = _seed_request(client, monkeypatch, [
         {"company_id": "c1", "name": "BigCorp", "source_url": "https://big.com",

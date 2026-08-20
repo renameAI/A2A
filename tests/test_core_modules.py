@@ -78,7 +78,7 @@ def refine_client(tmp_path, monkeypatch):
                 return {"questions": []}
             return {}
 
-    monkeypatch.setattr(r, "get_extractor", lambda s: Canned())
+    monkeypatch.setattr(r, "get_extractor", lambda s, tier="default": Canned())
 
     import app.main as main_mod
     client = TestClient(main_mod.app)
@@ -168,7 +168,7 @@ def test_refine_falls_back_to_rerank_when_query_generation_fails(
         def extract_json(self, *a, **k):
             raise RuntimeError("LLM 다운")
 
-    monkeypatch.setattr(r, "get_extractor", lambda s: Broken())
+    monkeypatch.setattr(r, "get_extractor", lambda s, tier="default": Broken())
     res = _poll(client, client.post(f"/saas/lead-requests/{rid}/refine", headers=H,
                 json={"answers": [], "liked": [], "disliked": [],
                       "done": False}).json()["job_id"])

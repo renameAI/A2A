@@ -42,7 +42,7 @@ def _use(monkeypatch, payload):
     # represent 모듈 속성을 패치해도 안 먹고 실제 API로 나간다(실측: 스위트가
     # 5분 타임아웃). 원본 모듈을 패치해야 한다.
     import app.engine.llm as llm
-    monkeypatch.setattr(llm, "get_extractor", lambda s: _Canned(payload))
+    monkeypatch.setattr(llm, "get_extractor", lambda s, tier="default": _Canned(payload))
 
 
 def _full(**over):

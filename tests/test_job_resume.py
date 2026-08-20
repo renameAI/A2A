@@ -53,9 +53,9 @@ def _stub_discover(monkeypatch, found):
                                     synthesized_counterpart="상대",
                                     query_hypotheses=["q"], must_have=[],
                                     exclusions=[]))
-    monkeypatch.setattr(R, "get_extractor", lambda s: object())
+    monkeypatch.setattr(R, "get_extractor", lambda s, tier="default": object())
     import app.engine.llm as llm
-    monkeypatch.setattr(llm, "get_extractor", lambda s: object())
+    monkeypatch.setattr(llm, "get_extractor", lambda s, tier="default": object())
 
 
 def _cand(cid, name, site):

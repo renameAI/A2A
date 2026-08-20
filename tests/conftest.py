@@ -12,6 +12,7 @@
 (파서·게이트·스키마)는 여전히 빠르고 결정적이다.
 """
 import os
+import pytest
 import tempfile
 
 # 수집 타임아웃만 짧게 — 외부 웹 크롤이 테스트를 붙잡지 않게
@@ -23,3 +24,17 @@ os.environ.setdefault("A2A_CACHE_DIR", os.path.join(_tmp, "cache"))
 os.environ.setdefault("A2A_AUDIT_DIR", os.path.join(_tmp, "audit"))
 os.environ.setdefault("A2A_PAGES_DIR", os.path.join(_tmp, "pages"))
 os.environ.setdefault("A2A_DB_PATH", os.path.join(_tmp, "a2a.db"))
+
+
+@pytest.fixture(autouse=True)
+def _clear_ontology_cache():
+    """판독 캐시를 테스트마다 비운다.
+
+    캐시는 프로세스 전역이라 테스트 사이에 살아남는다 — 호출 횟수를 세거나
+    서로 다른 판정을 기대하는 테스트가 앞 테스트의 결과를 받아 조용히
+    통과하거나 깨진다(실측: 게이트 10건 실패).
+    """
+    from app.engine.company_ontology import _ont_cache
+    _ont_cache.clear()
+    yield
+    _ont_cache.clear()

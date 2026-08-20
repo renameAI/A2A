@@ -65,6 +65,9 @@ class Settings:
         # 우회는 동작해도 설정 파일을 읽는 사람을 속인다.
         self.openai_api_key = os.environ.get("OPENAI_API_KEY", "")
         self.openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
+        # 가벼운 티어 — 정리·추출처럼 '판정이 아닌' 작업용. 비면 기본 모델을
+        # 쓰므로 설정하지 않아도 동작이 바뀌지 않는다(조용한 성능 저하 없음).
+        self.openai_model_fast = os.environ.get("OPENAI_MODEL_FAST", "")
         self.openai_base_url = os.environ.get(
             "OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions")
         # SaaS 접근 허용 목록 (이슈 #6) — 비면 전원 거부(fail closed).

@@ -178,6 +178,7 @@ class JobStore:
         주기적으로 원장에 흘려보내 다른 인스턴스의 폴링도 진행을 본다."""
         job.status = JobStatus.running
         job.log = progress.bind()
+        tokens = progress.bind_tokens()   # 이 실행의 실측 사용량
         self._put(job)
         last = time.time()
 
@@ -191,6 +192,16 @@ class JobStore:
         job.log.on_add = _flush          # RunLog가 줄을 더할 때마다 호출
         try:
             job.result = fn()
+            if tokens["calls"]:
+                from .saas import cost as _cost
+                spent = _cost.usd(tokens["in"], tokens["out"])
+                job.log.add("완료", f"모델 호출 {tokens['calls']}회 · "
+                                    f"토큰 {tokens['in']:,}/{tokens['out']:,} · "
+                                    f"실측 ${spent:.4f}")
+                if isinstance(job.result, dict):
+                    job.result["spend"] = {
+                        "usd": round(spent, 4), "calls": tokens["calls"],
+                        "tokens_in": tokens["in"], "tokens_out": tokens["out"]}
             job.log.add("완료", "작업이 정상 완료되었습니다.")
             job.status = JobStatus.done
         except EngineError as e:

@@ -81,7 +81,7 @@ def test_only_own_sources_are_crawled_and_results_merge(client, monkeypatch):
             search_keywords=[], signals=[],
             contacts=[ContactPath(channel="문의 폼", value="https://a.com/contact", role_hint="")])
     monkeypatch.setattr(CO, "read_company", fake_read)
-    monkeypatch.setattr(R, "get_extractor", lambda s: object())
+    monkeypatch.setattr(R, "get_extractor", lambda s, tier="default": object())
 
     rid = _seed_request(client, monkeypatch, [
         {"company_id": "c1", "name": "A", "source_url": "https://a.com", "source_kind": "own",
@@ -111,7 +111,7 @@ def test_fetch_failure_is_recorded_not_raised(client, monkeypatch):
     from app.ingest import crawler
     def boom(url, s): raise RuntimeError("blocked")
     monkeypatch.setattr(crawler, "crawl_website", boom)
-    monkeypatch.setattr(R, "get_extractor", lambda s: object())
+    monkeypatch.setattr(R, "get_extractor", lambda s, tier="default": object())
     rid = _seed_request(client, monkeypatch, [
         {"company_id": "c1", "name": "A", "source_url": "https://a.com", "source_kind": "own",
          "what": "w", "signal": "", "pain_signal": "w", "ontology": None}])
@@ -143,7 +143,7 @@ def test_spa_falls_back_to_rendered_extract(client, monkeypatch):
         return CompanyOntology(axes={k: OntologyAxis(value="v", status="confirmed", evidence="e") for k in _AXES},
                                search_keywords=[], signals=[], contacts=[])
     monkeypatch.setattr(CO, "read_company", fake_read)
-    monkeypatch.setattr(R, "get_extractor", lambda s: object())
+    monkeypatch.setattr(R, "get_extractor", lambda s, tier="default": object())
     rid = _seed_request(client, monkeypatch, [
         {"company_id": "c1", "name": "A", "source_url": "https://a.com", "source_kind": "own",
          "what": "w", "signal": "", "pain_signal": "w", "ontology": None}])

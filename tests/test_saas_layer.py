@@ -80,7 +80,7 @@ class TestProspectMode:
             problem_solved=ProvField(value="", provenance=Provenance.ask),
             solution=ProvField(value="", provenance=Provenance.ask),
             target_customer=ProvField(value="", provenance=Provenance.ask))
-        monkeypatch.setattr(rep_mod, "get_extractor", lambda s: None)
+        monkeypatch.setattr(rep_mod, "get_extractor", lambda s, tier="default": None)
         monkeypatch.setattr(rep_mod, "_mock_extract",
                             lambda text, mined: (thin, []))
         res = rep_mod.represent(RepresentRequest(
@@ -100,7 +100,7 @@ class TestProspectMode:
             problem_solved=ProvField(value="", provenance=Provenance.ask),
             solution=ProvField(value="", provenance=Provenance.ask),
             target_customer=ProvField(value="", provenance=Provenance.ask))
-        monkeypatch.setattr(rep_mod, "get_extractor", lambda s: None)
+        monkeypatch.setattr(rep_mod, "get_extractor", lambda s, tier="default": None)
         monkeypatch.setattr(rep_mod, "_mock_extract",
                             lambda text, mined: (thin, []))
         with pytest.raises(ProfileBelowMinimum):
@@ -178,7 +178,7 @@ class TestJourney:
             deterministic_anchor="앵커", synthesized_counterpart="노후 객실 호텔",
             query_hypotheses=["일본 독립 호텔 리뉴얼"], must_have=[], exclusions=[]))
         monkeypatch.setattr(saas_mod, "get_extractor",
-                            lambda s: _CannedExtractor())
+                            lambda s, tier="default": _CannedExtractor())
         # 오프라인 계약 — 이 테스트는 네트워크를 한 번도 타면 안 된다.
         # 실측: 스텁 없이 돌리면 retrieve가 (1) 학습 스코어러(SCORER_URL)와
         # (2) synthesize_counterpart의 로컬 LLM(Ollama)을 실제로 호출해

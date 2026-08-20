@@ -107,7 +107,7 @@ class TestSegmentReach:
         import app.engine.llm as llm
         class _C:
             def extract_json(self, *a, **k): return {"segments": segments}
-        monkeypatch.setattr(llm, "get_extractor", lambda s: _C())
+        monkeypatch.setattr(llm, "get_extractor", lambda s, tier="default": _C())
         from app.engine.retrieve import propose_segments
         return propose_segments(self._req())
 
