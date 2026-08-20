@@ -70,7 +70,13 @@ def _ontology_block(ont: "dict | None") -> str:
                for s in signals[:8]] or ["없음"]
     a_lines = [f"- {k}: {v.get('value','')}" for k, v in axes.items()
                if v.get("status") == "confirmed" and v.get("value")][:8]
-    return ("\n[접점 — 여기 있는 채널만 쓴다]\n" + "\n".join(c_lines)
+    wn = (ont.get("why_now") or "").strip()
+    wn_block = (f"\n[왜 지금 — 판독이 이미 고른 근거. 특별한 이유가 없으면 "
+                f"이것을 그대로 쓴다]\n{wn}"
+                + (f"\n출처 {ont.get('why_now_source')}"
+                   if ont.get("why_now_source") else "")) if wn else ""
+    return (wn_block
+            + "\n[접점 — 여기 있는 채널만 쓴다]\n" + "\n".join(c_lines)
             + "\n[타이밍 신호 — 최근 관측]\n" + "\n".join(s_lines)
             + ("\n[확인된 축]\n" + "\n".join(a_lines) if a_lines else ""))
 

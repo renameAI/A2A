@@ -178,6 +178,11 @@ class CompanyOntology(BaseModel):
     # None = 판정 없음(구 데이터) — 랭킹은 그때 벌점을 주지 않는다.
     reachability: "float | None" = None
     reachability_why: str = ""
+    # "왜 지금 이 회사인가" — 카드 전면에 세우는 한 문장. 근거는 채용에
+    # 국한하지 않는다(출점·증설·투자·신사업·파트너 모집·전시…). 없으면 빈
+    # 문자열로 두고 화면이 "상시 제안"이라고 정직하게 말한다.
+    why_now: str = ""
+    why_now_source: str = ""
 
 
 class RiskType(str, Enum):            # 리스크 3분류 (가이드 §4)

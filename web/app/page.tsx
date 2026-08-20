@@ -26,6 +26,7 @@ type Cand = { company_id: string; name: string; name_ko?: string;
 const SRC_LABEL: Record<string, string> = {
   own: "자사 페이지", directory: "디렉터리·협회", mention: "기사·언급" };
 type Ont = { reachability?: number | null; reachability_why?: string;
+  why_now?: string; why_now_source?: string;
   axes: Record<string, { value: string; status: string }>;
   search_keywords: string[]; confirmed_ratio?: number;
   signals?: { category: string; evidence: string; observed_at: string;
@@ -1383,9 +1384,18 @@ function Workspace({ who }: { who: string }) {
                   </div>
                   {c.partial && (
                     <div className="quiet">판독 중 — 접점·신호·순위는 곧 채워져요</div>)}
-                  {c.deep_read?.status === "done"
-                    && !(c.ontology?.signals?.length) && (
-                    <div className="quiet">최근 신호 없음 — 시의성 없이 상시 제안으로 접근</div>)}
+                  {/* 왜 지금 — 이 카드에서 가장 먼저 읽혀야 하는 한 문장.
+                      근거 페이지로 바로 갈 수 있어야 사용자가 확인한다. */}
+                  {c.ontology?.why_now && (
+                    <div className="whynow">
+                      <span className="whynow-lb">왜 지금</span>
+                      {c.ontology.why_now}
+                      {c.ontology.why_now_source && (
+                        <a href={c.ontology.why_now_source} target="_blank"
+                          rel="noreferrer" className="whynow-src">근거</a>)}
+                    </div>)}
+                  {c.deep_read?.status === "done" && !c.ontology?.why_now && (
+                    <div className="quiet">지금이어야 할 이유는 못 찾았어요 — 상시 제안으로 접근</div>)}
                   {c.deep_read?.status === "done"
                     && !(c.ontology?.contacts?.length) && (
                     <div className="quiet">공개 접점 미확인 — 사이트에서 문의 창구를 찾지 못함</div>)}

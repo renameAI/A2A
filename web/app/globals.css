@@ -598,3 +598,10 @@ a.ct-v{color:var(--blue)}
 .ev-lb{color:var(--txt-2)}
 .ev-thin{color:var(--txt-3);margin-left:6px}
 .ev-found{color:var(--txt);margin-top:2px;line-height:1.55}
+
+/* 왜 지금 — 카드에서 가장 먼저 읽히는 한 줄. 근거 링크가 바로 옆에 붙는다. */
+.whynow{margin:6px 0;padding:7px 9px;background:var(--amber-soft);
+  border-radius:8px;font-size:12px;line-height:1.6;color:var(--txt)}
+.whynow-lb{display:inline-block;font-size:10.5px;font-weight:700;
+  color:var(--amber);margin-right:6px;letter-spacing:.02em}
+.whynow-src{margin-left:6px;font-size:11px;color:var(--coral);white-space:nowrap}
