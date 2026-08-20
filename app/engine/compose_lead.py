@@ -25,7 +25,8 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
 - **설득 구조.** 첫 메일의 목적은 소개가 아니라 **답장 한 통**이다. 상대는
   모르는 회사의 메일을 3초 안에 버릴지 정하고, 그 3초를 넘기는 것은 길이가
   아니라 "이 사람이 우리를 알고 썼다"는 신호다. body는 **빈 줄로 나눈 네
-  단락**(단락 사이 개행 두 번)이고 각 단락은 2~4문장이다. 글자 수로 세지
+  단락**을 `paragraphs` 배열의 원소 하나씩으로 내놓는다(빈 줄은 코드가
+  넣으므로 원소 안에 개행을 넣지 마라). 각 단락은 2~4문장이다. 글자 수로 세지
   마라 — 실측: "400~700자"로만 적었더니 스페인어 초안이 519자짜리 한
   덩어리로 나왔다. 각 단락은 맡은 일이 다르다:
 
@@ -56,12 +57,18 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
   상대의 표기를 따른다.
 - claim_trace: 본문의 구체적 주장(수치·고유명사·사실 서술이 든 문장)마다
   그 근거가 된 인사이트 항목을 짝지어 기록한다.
-- subject_ko / body_ko: 작성한 메일의 **한국어 대역**. 보내는 사람이 내용을
+- subject_ko / paragraphs_ko: 작성한 메일의 **한국어 대역**. paragraphs와
+  원소 수를 맞춘다 — 단락이 어긋나면 사용자가 대조하며 읽을 수 없다. 보내는 사람이 내용을
   확인하고 승인해야 하므로, 읽을 수 없는 메일을 그대로 내보내면 안 된다.
-  지정 언어가 한국어면 subject·body와 같게 쓴다. 그 밖의 언어면 대역을
+  지정 언어가 한국어면 subject·paragraphs와 같게 쓴다. 그 밖의 언어면 대역을
   **반드시** 채운다 — 빈 대역은 사용자가 내용을 모른 채 보내게 만든다.
   대역은 요약이 아니라 같은 뜻의 한국어 문장이어야 하고, 본문에 넣은 링크는
   대역에도 같은 주소로 남긴다."""
+
+def _join(paras) -> str:
+    """문단 배열 → 본문. 빈 줄로 잇는 것은 코드의 몫이다."""
+    return "\n\n".join(p.strip() for p in (paras or []) if str(p).strip())
+
 
 COMPOSE_LEAD_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -71,15 +78,22 @@ COMPOSE_LEAD_SCHEMA = {
             "type": "array", "minItems": 1, "maxItems": 3,
             "items": {
                 "type": "object", "additionalProperties": False,
-                "required": ["variant_label", "subject", "body",
-                             "subject_ko", "body_ko",
+                "required": ["variant_label", "subject", "paragraphs",
+                             "subject_ko", "paragraphs_ko",
                              "call_to_action", "claims"],
                 "properties": {
                     "variant_label": {"type": "string"},
                     "subject": {"type": "string"},
-                    "body": {"type": "string"},
+                    # 본문은 문단 배열로 받는다 — 문단 나눔을 모델의 개행에
+                    # 맡기면 지시를 세 번 고쳐도 한 덩어리로 나온다(실측:
+                    # 스페인어 519자·독일어 1,025자 모두 단락 1개). 나눔은
+                    # 모델의 판정, 이어 붙이는 것은 코드의 결정이다.
+                    "paragraphs": {"type": "array", "minItems": 3,
+                                   "maxItems": 5, "items": {"type": "string"}},
                     "subject_ko": {"type": "string"},
-                    "body_ko": {"type": "string"},
+                    "paragraphs_ko": {"type": "array", "minItems": 3,
+                                      "maxItems": 5,
+                                      "items": {"type": "string"}},
                     "call_to_action": {"type": "string"},
                     "claims": {
                         "type": "array",
@@ -156,9 +170,9 @@ def compose_lead(extractor, req: ComposeLeadRequest) -> ComposeLeadResponse:
         drafts.append(LeadEmailDraft(
             variant_label=d["variant_label"],
             subject=d["subject"],
-            body=d["body"],
+            body=_join(d.get("paragraphs")),
             subject_ko=d.get("subject_ko") or d["subject"],
-            body_ko=d.get("body_ko") or d["body"],
+            body_ko=_join(d.get("paragraphs_ko")) or _join(d.get("paragraphs")),
             call_to_action=d["call_to_action"],
             claim_trace=[ClaimTrace(claim=c["claim"], fit_reason_ref=c["evidence"])
                          for c in d.get("claims", [])],

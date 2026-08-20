@@ -202,10 +202,12 @@ class TestOntologyCacheVersion:
 class TestMailShape:
     """메일이 한 덩어리로 나오지 않게 — 실측: 스페인어 초안 519자 1단락."""
 
-    def test_prompt_demands_blank_line_paragraphs(self):
+    def test_prompt_sends_paragraphs_as_an_array(self):
+        """개행 지시로는 안 됐다 — 배열로 받아 코드가 잇는다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "빈 줄로 나눈 네\n  단락" in P or "빈 줄로 나눈 네" in P
-        assert "개행 두 번" in P
+        assert "빈 줄로 나눈 네" in P
+        assert "`paragraphs` 배열" in P
+        assert "원소 안에 개행을 넣지 마라" in P
 
     def test_prompt_counts_sentences_not_characters(self):
         """글자 수만 적으면 언어마다 다르게 해석된다."""
@@ -230,3 +232,27 @@ class TestBusinessLanguage:
     def test_prompt_prefers_legal_form_over_page_language(self):
         from app.engine.company_ontology import ONTOLOGY_SYSTEM as P
         assert "GmbH" in P and "법인 쪽을 따른다" in P
+
+
+class TestParagraphAssembly:
+    """단락 나눔은 모델의 판정, 이어 붙이는 것은 코드의 결정."""
+
+    def test_joined_with_blank_lines(self):
+        from app.engine.compose_lead import _join
+        assert _join(["가", "나", "다"]) == "가\n\n나\n\n다"
+
+    def test_empty_paragraphs_dropped(self):
+        from app.engine.compose_lead import _join
+        assert _join(["가", "  ", "", "나"]) == "가\n\n나"
+
+    def test_none_is_empty(self):
+        from app.engine.compose_lead import _join
+        assert _join(None) == ""
+
+    def test_schema_requires_paragraph_array(self):
+        """실측: body를 문자열로 받는 한 지시를 세 번 고쳐도 한 덩어리였다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SCHEMA as S
+        item = S["properties"]["drafts"]["items"]
+        assert "paragraphs" in item["required"]
+        assert item["properties"]["paragraphs"]["minItems"] == 3
+        assert "body" not in item["properties"]
