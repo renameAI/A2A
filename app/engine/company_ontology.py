@@ -139,6 +139,20 @@ contacts: 자료에 실제로 나온 공개 접촉 경로만.
   (ko/en/ja/zh/de/fr/es/it/nl/vi/id/th 등). 사이트 본문이 쓰인 언어를 따르되,
   다국어 사이트면 회사소개·문의 페이지의 주 언어를 고른다. 판단이 안 서면
   빈 문자열 — 그때는 시스템이 한국어로 쓰고 사용자가 고른다.
+- reading: **대표가 읽을 요약.** 축 목록은 사실의 나열이라 "그래서 연락할까"에
+  답하지 못한다. 아래 네 각도로 각각 2~4문장씩, 자료에 근거해 쓴다.
+    situation  이 회사가 지금 어떤 상황인가 — 무엇을 하고 어디까지 하며 최근
+               무엇이 움직이는가. 축에 흩어진 사실을 하나의 그림으로 잇는다.
+    fit        요청 기업의 제안과 어디가 맞닿는가 — 이 회사가 들여오는 것과
+               우리가 내놓는 것 사이의 접점. 억지로 잇지 말고, 약하면 약하다고
+               쓴다.
+    inference  자료에 직접 쓰여 있지 않지만 **추론되는 것** — 조달 방식·의사결정
+               구조·지금의 관심사. 반드시 "…로 보인다/추정된다"로 쓰고, 무엇을
+               근거로 그렇게 보는지 함께 적는다. 확정처럼 쓰면 안 된다.
+    unknowns   연락 전에 확인이 필요한 것 2~3가지 — 자료로는 알 수 없어 이메일에
+               서 단정하면 안 되는 것들. 비워 두지 마라, 부분 정보에는 늘 있다.
+  네 항목 모두 자료에 없는 수치·고객명·성과를 지어내지 마라. 관측과 추론을
+  섞지 마라 — situation·fit은 관측, inference는 추론이다.
 - why_now: **왜 지금 이 회사에 연락할 만한가**를 요청 기업 입장에서 한 문장.
   근거는 채용에 국한하지 않는다 — 신규 출점·물류 증설·투자 유치·신사업 개시·
   파트너 모집 개시·전시 참가·인증 취득·해외 진출 등 무엇이든 좋다. 다만
@@ -162,6 +176,15 @@ contacts: 자료에 실제로 나온 공개 접촉 경로만.
   인력 확대)이나 new_offering(새 사업 담당)이 보통 맞고, evidence에는 직무명을
   자료 표기 그대로 옮긴다. 단, 상시 채용 공고나 직무 한두 개로 회사의 방향을
   단정하지는 마라 — 확신이 없으면 신호로 세지 않는 편이 낫다.
+- 각 축의 fit: 그 축이 **이번 제안에 얼마나 유리한가**를 0~1로. 사실 자체가
+  아니라 요청 기업 입장에서의 유불리다 — 같은 "전세계 시장 대상"도 수출을
+  원하는 회사에는 기회(높음)이고 지역 밀착 공급사에는 어긋남(낮음)이다.
+  status가 unknown이면 0.5(모름은 나쁨이 아니다).
+  **축마다 다른 값이 나와야 한다.** 이 회사가 전체적으로 안 맞는다고 판단해
+  열 축에 같은 점수를 주면 화면의 레이더가 원이 되어 아무것도 못 보여준다
+  (실측: 전 축 0.1). 안 맞는 회사라도 지리·규모는 맞고 수요는 어긋나는 식으로
+  **축별 강약이 갈린다** — 그 차이를 그려라. 전체 적합도는 다른 값이 이미
+  담당하므로 여기서 되풀이하지 마라.
 - signals의 source_url: 그 문장을 읽은 페이지 주소. 자료가 "[페이지: URL]"로
   구분돼 있으면 그 문장이 속한 페이지의 URL을 그대로 옮긴다. 메일에서
   "이 페이지에서 봤습니다"라고 밝히는 데 쓰이므로, 없는 주소를 지어내면
@@ -179,16 +202,17 @@ search_keywords: 이 회사와 **같은 성격의 회사를 더 찾을 때** 쓸
 ONTOLOGY_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["axes", "search_keywords", "signals", "contacts",
-                 "business_language", "reachability", "why_now"],
+                 "business_language", "reachability", "why_now", "reading"],
     "properties": {
         "axes": {
             "type": "object", "additionalProperties": False,
             "required": [k for k, _ in AXES],
             "properties": {
                 k: {"type": "object", "additionalProperties": False,
-                    "required": ["value", "status"],
+                    "required": ["value", "status", "fit"],
                     "properties": {
                         "value": {"type": "string"},
+                        "fit": {"type": "number", "minimum": 0, "maximum": 1},
                         "status": {"type": "string",
                                    "enum": ["confirmed", "assumed", "unknown"]}}}
                 for k, _ in AXES
@@ -208,6 +232,13 @@ ONTOLOGY_SCHEMA = {
                 "observed_at": {"type": "string"},
                 "source_url": {"type": "string"}}}},
         "business_language": {"type": "string"},
+        "reading": {"type": "object", "additionalProperties": False,
+                    "required": ["situation", "fit", "inference", "unknowns"],
+                    "properties": {"situation": {"type": "string"},
+                                   "fit": {"type": "string"},
+                                   "inference": {"type": "string"},
+                                   "unknowns": {"type": "array",
+                                                "items": {"type": "string"}}}},
         "why_now": {"type": "object", "additionalProperties": False,
                     "required": ["text", "source_url"],
                     "properties": {"text": {"type": "string"},
@@ -261,6 +292,18 @@ def _lang_code(raw: str) -> str:
     v = (raw or "").strip().lower().replace("_", "-")
     v = _LANG_ALIAS.get(v, v).split("-")[0]
     return v if v in _LANGS else ""
+
+
+def _clean_reading(d) -> dict:
+    """읽기 층 정리. 없거나 형식이 어긋나면 빈 값 — 있는 척하지 않는다."""
+    d = d if isinstance(d, dict) else {}
+    return {
+        "situation": (d.get("situation") or "").strip(),
+        "fit": (d.get("fit") or "").strip(),
+        "inference": (d.get("inference") or "").strip(),
+        "unknowns": [str(u).strip() for u in (d.get("unknowns") or [])
+                     if str(u).strip()][:4],
+    }
 
 
 def _fit_pages(text: str, budget: int) -> str:
@@ -421,7 +464,10 @@ def read_company(extractor, company: dict, *, region: str = "",
         st = AxisStatus(a["status"])
         axes[k] = OntologyAxis(
             value="" if st == AxisStatus.unknown else a["value"].strip(),
-            status=st)
+            status=st,
+            # 모름은 나쁨이 아니다 — 판정이 없으면 중립(0.5)으로 둔다.
+            fit=_clamp_p(a.get("fit")) if a.get("fit") is not None
+            else (0.5 if st == AxisStatus.unknown else None))
     ont = CompanyOntology(
         axes=axes,
         search_keywords=[q.strip() for q in data["search_keywords"] if q.strip()],
@@ -435,6 +481,7 @@ def read_company(extractor, company: dict, *, region: str = "",
         business_language=_lang_code(data.get("business_language", "")),
         reachability=_clamp_p((data.get("reachability") or {}).get("p")),
         reachability_why=((data.get("reachability") or {}).get("why") or "").strip(),
+        reading=_clean_reading(data.get("reading")),
         why_now=((data.get("why_now") or {}).get("text") or "").strip(),
         why_now_source=_cited_url((data.get("why_now") or {}).get("source_url", ""),
                                   site_text),

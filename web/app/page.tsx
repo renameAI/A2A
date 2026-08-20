@@ -27,7 +27,9 @@ const SRC_LABEL: Record<string, string> = {
   own: "자사 페이지", directory: "디렉터리·협회", mention: "기사·언급" };
 type Ont = { reachability?: number | null; reachability_why?: string;
   why_now?: string; why_now_source?: string;
-  axes: Record<string, { value: string; status: string }>;
+  reading?: { situation?: string; fit?: string; inference?: string;
+              unknowns?: string[] };
+  axes: Record<string, { value: string; status: string; fit?: number | null }>;
   search_keywords: string[]; confirmed_ratio?: number;
   signals?: { category: string; evidence: string; observed_at: string;
     source_url?: string }[];
@@ -1826,6 +1828,45 @@ const SIGNAL_KO: Record<string, string> = {
 
 /** 기업마다 남는 판독. 접혀 있다가 펼치면 축과 근거 상태가 그대로 보인다 —
  *  판단 근거를 숨기지 않는 것이 judge와 같은 규율이다. */
+/** 축 적합도 레이더 — 열 축의 강약을 한눈에.
+ *
+ *  숫자 열 개를 나열하면 아무도 안 읽는다. 어느 축이 맞고 어느 축이 어긋나는지는
+ *  모양으로 보는 게 빠르다. 판정이 없는 축(fit=null)은 그리지 않는다 — 0으로
+ *  두면 '나쁨'으로 잘못 읽힌다. */
+function AxisRadar({ axes }: { axes: Ont["axes"] }) {
+  const rows = Object.entries(axes)
+    .filter(([, a]) => typeof a.fit === "number");
+  if (rows.length < 3) return null;
+  const R = 46, C = 56, n = rows.length;
+  const pt = (i: number, r: number) => {
+    const ang = (Math.PI * 2 * i) / n - Math.PI / 2;
+    return [C + Math.cos(ang) * r, C + Math.sin(ang) * r];
+  };
+  const poly = rows
+    .map(([, a], i) => pt(i, R * Math.max(0.06, a.fit as number)).join(","))
+    .join(" ");
+  const ring = (f: number) =>
+    rows.map((_, i) => pt(i, R * f).join(",")).join(" ");
+  return (
+    <div className="radar">
+      <svg viewBox="0 0 112 112" width="112" height="112" aria-hidden>
+        {[0.33, 0.66, 1].map((f) => (
+          <polygon key={f} points={ring(f)} className="radar-ring" />))}
+        <polygon points={poly} className="radar-area" />
+      </svg>
+      <div className="radar-lg">
+        {rows.map(([k, a]) => (
+          <div className="radar-li" key={k}>
+            <span className="radar-n">{AXIS_KO[k] ?? k}</span>
+            <span className="radar-b">
+              <i style={{ width: `${Math.round((a.fit as number) * 100)}%` }} />
+            </span>
+          </div>))}
+      </div>
+    </div>
+  );
+}
+
 function OntologyView({ ont, sourceUrl }: { ont: Ont; sourceUrl: string }) {
   const [open, setOpen] = useState(false);
   const known = Object.entries(ont.axes).filter(([, a]) => a.status !== "unknown");
@@ -1839,6 +1880,31 @@ function OntologyView({ ont, sourceUrl }: { ont: Ont; sourceUrl: string }) {
       </button>
       {open && (
         <div className="ont-body">
+          {/* 읽기 층 — 축 나열은 "그래서 연락할까"에 답하지 못한다.
+              관측(상황·접점)과 추론을 나눠 보여주는 것이 기획안 §7.2 원칙. */}
+          {ont.reading?.situation && (
+            <div className="rd">
+              <div className="rd-k">지금 이 회사는</div>
+              <div className="rd-v">{ont.reading.situation}</div>
+            </div>)}
+          {ont.reading?.fit && (
+            <div className="rd">
+              <div className="rd-k">우리와 맞닿는 곳</div>
+              <div className="rd-v">{ont.reading.fit}</div>
+            </div>)}
+          {ont.reading?.inference && (
+            <div className="rd">
+              <div className="rd-k rd-inf">추론 — 자료에 없는 해석</div>
+              <div className="rd-v">{ont.reading.inference}</div>
+            </div>)}
+          {(ont.reading?.unknowns?.length ?? 0) > 0 && (
+            <div className="rd">
+              <div className="rd-k rd-ask">연락 전 확인할 것</div>
+              <ul className="rd-ul">
+                {ont.reading!.unknowns!.map((u, i) => <li key={i}>{u}</li>)}
+              </ul>
+            </div>)}
+          <AxisRadar axes={ont.axes} />
           {known.map(([k, a]) => (
             <div className="ont-row" key={k}>
               <span className={`ont-st ${a.status}`}>

@@ -113,6 +113,11 @@ class OntologyAxis(BaseModel):
     """
     value: str
     status: AxisStatus
+    # 이 축이 **이번 제안에** 얼마나 유리한가 (0~1). 사실(value)과 별개다 —
+    # 같은 "전세계 시장 대상"이 어떤 요청 기업엔 기회고 어떤 곳엔 문턱이다.
+    # 화면이 축을 레이더로 그려 강약을 한눈에 보이게 하는 값. 판정이 없으면
+    # None(그리지 않는다 — 0으로 두면 '나쁨'으로 잘못 읽힌다).
+    fit: "float | None" = None
 
 
 class SignalCategory(str, Enum):
@@ -183,6 +188,10 @@ class CompanyOntology(BaseModel):
     # 문자열로 두고 화면이 "상시 제안"이라고 정직하게 말한다.
     why_now: str = ""
     why_now_source: str = ""
+    # 대표가 읽을 요약 — situation/fit/inference/unknowns. 축은 사실의 나열이라
+    # "그래서 연락할까"에 답하지 못한다. 관측(situation·fit)과 추론(inference)을
+    # 분리해 담는 것이 기획안 §7.2의 원칙이다.
+    reading: dict = {}
 
 
 class RiskType(str, Enum):            # 리스크 3분류 (가이드 §4)

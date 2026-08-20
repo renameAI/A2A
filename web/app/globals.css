@@ -605,3 +605,24 @@ a.ct-v{color:var(--blue)}
 .whynow-lb{display:inline-block;font-size:10.5px;font-weight:700;
   color:var(--amber);margin-right:6px;letter-spacing:.02em}
 .whynow-src{margin-left:6px;font-size:11px;color:var(--coral);white-space:nowrap}
+
+/* 읽기 층 — 축 나열이 답하지 못하는 "그래서 연락할까"에 답하는 자리.
+   관측과 추론을 색으로 구분한다(추론을 사실처럼 읽으면 안 된다). */
+.rd{margin-bottom:9px}
+.rd-k{font-size:10.5px;font-weight:700;color:var(--txt-3);letter-spacing:.02em;
+  margin-bottom:2px}
+.rd-k.rd-inf{color:var(--blue)}
+.rd-k.rd-ask{color:var(--amber)}
+.rd-v{font-size:12px;line-height:1.7;color:var(--txt)}
+.rd-ul{margin:0;padding-left:15px;font-size:12px;line-height:1.7;color:var(--txt)}
+
+/* 축 적합도 레이더 — 열 축의 강약은 숫자보다 모양으로 읽힌다. */
+.radar{display:flex;gap:12px;align-items:center;margin:8px 0 10px;flex-wrap:wrap}
+.radar-ring{fill:none;stroke:var(--line);stroke-width:1}
+.radar-area{fill:var(--coral);fill-opacity:.22;stroke:var(--coral);stroke-width:1.5}
+.radar-lg{flex:1;min-width:150px;display:flex;flex-direction:column;gap:2px}
+.radar-li{display:grid;grid-template-columns:auto 1fr;gap:6px;align-items:center;
+  font-size:10.5px;color:var(--txt-3)}
+.radar-n{white-space:nowrap}
+.radar-b{height:4px;background:var(--line);border-radius:3px;overflow:hidden}
+.radar-b i{display:block;height:100%;background:var(--coral);border-radius:3px}

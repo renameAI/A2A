@@ -70,3 +70,61 @@ def test_why_now_reaches_the_mail_kit():
     # 없으면 아무 말도 하지 않는다
     assert "판독이 이미 고른 근거" not in _ontology_block(
         {"contacts": [], "signals": [], "axes": {}})
+
+
+class TestReadingLayer:
+    """축 나열은 "그래서 연락할까"에 답하지 못한다 — 읽기 층이 그 자리다.
+
+    기획안 §7.2: 관측 사실과 AI 추론을 구분한다. situation·fit은 관측,
+    inference는 추론, unknowns는 이메일에서 단정하면 안 되는 것들.
+    """
+    def test_reading_is_normalised(self):
+        from app.engine.company_ontology import _clean_reading
+        r = _clean_reading({"situation": " 상황 ", "fit": "접점",
+                            "inference": " 추론", "unknowns": ["a", "", " b "]})
+        assert r["situation"] == "상황" and r["inference"] == "추론"
+        assert r["unknowns"] == ["a", "b"]
+
+    def test_missing_reading_is_empty_not_absent(self):
+        """화면이 바로 읽으므로 키가 없으면 안 된다 — 빈 값으로 채운다."""
+        from app.engine.company_ontology import _clean_reading
+        for bad in (None, "문자열", [], 3):
+            r = _clean_reading(bad)
+            assert set(r) == {"situation", "fit", "inference", "unknowns"}
+            assert r["unknowns"] == []
+
+    def test_unknowns_are_capped(self):
+        from app.engine.company_ontology import _clean_reading
+        assert len(_clean_reading({"unknowns": list("abcdefg")})["unknowns"]) == 4
+
+    def test_prompt_separates_observation_from_inference(self):
+        from app.engine.company_ontology import ONTOLOGY_SYSTEM
+        assert "situation·fit은 관측, inference는 추론" in ONTOLOGY_SYSTEM
+        assert "…로 보인다/추정된다" in ONTOLOGY_SYSTEM
+        assert "비워 두지 마라" in ONTOLOGY_SYSTEM
+
+
+class TestAxisFit:
+    """축별 적합도 — 레이더로 강약을 보여주려면 축마다 값이 갈려야 한다."""
+
+    def test_unknown_axis_is_neutral_not_bad(self):
+        """모름을 0으로 두면 화면이 '나쁨'으로 그린다."""
+        from app.engine.company_ontology import AXES, read_company
+
+        class C:
+            def extract_json(self, *a, **k):
+                return {"axes": {x: {"value": "", "status": "unknown",
+                                     "evidence": ""} for x, _ in AXES},
+                        "search_keywords": [], "signals": [], "contacts": [],
+                        "business_language": "", "reachability": {"p": .5, "why": ""},
+                        "why_now": {"text": "", "source_url": ""},
+                        "reading": {}}
+        ont = read_company(C(), {"name": "Fit", "what": "w", "signal": "",
+                                 "url": "https://fit.example"})
+        assert all(a.fit == 0.5 for a in ont.axes.values())
+
+    def test_prompt_forbids_a_flat_radar(self):
+        """전 축 같은 점수는 레이더를 원으로 만든다 — 실측으로 겪었다."""
+        from app.engine.company_ontology import ONTOLOGY_SYSTEM
+        assert "축마다 다른 값이 나와야 한다" in ONTOLOGY_SYSTEM
+        assert "레이더가 원이 되어" in ONTOLOGY_SYSTEM
