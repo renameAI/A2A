@@ -529,6 +529,13 @@ def get_request(rid: str, user: SaasUser = Depends(current_user)):
                             "outcome": {"saved": bool((out or {}).get("saved")),
                                         "drafted": bool((out or {}).get("drafted")),
                                         "replied": (out or {}).get("replied", "")}}
+    # 표시용 적합도는 순수 함수라 조회 때 메운다 — 보정을 넣기 전에 랭킹된
+    # 요청(실측 19건 중 18건)은 저장된 match가 없어 배지가 통째로 안 떴다.
+    # 저장을 소급 수정하지 않고 읽는 쪽에서 계산한다: 원점수는 그대로 두고
+    # 파생값만 채우므로 순위에도 영향이 없다.
+    for c in doc.get("candidates") or []:
+        if c.get("match") is None and c.get("retrieval_score") is not None:
+            c["match"] = calibrate_score(c["retrieval_score"])
     return {**doc, "derived": derived}
 
 

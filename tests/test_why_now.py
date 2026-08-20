@@ -281,3 +281,16 @@ class TestHookUrlFallback:
     def test_no_channel_means_no_guess(self):
         from app.engine.compose_lead import _hook_url
         assert _hook_url({}, ["https://a.com/y"]) == ""
+
+
+class TestReachabilityWording:
+    """설명과 표시의 방향이 어긋나면 안 된다."""
+
+    def test_prompt_forbids_the_inverted_word(self):
+        """화면은 '가능성'(클수록 좋음), 설명이 '문턱'이면 뒤집혀 읽힌다."""
+        from app.engine.company_ontology import ONTOLOGY_SYSTEM as P
+        assert '"문턱"이라는 말을 쓰지 마라' in P
+
+    def test_version_bumped_so_old_reads_are_not_served(self):
+        from app.engine.company_ontology import ONTOLOGY_VERSION
+        assert ONTOLOGY_VERSION >= 4
