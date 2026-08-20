@@ -200,6 +200,10 @@ class _OpenAICompatExtractor:
         llm_timeout으로 올린다 — _chat의 폭주 재샘플 가드가 그대로 작동한다."""
         body = dict(payload)
         body["stream"] = True
+        # 스트리밍은 기본적으로 usage를 보내지 않는다 — 켜지 않으면 마지막
+        # 청크에 사용량이 없어 비용 계측이 전부 0으로 남는다(실측: 프로덕션
+        # 심층 판독 11콜에 토큰 0). 지원하지 않는 서버는 이 필드를 무시한다.
+        body["stream_options"] = {"include_usage": True}
         thinking = bool(body.get("chat_template_kwargs", {}).get("enable_thinking"))
         schema_call = "response_format" in body
         label = ("깊은 추론" if thinking else "구조화" if schema_call else "작성")
