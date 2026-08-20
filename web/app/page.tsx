@@ -160,7 +160,7 @@ async function pollJob(jobId: string, opts: {
     if (opts.signal?.aborted) throw new Error("작업을 취소했어요.");
     if (Date.now() - started > POLL_MAX_MS)
       throw new Error("15분이 지나도 끝나지 않아 기다리기를 멈췄어요. "
-        + "다시 시도하거나 조건을 좁혀보세요.");
+        + "같은 조건으로 다시 누르면 찾아둔 후보는 이어받아요.");
     try {
       const r = await fetch(`/api/saas/jobs/${jobId}`,
         { headers: await authHeaders(), signal: opts.signal });
@@ -175,6 +175,11 @@ async function pollJob(jobId: string, opts: {
       if (!j) throw new Error("응답을 읽지 못했어요");
       fails = 0;
       if (j.status === "done") return j.result;
+      // 인스턴스 소멸로 끊긴 작업은 재개가 답이다 — 그 사실을 알려야
+      // 사용자가 '실패했으니 처음부터'라고 오해하지 않는다.
+      if (j.status === "error" && /중단되었습니다/.test(j.error?.message ?? ""))
+        throw new Error("작업이 중간에 끊겼어요. 같은 조건으로 다시 누르면 "
+          + "찾아둔 후보를 이어받아 계속합니다.");
       if (j.status === "error") throw Object.assign(
         new Error(j.error?.message || "실패"), { payload: j.error });
       opts.onTick?.(j.logs ?? [], j.elapsed ?? 0);

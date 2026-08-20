@@ -830,6 +830,12 @@ def _discover(store, user, rid, doc, profile, intent, settings, extractor,
                       {**d, "name": c["name"], "name_ko": c.get("name_ko", ""),
                        "source_url": c["url"], "request_id": rid})
             _emit_partial(len(onts))
+            # 판독 하나가 끝날 때마다 원장에 남긴다 — 서버리스 인스턴스는
+            # 조용히 사라지고, 그때 30~60초치 판독을 통째로 잃으면 재시도가
+            # 처음부터 다시 돈다(그리고 다시 지불한다). company_ontology는
+            # 위에서 이미 저장했으므로 여기서는 진행 표식만 갱신한다.
+            doc["ontology_done"] = len(onts)
+            store.put("lead_request", user.workspace_id, rid, doc)
     progress.log("검색", f"온톨로지 판독 {len(onts)}곳 ({ontology_failures}곳 실패)")
 
     # 실전 스니펫 캡처 (B5) — 라벨은 사람이 확정한다(모델 출력을 골드로 쓰면
@@ -1016,10 +1022,23 @@ def run_search(rid: str, body: SearchIn | None = None,
 
     def _run() -> dict:
         from ..engine.clarify import generate_questions
+        # 같은 조건으로 다시 눌렀는데 이미 후보가 있으면 재검색이 아니라
+        # 재개다 — 인스턴스가 죽어 job이 끊겼을 때 사용자가 하는 행동이
+        # 정확히 이것이고, 여기서 풀을 비우면 그 시도가 처음부터 다시 돈다.
+        # 조건이 바뀌었으면(다른 업종 선택) 새 검색이 맞으므로 비운다.
+        resuming = (bool(doc.get("pool"))
+                    and doc.get("segments_selected") == segments
+                    and doc.get("extra_queries_used") == extra)
         doc["status"] = "discovering"
         doc["segments_selected"] = segments
-        doc["pool"] = []
-        doc["feedback"] = {"liked": [], "disliked": [], "answers": []}
+        doc["extra_queries_used"] = extra
+        if resuming:
+            from .. import progress as _pg
+            _pg.log("검색", f"이전 시도의 후보 {len(doc['pool'])}곳을 "
+                            f"이어받아 계속합니다")
+        else:
+            doc["pool"] = []
+            doc["feedback"] = {"liked": [], "disliked": [], "answers": []}
         doc["asked"] = []
         doc["wave"] = 1
         # 재실행은 company_id를 처음부터 다시 발급한다(web-{rid}-01…).
@@ -1044,9 +1063,12 @@ def run_search(rid: str, body: SearchIn | None = None,
         if extra:
             plans.append(("추천 키워드", extra))
 
-        doc["pool"] = _merge_pool(_discover(
-            store, user, rid, doc, profile, intent,
-            settings, extractor, plans, wave=1))
+        # 재개일 때는 기존 풀에 더한다 — 덮어쓰면 이어받은 의미가 없다.
+        # _merge_pool이 같은 회사를 합치므로 중복은 여기서 정리된다.
+        found = _discover(store, user, rid, doc, profile, intent,
+                          settings, extractor, plans, wave=1)
+        doc["pool"] = _merge_pool((doc.get("pool") or []) + found
+                                  if resuming else found)
         doc["searched"] = True        # 0곳이어도 '돌렸다'는 사실은 남는다
         doc["candidates"] = _rank_pool(
             profile, intent, doc["pool"], [], [],
