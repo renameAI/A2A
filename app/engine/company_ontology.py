@@ -406,10 +406,17 @@ def _store_key(key: tuple) -> str:
     return hashlib.sha256("::".join(map(str, key)).encode()).hexdigest()[:32]
 
 
+# 판독의 모양이 바뀌면 올린다. 키에 넣지 않으면 스키마를 넓혀도 24시간 동안
+# 옛 모양이 그대로 나온다 — 실측: fit·why를 추가한 뒤 배포된 판독에 축 점수가
+# 통째로 비어 레이더가 그려지지 않았다. 캐시는 편의지, 구버전 고정 장치가 아니다.
+ONTOLOGY_VERSION = 2
+
+
 def _cache_key(company: dict, region: str, purpose: str, requester: str,
                deep: bool) -> tuple:
     from .candidate_extract import _norm_name, _site_of
-    return (_norm_name(company.get("name", "")),
+    return (ONTOLOGY_VERSION,
+            _norm_name(company.get("name", "")),
             _site_of(company.get("url", "")),
             region, purpose, requester[:80], deep)
 

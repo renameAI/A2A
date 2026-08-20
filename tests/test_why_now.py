@@ -175,3 +175,25 @@ class TestAxisWhy:
         ax = ONTOLOGY_SCHEMA["properties"]["axes"]["properties"]
         one = next(iter(ax.values()))
         assert "why" in one["required"]
+
+
+class TestOntologyCacheVersion:
+    """캐시가 구버전 판독을 붙잡지 못하게."""
+
+    def test_version_is_in_the_key(self):
+        """실측: fit·why를 넣었는데 배포 후 축 점수가 전부 비었다 — 캐시였다."""
+        from app.engine.company_ontology import ONTOLOGY_VERSION, _cache_key
+        k = _cache_key({"name": "A", "url": "https://a.com"},
+                       "JP", "revenue", "우리", True)
+        assert k[0] == ONTOLOGY_VERSION
+
+    def test_bumping_version_changes_the_key(self):
+        from app.engine import company_ontology as m
+        args = ({"name": "A", "url": "https://a.com"}, "JP", "revenue", "우리", True)
+        before = m._cache_key(*args)
+        old = m.ONTOLOGY_VERSION
+        try:
+            m.ONTOLOGY_VERSION = old + 1
+            assert m._cache_key(*args) != before
+        finally:
+            m.ONTOLOGY_VERSION = old
