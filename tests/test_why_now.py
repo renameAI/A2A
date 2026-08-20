@@ -204,13 +204,24 @@ class TestMailShape:
 
     def test_prompt_demands_blank_line_paragraphs(self):
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "빈 줄로 나눈 네 단락" in P
+        assert "빈 줄로 나눈 네\n  단락" in P or "빈 줄로 나눈 네" in P
         assert "개행 두 번" in P
 
     def test_prompt_counts_sentences_not_characters(self):
         """글자 수만 적으면 언어마다 다르게 해석된다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
         assert "2~4문장" in P
+
+    def test_each_paragraph_has_a_job(self):
+        """길게가 아니라 전략적으로 — 라포·근거·연결·문턱."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        for role in ("라포", "근거", "연결", "문턱 낮추기"):
+            assert role in P, role
+
+    def test_generic_flattery_is_named_as_the_failure(self):
+        """어느 회사에나 붙는 칭찬은 라포가 아니라 대량 발송의 표식이다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "어느\n     회사에나 붙는 칭찬" in P or "회사에나 붙는 칭찬" in P
 
 
 class TestBusinessLanguage:
