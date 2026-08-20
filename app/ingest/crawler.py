@@ -36,15 +36,26 @@ _BROWSER_HEADERS = {
 }
 
 # 회사의 상(像)에 기여하는 페이지 우선순위 키워드 (href·앵커 텍스트 매칭)
-_PRIORITY_KEYWORDS = [
-    "about", "company", "회사", "소개", "product", "제품", "service", "서비스",
-    "solution", "솔루션", "business", "사업", "team", "팀", "portfolio",
-    "포트폴리오", "vision", "비전", "ir", "customer", "고객", "case", "사례",
-    # 아웃리치 재료 — 접점(연락처·담당)과 타이밍 신호(뉴스·채용·파트너 모집)는
-    # 소개 페이지가 아니라 이 페이지들에 있다. 후보 심층 판독이 이걸 읽는다.
-    "contact", "연락", "문의", "inquiry", "news", "뉴스", "press", "보도",
-    "career", "careers", "채용", "recruit", "jobs", "partner", "파트너",
-]
+# 키워드에 가중치를 둔다. 동등 가중이던 동안 상품 상세 페이지가 목록을
+# 독식했다 — 실측(Megamart): 5페이지 중 3개가 /product/1428…이고 연락처·채용은
+# 한 장도 안 들어왔다. 'product'는 링크 텍스트와 경로에 반복되기 쉬워 점수가
+# 쉽게 쌓이는 반면, 아웃리치에 정작 필요한 것은 접점과 타이밍 신호다.
+_PRIORITY_WEIGHTS = {
+    # 아웃리치 재료 — 연락 창구와 "왜 지금"이 여기 있다
+    "contact": 5, "연락": 5, "문의": 5, "inquiry": 5, "お問": 5,
+    "partner": 5, "파트너": 5, "입점": 5, "납품": 5, "supplier": 5, "vendor": 5,
+    "career": 4, "careers": 4, "채용": 4, "recruit": 4, "jobs": 4, "採用": 4,
+    "news": 4, "뉴스": 4, "press": 4, "보도": 4, "ニュース": 4,
+    # 회사 이해 — 있으면 좋지만 위 것들을 밀어낼 만큼은 아니다
+    "about": 3, "company": 3, "회사": 3, "소개": 3, "会社": 3,
+    "business": 2, "사업": 2, "service": 2, "서비스": 2, "solution": 2,
+    "솔루션": 2, "ir": 2, "vision": 2, "비전": 2,
+    "customer": 2, "고객": 2, "case": 2, "사례": 2, "portfolio": 1,
+    "포트폴리오": 1, "team": 1, "팀": 1,
+    # 상품 상세는 수백 장이라 낮게 — 한두 장이면 업을 아는 데 충분하다
+    "product": 1, "제품": 1,
+}
+_PRIORITY_KEYWORDS = list(_PRIORITY_WEIGHTS)
 
 _CACHE_TTL_SECONDS = 24 * 3600   # ING-09
 
@@ -142,10 +153,20 @@ def _priority_links(html: str, base_url: str) -> list[str]:
         if href.rstrip("/") == base_url.rstrip("/"):
             continue
         haystack = (parsed.path + " " + a.get_text()).lower()
-        score = sum(1 for kw in _PRIORITY_KEYWORDS if kw in haystack)
+        score = max((w for kw, w in _PRIORITY_WEIGHTS.items() if kw in haystack),
+                    default=0)
         if score > 0:
             scored[href] = max(scored.get(href, 0), score)
-    return [u for u, _ in sorted(scored.items(), key=lambda x: -x[1])]
+    # 같은 성격의 페이지가 목록을 채우지 않게 한 종류당 상한을 둔다 —
+    # 상품 상세 3장보다 연락처 1장·채용 1장이 아웃리치에 쓸모 있다.
+    ordered = sorted(scored.items(), key=lambda x: -x[1])
+    out, per_kind = [], {}
+    for url, w in ordered:
+        if per_kind.get(w, 0) >= 2:
+            continue
+        per_kind[w] = per_kind.get(w, 0) + 1
+        out.append(url)
+    return out
 
 
 # ── 메인 크롤 ───────────────────────────────────────────────────────

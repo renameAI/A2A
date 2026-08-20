@@ -205,3 +205,39 @@ class TestReadEvidence:
                                         headers=H, json={}).json()["job_id"])
         pages = res["candidates"][0]["deep_read"]["pages"]
         assert [p["kind"] for p in pages] == ["홈", "채용 페이지"]
+
+
+def test_render_fallback_uses_the_same_page_marker(client, monkeypatch):
+    """폴백 경로가 다른 표식을 쓰면 근거가 통째로 사라진다(실측: 9,118자 → 읽은 곳 0)."""
+    import app.saas.router as R
+    from app.connectors import tavily
+    from app.engine import company_ontology as CO
+    from app.engine.company_ontology import AXES
+    from app.ingest import crawler
+    from app.schemas import CompanyOntology, OntologyAxis
+    seen = {}
+
+    def boom(url, s):
+        raise RuntimeError("SPA")
+    monkeypatch.setattr(crawler, "crawl_website", boom)
+    monkeypatch.setattr(tavily, "extract",
+                        lambda urls, s: {urls[0]: "본문", urls[1]: "문의 내용"})
+
+    def fake_read(extractor, company, *, region="", purpose="revenue",
+                  site_text="", requester=""):
+        seen["text"] = site_text
+        return CompanyOntology(
+            axes={x: OntologyAxis(value="v", status="confirmed", evidence="e")
+                  for x, _ in AXES},
+            search_keywords=[], signals=[], contacts=[])
+    monkeypatch.setattr(CO, "read_company", fake_read)
+    monkeypatch.setattr(R, "get_extractor", lambda s, tier="default": object())
+    rid = _seed_request(client, monkeypatch, [
+        {"company_id": "c1", "name": "A", "source_url": "https://a.com",
+         "source_kind": "own", "what": "w", "signal": "", "pain_signal": "w",
+         "ontology": None}])
+    res = _wait(client, client.post(f"/saas/lead-requests/{rid}/deep-read",
+                                    headers=H, json={}).json()["job_id"])
+    assert "[페이지: https://a.com]" in seen["text"]
+    pages = res["candidates"][0]["deep_read"]["pages"]
+    assert len(pages) >= 2 and any(p["kind"] == "연락처 페이지" for p in pages)

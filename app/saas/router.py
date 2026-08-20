@@ -1420,7 +1420,10 @@ def deep_read(rid: str, background: BackgroundTasks,
             from urllib.parse import urljoin
             pages = tavily_extract([site, urljoin(site, "/contact"),
                                     urljoin(site, "/about")], settings)
-            text = "\n\n".join(f"[{u}]\n{t}" for u, t in pages.items())
+            # 크롤 경로와 **같은 표식**을 쓴다 — 다르면 판독기가 출처 URL을
+            # 못 붙이고 근거 목록도 비어 보인다(실측: 9,118자를 읽고도
+            # "읽은 곳 0"으로 표시됐다).
+            text = "\n\n".join(f"[페이지: {u}]\n{t}" for u, t in pages.items())
             if not text.strip():
                 return cid, {"deep_read": {"status": "fetch_failed",
                                            "note": crawl_err, "site": site}}
