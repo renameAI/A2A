@@ -111,7 +111,33 @@ COMPOSE_LEAD_SCHEMA = {
 }
 
 
-def _kit_lines(kit: dict) -> str:
+def _hook_url(kit: dict, source_urls) -> str:
+    """본문에 인용할 근거 주소. 킷에 없으면 **우리가 실제로 읽은 페이지**로
+    메운다 — 실측: hook_url이 비어 링크 없는 메일이 나갔는데, 그 훅을 읽은
+    주소는 source_urls에 그대로 있었다.
+
+    다만 아무 주소나 싣지 않는다. 후보 회사 도메인의 페이지일 때만 쓴다 —
+    검색 결과나 제3자 기사 주소를 "귀사의 … 페이지에서 보았습니다"로 붙이면
+    상대가 열어보고 어긋난다. 인용 계약은 코드가 확인한다.
+    """
+    if kit.get("hook_url"):
+        return kit["hook_url"]
+    from urllib.parse import urlparse
+
+    def host(u: str) -> str:
+        try:
+            return urlparse(u).hostname.replace("www.", "") or ""
+        except Exception:                    # noqa: BLE001 — 주소 형식은 통제 밖
+            return ""
+
+    own = host(kit.get("channel_value") or "")
+    for u in (source_urls or []):
+        if own and host(u) == own:
+            return u
+    return ""
+
+
+def _kit_lines(kit: dict, source_urls=None) -> str:
     """아웃리치 킷 → 작성 지시. 있는 것만 적는다 — 없는 채널·역할을 본문에서
     가정하게 만들면 안 된다."""
     if not kit:
@@ -128,8 +154,9 @@ def _kit_lines(kit: dict) -> str:
                      "시의성 표현을 만들지 마라. 상시 제안으로 정직하게 쓴다")
     if kit.get("hook"):
         lines.append(f"첫 문장 훅: {kit['hook']}")
-    if kit.get("hook_url"):
-        lines.append(f"근거 링크(본문에 그대로 인용): {kit['hook_url']}")
+    hook_url = _hook_url(kit, source_urls)
+    if hook_url:
+        lines.append(f"근거 링크(본문에 그대로 인용): {hook_url}")
     if kit.get("channel"):
         lines.append(f"보낼 채널: {kit['channel']} — 폼이면 폼에 맞게 짧게")
     return ("[아웃리치 킷 — 심층 판독에서 읽은 것]\n" + "\n".join(lines) + "\n") if lines else ""
@@ -154,7 +181,7 @@ def _user(req: ComposeLeadRequest) -> str:
             f"연결점: {'; '.join(ins.value_bridge) or '없음'}\n"
             f"개인화 훅: {'; '.join(ins.personalization_hooks) or '없음'}\n"
             f"단정 금지(미확인): {'; '.join(ins.uncertainties) or '없음'}\n"
-            + _kit_lines(ins.outreach)
+            + _kit_lines(ins.outreach, ins.source_urls)
             + f"[지시] 언어={req.language} · {req.variants}개 안 · "
             f"어조={req.tone or '정중하고 간결'} · "
             f"CTA={req.intent.call_to_action or '30분 온라인 소개'}")

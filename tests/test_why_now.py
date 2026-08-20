@@ -256,3 +256,28 @@ class TestParagraphAssembly:
         assert "paragraphs" in item["required"]
         assert item["properties"]["paragraphs"]["minItems"] == 3
         assert "body" not in item["properties"]
+
+
+class TestHookUrlFallback:
+    """근거 링크 — 우리가 읽은 주소가 있는데 메일이 링크 없이 나갔다."""
+
+    def test_falls_back_to_the_page_we_read(self):
+        from app.engine.compose_lead import _hook_url
+        kit = {"hook_url": "", "channel_value": "https://fkur.com/es/contacto/"}
+        assert _hook_url(kit, ["https://fkur.com/es/noticias/x"]) \
+            == "https://fkur.com/es/noticias/x"
+
+    def test_rejects_a_third_party_url(self):
+        """제3자 주소를 '귀사의 페이지'로 인용하면 열어보고 어긋난다."""
+        from app.engine.compose_lead import _hook_url
+        kit = {"hook_url": "", "channel_value": "https://fkur.com/kontakt"}
+        assert _hook_url(kit, ["https://news.example.com/a"]) == ""
+
+    def test_explicit_hook_url_wins(self):
+        from app.engine.compose_lead import _hook_url
+        kit = {"hook_url": "https://a.com/x", "channel_value": "https://a.com/"}
+        assert _hook_url(kit, ["https://a.com/y"]) == "https://a.com/x"
+
+    def test_no_channel_means_no_guess(self):
+        from app.engine.compose_lead import _hook_url
+        assert _hook_url({}, ["https://a.com/y"]) == ""
