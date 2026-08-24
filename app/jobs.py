@@ -46,6 +46,10 @@ class Job:
     def __init__(self, job_id: str, ws: str = _LEGACY_WS):
         self.job_id = job_id
         self.ws = ws
+        # 작업 서명 — 문서의 모든 쓰기가 보존해야 한다. 처음엔 _put의 인자로만
+        # 흘렸더니 create 직후 첫 진행 플러시가 None으로 덮어써서, 0.6초 뒤
+        # 중복 제출이 서명을 못 찾았다(실측: 4연타 4잡 — 흡수 0).
+        self.client_request_id: "str | None" = None
         self.status = JobStatus.queued
         self.result: Optional[dict] = None
         self.error: Optional[dict] = None
@@ -84,11 +88,11 @@ class JobStore:
         self._jobs: dict[str, Job] = {}
 
     # ── 직렬화 ──
-    def _body(self, job: Job, client_request_id: Optional[str] = None) -> dict:
+    def _body(self, job: Job) -> dict:
         return {
             "job_id": job.job_id,
             "workspace_id": job.ws,
-            "client_request_id": client_request_id,
+            "client_request_id": getattr(job, "client_request_id", None),
             "status": job.status.value,
             "result": job.result,
             "error": job.error,
@@ -97,10 +101,9 @@ class JobStore:
             "updated": time.time(),
         }
 
-    def _put(self, job: Job, client_request_id: Optional[str] = None) -> None:
+    def _put(self, job: Job) -> None:
         try:
-            _store().put(_KIND, job.ws, job.job_id,
-                         self._body(job, client_request_id))
+            _store().put(_KIND, job.ws, job.job_id, self._body(job))
         except Exception as e:                        # noqa: BLE001
             # 원장 쓰기 실패가 실행을 막지 않는다. 다만 조용히 넘기면 폴링이
             # 왜 멈췄는지 알 수 없으므로 로그는 남긴다.
@@ -112,6 +115,7 @@ class JobStore:
         job.result = d.get("result")
         job.error = d.get("error")
         job.log = _RestoredLog(d.get("logs", []), d.get("elapsed", 0.0))
+        job.client_request_id = d.get("client_request_id")
         return job
 
     # ── 공개 API ──
@@ -138,8 +142,9 @@ class JobStore:
                         and now - float(d.get("updated") or 0) < _STALE_AFTER):
                     return (self._jobs.get(d["job_id"]) or self._restore(d)), True
         job = Job(uuid.uuid4().hex[:12], ws)
+        job.client_request_id = client_request_id
         self._jobs[job.job_id] = job
-        self._put(job, client_request_id)
+        self._put(job)
         return job, False
 
     def get(self, job_id: str, ws: str = _LEGACY_WS) -> Optional[Job]:

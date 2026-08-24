@@ -40,7 +40,7 @@ class TestSingleFlight:
         from app.schemas import JobStatus
         a, _ = job_store.create("search_brief:abc", ws="ws1")
         a.status = JobStatus.done
-        job_store._put(a, "search_brief:abc")
+        job_store._put(a)
         b, existed = job_store.create("search_brief:abc", ws="ws1")
         assert not existed and b.job_id != a.job_id
 
@@ -62,6 +62,16 @@ class TestSingleFlight:
         job_store._jobs.clear()                   # 다른 인스턴스 시뮬레이션
         b, existed = job_store.create("deep_read:xyz", ws="ws1")
         assert not existed and b.job_id != a.job_id
+
+    def test_signature_survives_progress_flush(self, _iso_store):
+        """실측 사고: create가 쓴 서명을 첫 진행 플러시가 None으로 덮어써서
+        0.6초 뒤 중복 제출이 아무것도 못 찾았다(4연타 4잡)."""
+        a, _ = job_store.create("deep_read:pp", ws="ws1")
+        job_store._put(a)                 # 진행 플러시 시뮬레이션
+        d = _iso_store.get("job", "ws1", a.job_id)
+        assert d["client_request_id"] == "deep_read:pp"
+        b, existed = job_store.create("deep_read:pp", ws="ws1")
+        assert existed and b.job_id == a.job_id
 
     def test_signature_is_readable(self):
         """op가 사람이 읽게 남는다 — 이번 측정이 result 모양 추측에 의존했다."""
