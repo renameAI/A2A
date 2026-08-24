@@ -40,3 +40,4 @@ tests/test_crawl_priority.py
 tests/test_why_now.py
 tests/test_hunter.py
 tests/test_concurrency_holes.py
+tests/test_job_dedupe.py

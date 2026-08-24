@@ -117,10 +117,25 @@ class JobStore:
     # ── 공개 API ──
     def create(self, client_request_id: Optional[str] = None, *,
                ws: str = _LEGACY_WS) -> tuple[Job, bool]:
-        """job 생성. 동일 client_request_id 재시도면 기존 job 반환 (멱등)."""
+        """job 생성. 같은 서명의 **활성** job이 있으면 그것을 반환 (single-flight).
+
+        실측(프로덕션 잡 156건/10일): 같은 브리프가 2초 안에 5번 제출돼 LLM을
+        5번 결제했고, 같은 판독이 18초 간격으로 겹쳐 돌았다. 이 멱등 훅은
+        원래부터 있었지만 아무도 안 넘겨서(156건 중 client_request_id 0건)
+        한 번도 안 걸렸다 — _submit이 작업 서명을 넘기면서 처음 배선된다.
+
+        '활성일 때만' 재사용하는 이유: 끝난 job까지 재사용하면 정당한 재실행
+        (브리프 다시 만들기)이 옛 결과를 돌려받는다. 재사용은 중복 제출을
+        흡수하는 창이지 결과 캐시가 아니다. 좀비(running인데 오래 정지)는
+        get()과 같은 기준으로 건너뛴다 — 죽은 실행이 10분간 새 실행을
+        막으면 안 된다.
+        """
         if client_request_id:
+            now = time.time()
             for d in _safe_list(ws):
-                if d.get("client_request_id") == client_request_id:
+                if (d.get("client_request_id") == client_request_id
+                        and d.get("status") in ("queued", "running")
+                        and now - float(d.get("updated") or 0) < _STALE_AFTER):
                     return (self._jobs.get(d["job_id"]) or self._restore(d)), True
         job = Job(uuid.uuid4().hex[:12], ws)
         self._jobs[job.job_id] = job

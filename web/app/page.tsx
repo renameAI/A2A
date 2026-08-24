@@ -2190,6 +2190,8 @@ function BriefForm({ onSubmit, draft }:
   // 값으로 시작했다 — 탄소 MRV 회사에게 일본 호텔을 찾자고 제안하는 꼴이다.
   // 채워진 칸은 사용자가 '엔진이 내 프로필을 읽고 제안한 값'으로 읽는다.
   // 근거 없는 값을 채워 두는 것은 빈칸보다 나쁘다.
+  const firedRef = useRef(false);
+  const [fired, setFired] = useState(false);
   const [region, setRegion] = useState(draft?.region ?? "");
   const [ttype, setTtype] = useState(draft?.target_type ?? "");
   const [notes, setNotes] = useState(draft?.notes ?? "");
@@ -2232,10 +2234,19 @@ function BriefForm({ onSubmit, draft }:
         )}
       </div>
       <div className="card-foot">
-        <button className="btn pri" onClick={() => onSubmit({
-          value_props: ["revenue_growth"], target_region: region,
-          target_type: ttype, notes, lead_count: count, purpose,
-        })}>이 조건으로 후보 찾기</button>
+        {/* ref 래치 — state 가드는 다음 렌더까지 늦어 연타가 통과한다.
+            실측: 이 버튼 5연타로 요청 5개·브리프 5개(LLM 5번)가 생겼고,
+            사이드바에 후보 0짜리 유령 요청 4개가 남았다. */}
+        <button className="btn pri" disabled={fired}
+          onClick={() => {
+            if (firedRef.current) return;
+            firedRef.current = true;
+            setFired(true);
+            onSubmit({
+              value_props: ["revenue_growth"], target_region: region,
+              target_type: ttype, notes, lead_count: count, purpose,
+            });
+          }}>{fired ? "요청을 만들고 있어요…" : "이 조건으로 후보 찾기"}</button>
       </div>
     </div>
   );

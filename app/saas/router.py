@@ -41,17 +41,35 @@ class _SkipSnippetLog(Exception):
     """스니펫 로그가 꺼져 있다는 내부 신호 — 오류가 아니다."""
 
 
-def _submit(background: BackgroundTasks, fn, user: "SaasUser | None" = None) -> dict:
-    """job 생성 + **소유자 기록**.
+def _job_sig(op: str, *parts) -> str:
+    """작업 서명 — op는 사람이 읽게 남기고(잡 로그 분석이 result 모양 추측에
+    의존하지 않도록), 매개변수는 해시로 접는다. 같은 서명 = 같은 작업이므로
+    payload가 다른 refine 두 건은 서로 다른 서명이 된다(합치면 안 된다)."""
+    import hashlib
+    import json as _j
+    tail = hashlib.sha1(_j.dumps(parts, ensure_ascii=False, sort_keys=True,
+                                 default=str).encode()).hexdigest()[:10]
+    return f"{op}:{tail}"
+
+
+def _submit(background: BackgroundTasks, fn, user: "SaasUser | None" = None,
+            sig: "str | None" = None) -> dict:
+    """job 생성 + **소유자 기록** + 중복 흡수.
 
     job_id는 uuid4().hex[:12](48비트)라 추측이 어렵지만, 추측 난이도는 접근
     제어가 아니다. 결과에는 후보 목록·인사이트·메일 초안이 들어 있으므로
     소유 워크스페이스를 남기고 조회 시 대조한다.
+
+    sig가 있으면 같은 서명의 활성 job에 합류한다(single-flight) — 실측:
+    같은 브리프 5연발(2초 내)·같은 판독 동시 2건이 각자 LLM을 결제했다.
+    합류 시 실행을 다시 걸지 않는 것이 핵심이다(두 번 걸면 그게 중복이다).
     """
     # job 문서를 소유 워크스페이스 아래 만든다 — 조회에 ws가 필요하므로
     # 남의 job은 구조적으로 보이지 않는다(별도 소유권 대조 문서가 불필요).
     ws = user.workspace_id if user is not None else "__legacy__"
-    job, _ = job_store.create(ws=ws)
+    job, existed = job_store.create(sig, ws=ws)
+    if existed:
+        return {"job_id": job.job_id, "coalesced": True}
     background.add_task(job_store.run, job, fn)
     return {"job_id": job.job_id}
 
@@ -390,7 +408,7 @@ def run_session(sid: str, background: BackgroundTasks,
         return {"session": doc, "needs_answers": False,
                 "minimum_met": rep.minimum_met}
 
-    return _submit(background, _run, user)
+    return _submit(background, _run, user, sig=_job_sig("onboarding_run", sid))
 
 
 @router.post("/onboarding-sessions/{sid}/messages")
@@ -703,7 +721,7 @@ def make_brief(rid: str, background: BackgroundTasks,
         store.put("lead_request", user.workspace_id, rid, doc)
         return {"search_brief": doc["search_brief"]}
 
-    return _submit(background, _run, user)
+    return _submit(background, _run, user, sig=_job_sig("search_brief", rid))
 
 
 @router.post("/lead-requests/{rid}/segments", status_code=202)
@@ -736,7 +754,7 @@ def suggest_segments(rid: str, background: BackgroundTasks,
                             exclude_rid=rid)
         return {"segments": segs, "keyword_recommendations": recs}
 
-    return _submit(background, _run, user)
+    return _submit(background, _run, user, sig=_job_sig("segments", rid))
 
 
 class SearchIn(BaseModel):
@@ -1234,7 +1252,9 @@ def run_search(rid: str, body: SearchIn | None = None,
                                         if c.get("ontology")],
                     exclude_rid=rid)}
 
-    return _submit(background, _run, user)
+    return _submit(background, _run, user, sig=_job_sig(
+        "search", rid,
+        body.segments if body else [], body.extra_queries if body else []))
 
 
 class RefineIn(BaseModel):
@@ -1358,7 +1378,8 @@ def refine_search(rid: str, body: RefineIn,
                 "final": False, "wave": wave,
                 "new_found": gained}
 
-    return _submit(background, _run, user)
+    return _submit(background, _run, user, sig=_job_sig(
+        "refine", rid, body.liked, body.disliked, body.answers, body.done))
 
 
 # ── Insight · Compose V2 (이슈 #6-E) ────────────────────────────────
@@ -1694,7 +1715,8 @@ def deep_read(rid: str, background: BackgroundTasks,
         return {"candidates": fresh["candidates"],
                 "read": done, "total": len(targets)}
 
-    return _submit(background, _run, user)
+    return _submit(background, _run, user, sig=_job_sig(
+        "deep_read", rid, sorted(want)))
 
 
 @router.post("/lead-requests/{rid}/candidates/{cid}/outcome")
@@ -1752,7 +1774,7 @@ def make_insight(rid: str, cid: str, background: BackgroundTasks,
                   ins.model_dump(mode="json"))
         return {"insight": ins.model_dump(mode="json")}
 
-    return _submit(background, _run, user)
+    return _submit(background, _run, user, sig=_job_sig("insight", rid, cid))
 
 
 @router.post("/lead-requests/{rid}/candidates/{cid}/compose", status_code=202)
@@ -1811,4 +1833,4 @@ def make_drafts(rid: str, cid: str, background: BackgroundTasks,
         _record_outcome(store, user.workspace_id, rid, cid, cand, drafted=True)
         return out
 
-    return _submit(background, _run, user)
+    return _submit(background, _run, user, sig=_job_sig("compose", rid, cid))
