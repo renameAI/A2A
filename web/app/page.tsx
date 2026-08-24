@@ -6,7 +6,7 @@
  * 상태는 서버(SaasStore)가 원본 — 새로고침 시 /saas/lead-requests로
  * 복원한다 (saas.html의 메모리 상태 소실 문제 해소).
  */
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { authHeaders, DEV_USER, emailLoginEnabled, isConfigured,
   isMisconfigured, supabase } from "./supabase";
 
@@ -1885,7 +1885,12 @@ function AxisRadar({ axes }: { axes: Ont["axes"] }) {
   );
 }
 
-function OntologyView({ ont, sourceUrl }: { ont: Ont; sourceUrl: string }) {
+/* memo인 이유 — 이 트리는 카드 하나당 SVG 폴리곤 4개 + 능력치 막대 10줄 +
+   판독 행·신호·접점 목록이고 카드가 10장이다. 진단 실측: memo 0회라 입력
+   onChange·진행 tick 폴링 등 모든 state 변경마다 이 트리 전체가 다시
+   실행됐다. ont의 참조는 cands가 갈릴 때만 바뀌므로 memo가 정확히 걸러낸다. */
+const OntologyView = memo(function OntologyView(
+  { ont, sourceUrl }: { ont: Ont; sourceUrl: string }) {
   const known = Object.entries(ont.axes).filter(([, a]) => a.status !== "unknown");
   if (!known.length) return null;
   return (
@@ -1982,7 +1987,7 @@ function OntologyView({ ont, sourceUrl }: { ont: Ont; sourceUrl: string }) {
       )}
     </div>
   );
-}
+});
 
 /** 명확화 질문 카드 — 선택지는 전부 실제 후보를 인용한 것만 온다(서버 집행).
  *  질문이 비어도 '다시 찾기/확정' 손잡이는 남는다 — 멀티턴의 최소 단위. */

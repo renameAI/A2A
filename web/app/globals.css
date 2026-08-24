@@ -568,6 +568,10 @@ a.ct-v{color:var(--blue)}
   scroll-snap-type:x mandatory;scrollbar-width:thin;
   width:min(1040px, calc(100vw - 640px));max-width:none}
 .carousel .cand-card{flex:0 0 396px;scroll-snap-align:start;
+  /* 클릭 직후 커밋에서 화면 밖 카드(10장 중 ~7장)의 레이아웃·페인트를
+     건너뛴다 — 진단 실측: 초기 커밋이 SVG 레이더 10개+막대 100줄을 한 번에
+     그려 수백 ms 점유. intrinsic-size는 스크롤바 점프 방지용 추정 크기. */
+  content-visibility:auto;contain-intrinsic-size:396px 560px;
   background:var(--raise);border:1px solid var(--raise-line);border-radius:14px;
   box-shadow:0 1px 3px rgba(0,0,0,.35), 0 6px 16px rgba(0,0,0,.22);
   padding:14px 15px;display:flex;flex-direction:column;gap:8px}

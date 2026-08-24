@@ -59,6 +59,21 @@ class LocalSaasStore:
                 (kind, ws, doc_id)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def get_many(self, kind: str, ws: str,
+                 doc_ids: list[str]) -> dict[str, dict]:
+        """같은 kind의 문서 여러 개를 왕복 1번에. get_request가 후보 10개의
+        파생물을 후보×종류만큼(30회) 순차 조회해 클릭 지연을 만들었다 —
+        조회 수는 후보 수가 아니라 종류 수(3)에 비례해야 한다."""
+        if not doc_ids:
+            return {}
+        marks = ",".join("?" * len(doc_ids))
+        with self._connect() as con:
+            rows = con.execute(
+                f"SELECT doc_id, body FROM docs WHERE kind=? AND ws=? "
+                f"AND doc_id IN ({marks})",
+                (kind, ws, *doc_ids)).fetchall()
+        return {r[0]: json.loads(r[1]) for r in rows}
+
     def list(self, kind: str, ws: str,
              limit: "int | None" = None) -> "list[dict]":
         sql = "SELECT body FROM docs WHERE kind=? AND ws=? ORDER BY updated DESC"
@@ -147,6 +162,16 @@ class FirestoreSaasStore:
     def get(self, kind: str, ws: str, doc_id: str) -> "dict | None":
         snap = self._doc(kind, ws, doc_id).get()
         return snap.to_dict() if snap.exists else None
+
+    def get_many(self, kind: str, ws: str,
+                 doc_ids: list[str]) -> dict[str, dict]:
+        # Firestore는 프로덕션 백엔드가 아니다 — 정직한 루프 폴백만 둔다.
+        out = {}
+        for d in doc_ids:
+            b = self.get(kind, ws, d)
+            if b is not None:
+                out[d] = b
+        return out
 
     def list(self, kind: str, ws: str,
              limit: "int | None" = None) -> "list[dict]":
@@ -264,6 +289,18 @@ class SupabaseSaasStore:
             "GET", f"/{self.TABLE}?select=body&kind=eq.{_q(kind)}"
                    f"&workspace_id=eq.{_q(ws)}&doc_id=eq.{_q(doc_id)}&limit=1")
         return rows[0]["body"] if rows else None
+
+    def get_many(self, kind: str, ws: str,
+                 doc_ids: list[str]) -> dict[str, dict]:
+        """PostgREST in.() 으로 왕복 1번. 프로덕션(supabase)에서 get_request의
+        파생물 조회가 후보×종류=30회 순차 HTTP였다 — 종류당 1회로 줄인다."""
+        if not doc_ids:
+            return {}
+        inner = ",".join('"' + d.replace('"', "") + '"' for d in doc_ids)
+        rows = self._req(
+            "GET", f"/{self.TABLE}?select=doc_id,body&kind=eq.{_q(kind)}"
+                   f"&workspace_id=eq.{_q(ws)}&doc_id=in.({_q(inner)})")
+        return {r["doc_id"]: r["body"] for r in (rows or [])}
 
     def list(self, kind: str, ws: str,
              limit: "int | None" = None) -> "list[dict]":

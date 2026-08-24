@@ -325,3 +325,27 @@ class TestRerankOverLargePool:
                   if hasattr(m, "le"))
         assert _K_MAX == le
         assert min(max(30, 1200), _K_MAX) == _K_MAX
+
+
+class TestGetRequestPayload:
+    """클릭 한 번의 응답 — 실측 342KB 중 83%가 클라이언트가 안 읽는 pool."""
+
+    def test_local_store_get_many(self, tmp_path):
+        from app.saas.store import LocalSaasStore
+        st = LocalSaasStore(str(tmp_path / "t.db"))
+        for i in range(3):
+            st.put("insight", "ws", f"k{i}", {"n": i})
+        got = st.get_many("insight", "ws", ["k0", "k2", "없는키"])
+        assert got == {"k0": {"n": 0}, "k2": {"n": 2}}
+
+    def test_get_many_empty_ids(self, tmp_path):
+        from app.saas.store import LocalSaasStore
+        st = LocalSaasStore(str(tmp_path / "t.db"))
+        assert st.get_many("insight", "ws", []) == {}
+
+    def test_response_excludes_pool(self):
+        """전송만 빼고 저장은 그대로 — 재랭킹은 저장소의 pool을 읽는다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.get_request)
+        assert 'k != "pool"' in src
