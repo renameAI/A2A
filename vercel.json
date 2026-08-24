@@ -5,5 +5,8 @@
       "maxDuration": 300,
       "memory": 2048
     }
-  }
+  },
+  "regions": [
+    "icn1"
+  ]
 }

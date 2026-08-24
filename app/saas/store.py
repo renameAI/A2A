@@ -251,31 +251,73 @@ class SupabaseSaasStore:
         self._headers = {"apikey": key, "Authorization": f"Bearer {key}",
                          "Content-Type": "application/json"}
 
+    def _conn(self):
+        """스레드별 keep-alive 연결. urllib은 호출마다 새 TLS를 열어 호출당
+        ~100ms(핸드셰이크)를 냈다 — 실측: 같은 리전에서도 상세 조회(저장소
+        4회)가 목록(1회)보다 300ms 느렸다. 스레드 로컬인 이유: 심층 판독이
+        ThreadPool 워커에서 store를 부른다 — 연결 공유는 안전하지 않다."""
+        import http.client
+        import threading
+        from urllib.parse import urlsplit
+        tls = getattr(self, "_tls", None)
+        if tls is None:
+            tls = self._tls = threading.local()
+        conn = getattr(tls, "conn", None)
+        if conn is None:
+            u = urlsplit(self._base)
+            # 스킴을 따른다 — 테스트 스텁은 http, 프로덕션은 https다.
+            cls = (http.client.HTTPSConnection if u.scheme == "https"
+                   else http.client.HTTPConnection)
+            conn = tls.conn = cls(u.hostname, u.port, timeout=20)
+        return conn
+
+    def _drop_conn(self):
+        import threading
+        tls = getattr(self, "_tls", None) or threading.local()
+        conn = getattr(tls, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                # noqa: BLE001 — 닫다 실패는 무시
+                pass
+            tls.conn = None
+
     def _req(self, method: str, path: str, body=None, extra_headers=None):
-        import urllib.error
-        import urllib.request
+        import http.client
+        from urllib.parse import urlsplit
         data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
-        req = urllib.request.Request(
-            self._base + path, data=data, method=method,
-            headers={**self._headers, **(extra_headers or {})})
-        try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                raw = r.read()
-                return json.loads(raw) if raw else None
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode(errors="replace")[:400]
+        url_path = urlsplit(self._base).path + path
+        status, raw = 0, b""
+        # 재시도 1회 — keep-alive 연결은 서버가 조용히 끊을 수 있다.
+        # 첫 시도의 연결 오류는 끊긴 연결이지 서버 장애가 아니다.
+        for attempt in (0, 1):
+            conn = self._conn()
+            try:
+                conn.request(method, url_path, body=data,
+                             headers={**self._headers, **(extra_headers or {})})
+                resp = conn.getresponse()
+                status, raw = resp.status, resp.read()
+                break
+            except (http.client.HTTPException, ConnectionError, OSError):
+                self._drop_conn()
+                if attempt:
+                    raise
+        if status < 400:
+            return json.loads(raw) if raw else None
+        if True:
+            detail = raw.decode(errors="replace")[:400]
             # DB 함수가 올린 캡 초과를 402로 되돌린다 — 사용자에게는 '한도'지
             # '서버 오류'가 아니다.
             if "cost_cap_request" in detail:
                 raise EngineError(402, "cost_cap",
                                   "Request 비용 한도 도달 — 조건을 좁혀 새 "
-                                  "Request로 시도하세요.") from e
+                                  "Request로 시도하세요.")
             if "cost_cap_month" in detail:
                 raise EngineError(402, "cost_cap",
                                   "월 비용 한도 도달 — 이번 달 신규 검색이 "
-                                  "차단됩니다. 기존 데이터 열람은 유지돼요.") from e
+                                  "차단됩니다. 기존 데이터 열람은 유지돼요.")
             raise EngineError(502, "store_error",
-                              f"Supabase {method} 실패({e.code}): {detail}") from e
+                              f"Supabase {method} 실패({status}): {detail}")
 
     def put(self, kind: str, ws: str, doc_id: str, body: dict) -> str:
         self._req("POST", f"/{self.TABLE}",
