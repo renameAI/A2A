@@ -266,6 +266,62 @@ def create_session(req: OnboardingCreate,
     return doc
 
 
+def _graft_readings(store, ws: str, rid: str, doc: dict) -> dict:
+    """최신 문서의 판독(ontology·hunter·deep_read)을 refine 잡 스냅샷에 이식.
+
+    검색 직후 화면이 심층 판독을 백그라운드로 돌리므로, 사용자가 명확화에
+    답하는 순간 refine과 판독은 거의 항상 겹친다(기본 흐름이지 예외가
+    아니다). 이식 없이 스냅샷을 put하면 수십 초짜리 판독이 — LLM 비용과
+    카드의 레이더·접점째로 — 조용히 지워진다. 최신 쪽이 이긴다: 판독은
+    항상 최신 문서에 병합해 쓰므로 fresh의 판독이 스냅샷보다 새것이다.
+    잔여 ms 창에서 지는 건 판독 1회뿐이고 판독은 재실행 가능하다 —
+    조건부 쓰기 도입은 유실이 실측되면 그때(과잉 처방 금지).
+    """
+    fresh = store.get("lead_request", ws, rid)
+    if not fresh:
+        return doc
+    enrich = {}
+    for coll in ("candidates", "pool"):
+        for c in fresh.get(coll) or []:
+            if c.get("ontology") or c.get("hunter") or c.get("deep_read"):
+                enrich[c["company_id"]] = c
+    for coll in ("candidates", "pool"):
+        for c in doc.get(coll) or []:
+            src = enrich.get(c["company_id"])
+            if not src:
+                continue
+            for k in ("ontology", "hunter", "deep_read"):
+                if src.get(k):
+                    c[k] = src[k]
+    return doc
+
+
+def _merge_user_input(store, ws: str, sid: str, doc: dict,
+                      consumed_fixes: int = 0) -> dict:
+    """잡의 put 직전, 잡이 도는 동안 들어온 사용자 입력을 스냅샷에 살린다.
+
+    run_session 잡은 시작 시점 문서를 들고 수십 초 LLM을 돌린 뒤 문서
+    **전체**를 교체한다. 그 사이 사용자가 채팅으로 남긴 정정·대화·자료는
+    (answer_session·add_assets가 최신 문서에 append) 스냅샷에 없어서 그대로
+    put하면 조용히 지워진다 — '정정이 안 먹혔다' 계열 실사고의 마지막 구멍.
+    온보딩 UI가 채팅이라 스피너 중에 한 마디 더 치는 것이 기본 사용 패턴이다.
+
+    경합 창을 분→ms로 좁힌다. 완전 봉쇄는 조건부 쓰기(버전 칼럼)가 필요한데,
+    이 사용 패턴에는 과하다 — 유실이 실측되면 그때 도입한다.
+
+    consumed_fixes: 이번 잡이 방금 반영을 끝낸 정정 수. answer_session이
+    append만 하므로 최신 목록의 그 뒤쪽이 "잡 도중 새로 들어온 정정"이다.
+    """
+    fresh = store.get("onboarding", ws, sid)
+    if not fresh:
+        return doc
+    for k in ("dialogue", "assets"):
+        if len(fresh.get(k) or []) > len(doc.get(k) or []):
+            doc[k] = fresh[k]
+    doc["corrections"] = (fresh.get("corrections") or [])[consumed_fixes:]
+    return doc
+
+
 @router.post("/onboarding-sessions/{sid}/run", status_code=202)
 def run_session(sid: str, background: BackgroundTasks,
                 user: SaasUser = Depends(current_user)):
@@ -276,6 +332,7 @@ def run_session(sid: str, background: BackgroundTasks,
         raise EngineError(404, "not_found", f"온보딩 세션 {sid} 없음")
 
     def _run() -> dict:
+        _merge_user_input(store, user.workspace_id, sid, doc)
         doc["status"] = "representing"
         store.put("onboarding", user.workspace_id, sid, doc)
 
@@ -291,11 +348,14 @@ def run_session(sid: str, background: BackgroundTasks,
             doc["profile"] = revised.model_dump(mode="json")
             if changed and "name" in changed:
                 doc["company_name"] = revised.basic.name   # 정정된 이름이 새 사실
-            doc["corrections"] = []          # 반영했으므로 비운다
             doc["status"] = "review_required"
             # 모호해서 못 고쳤으면 그 사실을 질문으로 돌려준다 — 조용히
             # 아무것도 안 바뀌면 사용자는 정정이 먹혔다고 오해한다.
             doc["current_questions"] = [unclear] if (unclear and not changed) else []
+            # 반영 끝난 정정만 비운다 — LLM 도는 사이 새로 들어온 정정은
+            # 남아서 다음 실행이 집는다(통째로 비우면 조용히 유실).
+            _merge_user_input(store, user.workspace_id, sid, doc,
+                              consumed_fixes=len(pending_fix))
             store.put("onboarding", user.workspace_id, sid, doc)
             return {"session": doc, "needs_answers": bool(unclear and not changed),
                     "changed": changed}
@@ -311,6 +371,7 @@ def run_session(sid: str, background: BackgroundTasks,
             # 오류로 끝내지 않고 질문을 세션에 보존 → 채팅이 이어받는다 (§5.3)
             doc["status"] = "clarifying"
             doc["current_questions"] = (e.details or {}).get("open_questions", [])
+            _merge_user_input(store, user.workspace_id, sid, doc)
             store.put("onboarding", user.workspace_id, sid, doc)
             return {"session": doc, "needs_answers": True}
         if known_name:
@@ -324,6 +385,7 @@ def run_session(sid: str, background: BackgroundTasks,
         doc["status"] = "review_required"
         doc["profile"] = rep.profile.model_dump(mode="json")
         doc["current_questions"] = rep.open_questions
+        _merge_user_input(store, user.workspace_id, sid, doc)
         store.put("onboarding", user.workspace_id, sid, doc)
         return {"session": doc, "needs_answers": False,
                 "minimum_met": rep.minimum_met}
@@ -495,7 +557,10 @@ def list_requests(limit: int = 50, user: SaasUser = Depends(current_user)):
     통째로 들어 있어, 요청이 쌓이면 목록 한 번에 수 MB가 나간다. 목록에
     필요한 것은 제목·상태·개수뿐이고, 상세는 /lead-requests/{rid}가 준다.
     """
-    docs = get_saas_store().list("lead_request", user.workspace_id)[:limit]
+    # limit은 저장소로 내린다 — 파이썬 [:limit]은 전 문서(요청당 수백 KB,
+    # pool 전문 포함)를 다 받아온 뒤에 자르는 것이라 읽기 증폭이다. 세 백엔드
+    # 모두 limit을 지원하고 정렬(updated desc)이 같아 의미는 동일하다.
+    docs = get_saas_store().list("lead_request", user.workspace_id, limit=limit)
     return {"requests": [{
         "request_id": d.get("request_id"),
         "title": d.get("title", ""),
@@ -1157,6 +1222,8 @@ def run_search(rid: str, body: SearchIn | None = None,
         doc["asked"] += [q["question"] for q in questions]
         doc["clarify"] = questions
         doc["status"] = "clarifying" if questions else "candidates_ready"
+        _graft_readings(store, user.workspace_id, rid, doc)
+        # ↑ 검색·질문 생성(수십 초~분) 사이에 끝난 판독을 put 직전 이식
         store.put("lead_request", user.workspace_id, rid, doc)
         return {"candidates": doc["candidates"], "clarify": questions,
                 "wave": 1,
@@ -1219,6 +1286,8 @@ def refine_search(rid: str, body: RefineIn,
         fb["answers"] += [a for a in body.answers if a.strip()]
         doc["feedback"] = fb
         k = min(intent.lead_count or 10, 30)
+        _graft_readings(store, user.workspace_id, rid, doc)
+        # ↑ 랭킹 전 — 점수가 최신 판독의 가능성(reachability)을 반영하게
 
         if body.done:
             doc["candidates"] = _rank_pool(
@@ -1508,6 +1577,11 @@ def deep_read(rid: str, background: BackgroundTasks,
                 site, p_site = find_official_site(
                     get_extractor(settings), settings, c["name"],
                     c.get("what", ""), exclude_site=_site_of(c["source_url"]))
+            except EngineError:
+                raise    # 캡 초과(402)는 삼키지 않는다 — 사용자 잘못이 아닌
+                         # 예산 결정을 "사이트 미확인"으로 바꾸면 거짓 상태가
+                         # 원장에 영구 저장되고, 사용자는 캡 도달을 모른 채
+                         # 재시도한다(같은 파일 approve 경로와 같은 규율).
             except Exception as e:                   # noqa: BLE001
                 site, p_site = "", 0.0
             if not site:
