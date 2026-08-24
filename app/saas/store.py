@@ -353,22 +353,35 @@ class SupabaseSaasStore:
         rows = self._req("GET", url)
         return [r["body"] for r in (rows or [])]
 
+    # PostgREST는 삭제 건수를 기본 반환하지 않는다. 예전엔 -1을 돌려줬는데,
+    # 그 -1이 삭제 API 응답에 그대로 실려 나갔다(실측: 유령 요청 정리 때
+    # "파생물 정리 -1건"). Prefer: return=representation을 붙이면 지운 행이
+    # 본문으로 돌아오므로 세면 된다 — select=doc_id로 본문을 키만으로 줄인다.
+    _DEL_COUNT = {"Prefer": "return=representation"}
+
     def delete(self, kind: str, ws: str, doc_id: str) -> bool:
-        self._req("DELETE",
-                  f"/{self.TABLE}?kind=eq.{_q(kind)}&workspace_id=eq.{_q(ws)}"
-                  f"&doc_id=eq.{_q(doc_id)}")
-        return True
+        rows = self._req(
+            "DELETE",
+            f"/{self.TABLE}?select=doc_id&kind=eq.{_q(kind)}"
+            f"&workspace_id=eq.{_q(ws)}&doc_id=eq.{_q(doc_id)}",
+            extra_headers=self._DEL_COUNT)
+        return bool(rows)
 
     def delete_prefix(self, kind: str, ws: str, prefix: str) -> int:
         # PostgREST의 like 필터 — *가 SQL의 %에 해당한다
-        self._req("DELETE",
-                  f"/{self.TABLE}?kind=eq.{_q(kind)}&workspace_id=eq.{_q(ws)}"
-                  f"&doc_id=like.{_q(prefix + '*')}")
-        return -1      # PostgREST는 삭제 건수를 기본 반환하지 않는다
+        rows = self._req(
+            "DELETE",
+            f"/{self.TABLE}?select=doc_id&kind=eq.{_q(kind)}"
+            f"&workspace_id=eq.{_q(ws)}&doc_id=like.{_q(prefix + '*')}",
+            extra_headers=self._DEL_COUNT)
+        return len(rows or [])
 
     def delete_workspace(self, ws: str) -> int:
-        self._req("DELETE", f"/{self.TABLE}?workspace_id=eq.{_q(ws)}")
-        return -1
+        rows = self._req(
+            "DELETE",
+            f"/{self.TABLE}?select=doc_id&workspace_id=eq.{_q(ws)}",
+            extra_headers=self._DEL_COUNT)
+        return len(rows or [])
 
     def new_id(self, prefix: str) -> str:
         return f"{prefix}-{uuid.uuid4().hex[:10]}"

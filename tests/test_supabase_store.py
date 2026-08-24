@@ -63,6 +63,29 @@ class Stub(BaseHTTPRequestHandler):
         STATE[(body["kind"], body["workspace_id"], body["doc_id"])] = body["body"]
         self._send(201, None)
 
+    def do_DELETE(self):
+        u = urlparse(self.path)
+        CALLS.append(("DELETE", u.path, self.headers.get("Prefer", "")))
+        f = dict(p.split("=", 1) for p in u.query.split("&") if "=" in p)
+        kind = unquote(f.get("kind", "")).removeprefix("eq.")
+        ws = unquote(f.get("workspace_id", "")).removeprefix("eq.")
+        did = unquote(f.get("doc_id", ""))
+        def hit(d):
+            if did.startswith("eq."):
+                return d == did.removeprefix("eq.")
+            if did.startswith("like."):
+                return d.startswith(did.removeprefix("like.").rstrip("*"))
+            return True
+        gone = [key for key in STATE
+                if key[0] == (kind or key[0]) and key[1] == ws and hit(key[2])]
+        for key in gone:
+            del STATE[key]
+        # PostgREST 계약: return=representation일 때만 지운 행을 본문으로
+        if "return=representation" in self.headers.get("Prefer", ""):
+            self._send(200, [{"doc_id": k[2]} for k in gone])
+        else:
+            self._send(204, None)
+
 
 @pytest.fixture()
 def store(monkeypatch):
@@ -163,3 +186,20 @@ class TestReserveCostMigrationSafety:
     def test_negative_amount_rejected_in_function_body(self):
         sql = self._sql().lower()
         assert "p_add < 0" in sql
+
+
+def test_delete_prefix_counts_honestly(store):
+    """예전엔 -1을 돌려줬고 그 -1이 삭제 API 응답에 그대로 실렸다
+    (실측: 유령 요청 정리 때 "파생물 정리 -1건")."""
+    store.put("insight", "ws-1", "lr-9::c1", {"a": 1})
+    store.put("insight", "ws-1", "lr-9::c2", {"a": 2})
+    store.put("insight", "ws-1", "lr-8::c1", {"a": 3})
+    assert store.delete_prefix("insight", "ws-1", "lr-9::") == 2
+    assert store.get("insight", "ws-1", "lr-8::c1") == {"a": 3}
+
+
+def test_delete_reports_absence(store):
+    """지운 게 없으면 False — '지웠다'고 말하면 안 된다."""
+    store.put("outcome", "ws-1", "lr-1::c1", {"saved": True})
+    assert store.delete("outcome", "ws-1", "lr-1::c1") is True
+    assert store.delete("outcome", "ws-1", "lr-1::c1") is False
