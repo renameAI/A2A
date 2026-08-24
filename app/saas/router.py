@@ -1403,6 +1403,43 @@ def _page_kind(url: str) -> str:
     return "홈"
 
 
+# Hunter 접점 캐시 TTL — 회사 메일 색인은 천천히 변한다. 검색 1크레딧/도메인
+# 이므로 캐시 없이는 같은 후보를 다시 판독할 때마다 크레딧이 샌다.
+_HUNTER_TTL = 30 * 24 * 3600
+_VERIFY_TTL = 7 * 24 * 3600
+
+
+def _hunter_contacts(store, domain: str) -> "dict | None":
+    """도메인의 색인 접점(캐시 우선). 키 없으면 None — 카드에 빈 섹션을
+    만들지 않는다. 캐시는 워크스페이스 공유(_shared): 접점은 후보 회사의
+    속성이지 요청자의 속성이 아니다(판독 캐시와 같은 이유)."""
+    import time as _t
+    from ..connectors.hunter import find_contacts
+    if not os.environ.get("HUNTER_API_KEY"):
+        return None
+    hit = store.get("hunter_contacts", "_shared", domain)
+    if hit and _t.time() - float(hit.get("at", 0)) < _HUNTER_TTL:
+        return {k: v for k, v in hit.items() if k != "at"}
+    res = find_contacts(domain)
+    if res["status"] == "ok":
+        store.put("hunter_contacts", "_shared", domain,
+                  {**res, "at": _t.time()})
+    return res
+
+
+def _verified(store, email: str) -> dict:
+    """메일 검증(캐시 우선). 검증도 크레딧이라 7일 캐시."""
+    import time as _t
+    from ..connectors.hunter import verify_email
+    hit = store.get("hunter_verify", "_shared", email)
+    if hit and _t.time() - float(hit.get("at", 0)) < _VERIFY_TTL:
+        return {k: v for k, v in hit.items() if k != "at"}
+    res = verify_email(email)
+    if res["status"] == "ok":
+        store.put("hunter_verify", "_shared", email, {**res, "at": _t.time()})
+    return res
+
+
 def _pages_read(text: str) -> "list[dict]":
     """크롤 본문 → 읽은 페이지 목록 (성격·분량 포함).
 
@@ -1497,7 +1534,17 @@ def deep_read(rid: str, background: BackgroundTasks,
                                        "note": type(e).__name__}}
         d = ont.model_dump(mode="json")
         d["confirmed_ratio"] = confirmed_ratio(ont)
-        return cid, {"ontology": d,
+        # 색인 접점 충원 — 사이트가 접점을 안 싣는 회사가 절반이다(실측
+        # 20/55). 판독(모델)과 별도 필드에 둔다: 출처가 다른 사실을 섞으면
+        # 사용자가 "사이트에서 읽은 것"과 "색인에서 찾은 것"을 구분 못 한다.
+        hunted = None
+        try:
+            from ..engine.candidate_extract import _site_of
+            hunted = _hunter_contacts(store, _site_of(site))
+        except Exception:                            # noqa: BLE001 — 충원은 부가다
+            pass
+        extra = {"hunter": hunted} if hunted else {}
+        return cid, {**extra, "ontology": d,
                      "deep_read": {"status": "done", "chars": len(text),
                                    "contacts": len(ont.contacts),
                                    "signals": len(ont.signals),
@@ -1658,6 +1705,16 @@ def make_drafts(rid: str, cid: str, background: BackgroundTasks,
         # 초안만 있고 보낼 곳이 없으면 사용자는 다시 사이트를 뒤져야 한다.
         out["outreach"] = ins_doc.get("outreach") or {}
         out["language"] = lang          # 화면이 "어느 말로 쓴 메일"인지 밝힌다
+        # 받는 사람 후보 — 색인 접점 중 최고 신뢰 1건을 골라 배달 가능성을
+        # 검증해 싣는다. 초안만 있고 보낼 주소가 없으면 사용자는 다시
+        # 사이트를 뒤진다(아웃리치 킷을 만든 이유와 같다). 발송은 하지
+        # 않는다 — send_blocked는 compose 층이 그대로 유지한다.
+        top = ((cand.get("hunter") or {}).get("contacts") or [None])[0]
+        if top:
+            try:
+                out["recipient"] = {**top, "verify": _verified(store, top["email"])}
+            except Exception:                        # noqa: BLE001 — 검증 실패해도 초안은 산다
+                out["recipient"] = top
         store.put("email_draft", user.workspace_id, _derived_key(doc, rid, cid), out)
         # 초안 생성은 서버가 아는 사실 — 결과 원장에 자동 기록 (B4)
         _record_outcome(store, user.workspace_id, rid, cid, cand, drafted=True)

@@ -20,6 +20,10 @@ type Cand = { company_id: string; name: string; name_ko?: string;
   pain_signal: string; retrieval_score: number; match?: number; weak: boolean;
   segment?: string; found_by?: string; ontology?: Ont | null;
   p?: number; source_kind?: string; partial?: boolean; reach_fact?: boolean;
+  hunter?: { status: string;
+    contacts: { email: string; type: string; confidence: number;
+      position?: string; department?: string; name?: string;
+      sources: string[] }[] };
   deep_read?: { status: string; note?: string; contacts?: number; signals?: number;
     site?: string; chars?: number;
     pages?: { url: string; kind: string; chars: number }[] } };
@@ -43,6 +47,9 @@ const REACH_TAG: Record<string, [string, string]> = {
   high: ["가능성 높음", "ok"] };
 type Draft = { subject: string; body: string;
   subject_ko?: string; body_ko?: string; warnings: string[] };
+type Recipient = { email: string; confidence: number; position?: string;
+  name?: string; sources: string[];
+  verify?: { result: string; score: number; smtp: boolean } };
 /** 진행 문구를 사람의 말로.
  *
  * 엔진 로그는 개발자가 읽으라고 쓴 것이라 그대로 노출하면 예외 클래스명
@@ -1149,7 +1156,8 @@ function Workspace({ who }: { who: string }) {
                    drafted: true } } }));
       push({
         who: "agent", text: "초안이에요. 발송은 직접 하셔야 해요.",
-        jsx: <MailDraft d={d} kit={res.outreach} lang={res.language} />,
+        jsx: <MailDraft d={d} kit={res.outreach} lang={res.language}
+          recipient={(res as { recipient?: Recipient }).recipient} />,
       });
     } catch (e) { push({ who: "agent", text: (e as Error).message }); }
     finally { setBusy(false); }
@@ -1162,7 +1170,8 @@ function Workspace({ who }: { who: string }) {
     const d = stored?.drafts?.[0];
     if (!d) return;
     push({ who: "agent", text: `${name}에게 보낼 저장된 초안이에요.`,
-           jsx: <MailDraft d={d} kit={stored?.outreach} lang={stored?.language} /> });
+           jsx: <MailDraft d={d} kit={stored?.outreach} lang={stored?.language}
+             recipient={(stored as { recipient?: Recipient } | null | undefined)?.recipient} /> });
   }
 
   function send() {
@@ -1431,6 +1440,26 @@ function Workspace({ who }: { who: string }) {
                   )}
                   {c.ontology && <OntologyView ont={c.ontology}
                     sourceUrl={c.source_url} />}
+                  {/* 색인에서 찾은 접점 — 판독(사이트에서 읽음)과 출처가
+                      다르므로 섞지 않고 따로 표시한다. 서버가 도메인 일치를
+                      이미 집행했으므로 여기선 경고가 필요 없다. */}
+                  {(c.hunter?.contacts?.length ?? 0) > 0 && (
+                    <div className="hunt">
+                      <div className="hunt-h">색인에서 찾은 메일
+                        <span className="hunt-note">공개 웹에서 수집된 주소예요 — 발송 전 확인하세요</span>
+                      </div>
+                      {c.hunter!.contacts.slice(0, 3).map((h) => (
+                        <div className="hunt-row" key={h.email}>
+                          <span className="hunt-mail">{h.email}</span>
+                          {h.position && <span className="hunt-pos">{h.position}</span>}
+                          <span className={`hunt-conf ${h.confidence >= 90 ? "hi" : h.confidence >= 70 ? "mid" : "lo"}`}
+                            title="색인 신뢰도 — 이 주소가 실제로 쓰이는 것을 웹에서 몇 번 봤는가">
+                            {h.confidence}</span>
+                          {h.sources[0] && (
+                            <a className="hunt-src" href={h.sources[0]} target="_blank"
+                              rel="noreferrer" title="이 주소가 발견된 페이지">근거</a>)}
+                        </div>))}
+                    </div>)}
                   <div className="reacts">
                     <button className={`react ${likedC.has(c.company_id) ? "on" : ""}`}
                       onClick={() => setLikedC((v) => {
@@ -1768,11 +1797,22 @@ const LANG_LABEL: Record<string, string> = {
   fr: "프랑스어", es: "스페인어", it: "이탈리아어", nl: "네덜란드어",
   pt: "포르투갈어", vi: "베트남어", id: "인도네시아어", th: "태국어" };
 
-function MailDraft({ d, kit, lang }: { d: Draft; kit?: OutreachKit; lang?: string }) {
+const VERIFY_KO: Record<string, [string, string]> = {
+  // Hunter 원문 어휘를 유지하되 화면에는 뜻을 병기한다 — unknown은 나쁨이
+  // 아니라 모름(실측: 한국 메일 서버는 검증을 막는 경우가 많다).
+  valid: ["검증됨 — 받는 서버가 이 주소를 확인해줬어요", "ok"],
+  accept_all: ["서버가 모든 주소를 받아요 — 반송 여부는 보내봐야 알아요", "mid"],
+  unknown: ["검증 불가 — 서버가 확인을 막았어요 (나쁜 신호 아님)", "mid"],
+  invalid: ["반송 위험 — 이 주소는 쓰지 마세요", "bad"],
+};
+
+function MailDraft({ d, kit, lang, recipient }: {
+  d: Draft; kit?: OutreachKit; lang?: string; recipient?: Recipient }) {
   const hasKo = !!d.body_ko && d.body_ko !== d.body;
   const [ko, setKo] = useState(hasKo);   // 기본은 읽을 수 있는 쪽
   const sub = ko && hasKo ? (d.subject_ko || d.subject) : d.subject;
   const body = ko && hasKo ? (d.body_ko || d.body) : d.body;
+  const vr = recipient?.verify?.result;
   const kitRows: [string, string][] = kit ? ([
     ["받는 사람", kit.to_role ?? ""],
     ["보낼 곳", [kit.channel, kit.channel_value].filter(Boolean).join(" · ")],
@@ -1780,6 +1820,20 @@ function MailDraft({ d, kit, lang }: { d: Draft; kit?: OutreachKit; lang?: strin
   ] as [string, string][]).filter(([, v]) => v) : [];
   return (
     <div className="card">
+      {/* 받는 사람 후보 — 색인 최고 신뢰 주소 + 배달 가능성 검증. 초안만
+          있고 보낼 주소가 없으면 사용자는 다시 사이트를 뒤진다. 발송은
+          여전히 하지 않는다 — 주소를 '제안'할 뿐이다. */}
+      {recipient && (
+        <div className={`mail-to ${vr === "invalid" ? "bad" : ""}`}>
+          <span className="mail-to-k">받는 사람 후보</span>
+          <span className="mail-to-mail">{recipient.email}</span>
+          {recipient.position && <span className="mail-to-pos">{recipient.position}</span>}
+          {vr && VERIFY_KO[vr] && (
+            <span className={`mail-to-v ${VERIFY_KO[vr][1]}`}>{VERIFY_KO[vr][0]}</span>)}
+          {recipient.sources?.[0] && (
+            <a className="hunt-src" href={recipient.sources[0]} target="_blank"
+              rel="noreferrer" title="이 주소가 발견된 페이지">근거</a>)}
+        </div>)}
       {kitRows.length > 0 && (
         <div className="mail-kit">
           {kitRows.map(([k, v]) => (

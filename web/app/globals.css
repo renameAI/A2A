@@ -665,3 +665,31 @@ a.ct-v{color:var(--blue)}
 .chip.fitc.hi{background:rgba(63,185,80,.14);color:#3fb950;border-color:rgba(63,185,80,.3)}
 .chip.fitc.mid{background:rgba(210,153,34,.14);color:#d29922;border-color:rgba(210,153,34,.3)}
 .chip.fitc.lo{background:transparent;color:var(--txt-2)}
+
+/* 색인 접점 — 판독(사이트에서 읽음)과 구분되는 면. 카드 안의 보조 블록 */
+.hunt{border-top:1px solid var(--line-soft);margin-top:8px;padding-top:8px;
+  display:flex;flex-direction:column;gap:4px}
+.hunt-h{font-size:11.5px;font-weight:700;color:var(--txt-2);display:flex;
+  gap:8px;align-items:baseline;flex-wrap:wrap}
+.hunt-note{font-weight:400;color:var(--txt-3);font-size:10.5px}
+.hunt-row{display:flex;gap:8px;align-items:center;font-size:12px;flex-wrap:wrap}
+.hunt-mail{font-family:ui-monospace,monospace;color:var(--txt)}
+.hunt-pos{color:var(--txt-2);font-size:11px}
+.hunt-conf{font-variant-numeric:tabular-nums;font-weight:600;font-size:11px}
+.hunt-conf.hi{color:#3fb950}
+.hunt-conf.mid{color:#d29922}
+.hunt-conf.lo{color:var(--txt-3)}
+.hunt-src{font-size:11px;color:var(--txt-2);text-decoration:underline dotted}
+.hunt-src:hover{color:var(--txt)}
+/* 받는 사람 후보 — 초안 카드 머리 */
+.mail-to{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  padding:7px 10px;border:1px solid var(--line);border-radius:10px;
+  background:var(--line-soft);margin-bottom:8px;font-size:12px}
+.mail-to.bad{border-color:rgba(248,81,73,.4)}
+.mail-to-k{font-weight:700;color:var(--txt-2);font-size:11px}
+.mail-to-mail{font-family:ui-monospace,monospace}
+.mail-to-pos{color:var(--txt-2);font-size:11px}
+.mail-to-v{font-size:11px}
+.mail-to-v.ok{color:#3fb950}
+.mail-to-v.mid{color:#d29922}
+.mail-to-v.bad{color:#f85149}
