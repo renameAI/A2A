@@ -6,7 +6,6 @@ PDF는 페이지 단위로 텍스트를 뽑은 뒤 문단 경계 우선으로 ~2
 import io
 from dataclasses import dataclass
 
-from pypdf import PdfReader
 
 DEFAULT_CHUNK_CHARS = 2000
 
@@ -19,6 +18,10 @@ class Chunk:
 
 
 def pdf_to_text(data: bytes) -> str:
+    # 지연 임포트 — pypdf는 cryptography까지 끌고 와 콜드스타트에 ~160ms를
+    # 더한다(실측 importtime). PDF 인제스트 때만 필요한 비용을 모든 요청이
+    # 내고 있었다. 아래 docx와 같은 패턴.
+    from pypdf import PdfReader
     reader = PdfReader(io.BytesIO(data))
     pages = []
     for i, page in enumerate(reader.pages):

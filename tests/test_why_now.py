@@ -348,4 +348,30 @@ class TestGetRequestPayload:
         import inspect
         from app.saas import router
         src = inspect.getsource(router.get_request)
-        assert 'k != "pool"' in src
+        assert 'k not in ("pool", "search_brief")' in src
+
+
+class TestRecombineIsSingle:
+    """점수 재합성은 한 곳 — 활성 튜닝 계수가 두 벌이면 소리 없이 어긋난다."""
+
+    def test_coefficient_appears_once(self):
+        import pathlib
+        src = pathlib.Path("app/saas/router.py").read_text(encoding="utf-8")
+        assert src.count("0.35 + 0.65") == 1
+
+    def test_replied_fact_beats_estimate(self):
+        from app.saas.router import recombine_score
+        raw, w = recombine_score(0.5, 0.8, 0.08, True, 0)
+        assert w == 1.0 and abs(raw - 0.4) < 1e-9
+
+    def test_none_reach_is_no_penalty(self):
+        from app.saas.router import recombine_score
+        _, w = recombine_score(0.5, 0.8, None, False, 0)
+        assert w == 1.0
+
+    def test_matches_the_tuned_formula(self):
+        """귤메달 실측으로 고정된 계수 — 바꾸려면 평가 하네스를 통과해야 한다."""
+        from app.saas.router import recombine_score
+        raw, w = recombine_score(0.6, 0.9, 0.58, False, 0.01)
+        assert abs(w - (0.35 + 0.65 * 0.58)) < 1e-9
+        assert abs(raw - (0.6 * 0.9 * w + 0.01)) < 1e-9

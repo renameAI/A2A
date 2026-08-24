@@ -8,7 +8,6 @@
 import re
 
 import httpx
-from bs4 import BeautifulSoup
 
 from ..config import Settings
 from ..errors import EngineError

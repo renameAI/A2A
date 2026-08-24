@@ -37,7 +37,7 @@ def test_rank_matches_router_formula():
     import inspect
 
     from app.saas import router
-    src = inspect.getsource(router._rank_pool)
+    src = inspect.getsource(router.recombine_score)
     assert "0.35 + 0.65 * float(reach)" in src, \
         "router의 문턱 가중식이 바뀌었다 — pipeline_eval._reach_weight도 맞춰라"
     scn = next(s for s in load_scenarios() if s["name"] == "gyulmedal")

@@ -533,7 +533,9 @@ def get_request(rid: str, user: SaasUser = Depends(current_user)):
         drf = drf_all.get(dkeys[cid])
         out = out_all.get(f"{rid}::{cid}")
         if ins or drf or out:
-            derived[cid] = {"has_insight": bool(ins), "insight": ins,
+            # insight 전문은 싣지 않는다 — 클라이언트 grep 0곳(표시는
+            # POST /insight 잡 응답을 직접 쓴다). 죽은 페이로드였다.
+            derived[cid] = {"has_insight": bool(ins),
                             "draft": drf,
                             "outcome": {"saved": bool((out or {}).get("saved")),
                                         "drafted": bool((out or {}).get("drafted")),
@@ -547,7 +549,10 @@ def get_request(rid: str, user: SaasUser = Depends(current_user)):
             c["match"] = calibrate_score(c["retrieval_score"])
     # pool은 서버 재랭킹용 내부 자료다 — 클라이언트는 한 줄도 안 읽는데
     # 응답의 83%(실측 342KB 중 296KB)를 차지했다. 저장은 그대로, 전송만 뺀다.
-    return {**{k: v for k, v in doc.items() if k != "pool"},
+    # search_brief도 제외 — 화면의 유일한 소비처는 POST /search-brief 잡
+    # 응답이고, 이 GET에서 읽는 곳은 저장소 전체 grep에서 0곳이다.
+    return {**{k: v for k, v in doc.items()
+               if k not in ("pool", "search_brief")},
             "derived": derived}
 
 
@@ -947,6 +952,25 @@ _SCORE_MID = 0.10
 _SCORE_K = 14.0
 
 
+def recombine_score(comp: float, p: float, reach, replied_before: bool,
+                    bonus: float) -> "tuple[float, float]":
+    """점수 재합성 — (원점수, reach_w). 검색 랭킹(_rank_pool)과 심층 판독
+    재정렬(deep_read)이 같은 식을 각자 들고 있었다. 0.35+0.65 계수는 이미
+    한 번 재튜닝된 활성 튜닝 지점이라(0.5+0.5 → 0.35+0.65, 귤메달 실측),
+    한쪽만 고치면 두 경로의 순위가 소리 없이 어긋난다. 수정점은 여기 하나다."""
+    # 계수 0.35+0.65r: 처음 쓴 0.5+0.5r로는 가능성이 순위를 못 바꿨다 —
+    # 평가 하네스(app/eval/pipeline_eval)가 귤메달 시나리오에서 잡았다:
+    # 롯데백화점(가능성 0.08, 접점 0)이 보완성·p가 높다는 이유로 프레시스
+    # (가능성 0.58, 납품문의 창구 확보)를 0.1469 대 0.1438로 이겼다.
+    # 0.65로 올리면 뒤집히고, 할리케이 시나리오의 순서는 그대로다.
+    # 곱셈 가중이라 후보를 지우지는 않는다. 판정 없음(None)은 벌점 없음.
+    reach_w = 1.0 if reach is None else 0.35 + 0.65 * float(reach)
+    if replied_before:
+        reach_w = 1.0                    # 답장 사실이 추정을 이긴다
+    return (float(comp) * float(p) * reach_w + float(bonus or 0),
+            round(reach_w, 3))
+
+
 def calibrate_score(raw: float) -> float:
     """원점수 → 0~1 표시용 점수. 순위 불변(단조증가)."""
     import math
@@ -1035,28 +1059,21 @@ def _rank_pool(profile, intent, pool: list[dict],
         # 전체가 안 믿긴다. 가중은 0.5+0.5·reach — 문턱이 순위를 조정하되
         # 후보를 지우지는 않는다(문턱 높은 곳도 가치는 있다, 아래로 갈 뿐).
         # 판정이 없으면(구 데이터·판독 실패) 벌점 없음.
-        #
-        # 계수 0.35+0.65r: 처음 쓴 0.5+0.5r로는 문턱이 순위를 못 바꿨다 —
-        # 평가 하네스(app/eval/pipeline_eval)가 귤메달 시나리오에서 잡았다:
-        # 롯데백화점(문턱 0.08, 접점 0)이 보완성·p가 높다는 이유로 프레시스
-        # (문턱 0.58, 납품문의 창구 확보)를 0.1469 대 0.1438로 이겼다.
-        # 0.65로 올리면 뒤집히고, 할리케이 시나리오의 순서는 그대로다.
-        # 여전히 곱셈 가중이라 후보를 지우지는 않는다.
         reach = (c.get("ontology") or {}).get("reachability")
-        reach_w = 1.0 if reach is None else 0.35 + 0.65 * float(reach)
         # 실측이 판정을 이긴다 — 이 도메인에서 답장을 받아 본 적이 있으면
         # 문턱은 열린 것으로 확정이다(추정치가 뭐라 하든).
         from ..engine.candidate_extract import _site_of
-        replied_before = bool(reach_facts) and             _site_of(c.get("source_url", "")) in reach_facts
-        if replied_before:
-            reach_w = 1.0
-        _raw = r.retrieval_score * p * reach_w + bonus
+        replied_before = (bool(reach_facts)
+                          and _site_of(c.get("source_url", ""))
+                          in reach_facts)
+        _raw, reach_w = recombine_score(r.retrieval_score, p, reach,
+                                        replied_before, bonus)
         ranked.append({**r.model_dump(mode="json"), **c,
                        "reach_fact": replied_before,
                        "retrieval_score": round(_raw, 4),
                        "match": calibrate_score(_raw),
                        "complementarity": round(r.retrieval_score, 4),
-                       "reach_w": round(reach_w, 3),
+                       "reach_w": reach_w,
                        "feedback_bonus": bonus})
     ranked.sort(key=lambda x: (-x["retrieval_score"], x["company_id"]))
     return ranked[:k]
@@ -1580,13 +1597,13 @@ def deep_read(rid: str, background: BackgroundTasks,
             if comp is None:
                 continue
             reach = (c.get("ontology") or {}).get("reachability")
-            reach_w = 1.0 if reach is None else 0.35 + 0.65 * float(reach)
-            if facts and _dom(c.get("source_url", "")) in facts:
-                reach_w = 1.0            # 답장 사실이 추정을 이긴다
+            replied = bool(facts) and _dom(c.get("source_url", "")) in facts
+            if replied:
                 c["reach_fact"] = True
-            c["reach_w"] = round(reach_w, 3)
-            _raw2 = (float(comp) * float(c.get("p", 0.7)) * reach_w
-                     + float(c.get("feedback_bonus") or 0))
+            _raw2, reach_w = recombine_score(
+                comp, c.get("p", 0.7), reach, replied,
+                c.get("feedback_bonus") or 0)
+            c["reach_w"] = reach_w
             c["retrieval_score"] = round(_raw2, 4)
             c["match"] = calibrate_score(_raw2)
             rescored += 1
