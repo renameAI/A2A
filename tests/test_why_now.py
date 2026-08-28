@@ -415,3 +415,48 @@ class TestRecombineIsSingle:
         raw, w = recombine_score(0.6, 0.9, 0.58, False, 0.01)
         assert abs(w - (0.35 + 0.65 * 0.58)) < 1e-9
         assert abs(raw - (0.6 * 0.9 * w + 0.01)) < 1e-9
+
+
+class TestUnreadableProperNouns:
+    """독일어 메일의 'OB맥주 und 아모레퍼시픽' — 상호에만 있던 규칙이
+    레퍼런스에서 재발했다. 읽을 수 있는가는 코드가 판정한다."""
+
+    def test_detects_hangul_hanja_kana(self):
+        from app.engine.compose_lead import _unreadable
+        assert _unreadable("아모레퍼시픽") and _unreadable("弊社") \
+            and _unreadable("株式会社")
+        assert not _unreadable("Amorepacific") and not _unreadable("")
+
+    def _req(self, lang, refs, name="㈜더데이원랩", latin=""):
+        from app.schemas import (BasicInfo, CandidateInsight,
+                                 ComposeLeadRequest, Intent, Profile,
+                                 ProvField, Provenance)
+        pf = ProvField(value="x", provenance=Provenance.inferred, confidence=0.5)
+        prof = Profile(basic=BasicInfo(name=name, name_latin=latin,
+                                       country="KR", industry="i"),
+                       description="", problem_solved=pf, solution=pf,
+                       target_customer=pf, references=refs)
+        return ComposeLeadRequest(
+            requester_profile=prof, intent=Intent(value_props=["revenue_growth"]),
+            candidate_profile=prof,
+            candidate_insight=CandidateInsight(candidate_id="c1"), language=lang)
+
+    def test_flags_unreadable_references(self):
+        from app.engine.compose_lead import _name_notes
+        note = _name_notes(self._req("de", ["OB맥주", "아모레퍼시픽"]))
+        assert "OB맥주" in note and "확실히 아는 경우에만" in note
+
+    def test_silent_when_everything_is_readable(self):
+        from app.engine.compose_lead import _name_notes
+        assert _name_notes(
+            self._req("de", ["Samsung"], name="DayOne", latin="DayOne")) == ""
+
+    def test_korean_mail_needs_no_note(self):
+        """한국어 메일에서 한글 상호는 문제가 아니다."""
+        from app.engine.compose_lead import _name_notes
+        assert _name_notes(self._req("ko", ["OB맥주"])) == ""
+
+    def test_forbids_both_hangul_and_invention(self):
+        from app.engine.compose_lead import _name_notes
+        note = _name_notes(self._req("de", ["아모레퍼시픽"]))
+        assert "지어내는 것은" in note and "둘 다 금지" in note

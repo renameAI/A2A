@@ -212,6 +212,46 @@ def _kit_lines(kit: dict, source_urls=None) -> str:
     return ("[아웃리치 킷 — 심층 판독에서 읽은 것]\n" + "\n".join(lines) + "\n") if lines else ""
 
 
+def _unreadable(text: str) -> bool:
+    """상대가 못 읽는 표기인가 — 한글·한자·가나가 섞여 있으면 그렇다.
+
+    "읽을 수 있는가"는 모델의 판정이 아니라 코드가 확인할 수 있는 사실이다.
+    실측 사고 두 번: 일본어 본문의 "弊社の귤메달", 그리고 독일어 본문의
+    "zu dessen Referenzen OB맥주 und 아모레퍼시픽 gehören" — 상호에는
+    규칙을 뒀는데 레퍼런스에는 없어서 같은 결함이 옆자리에서 재발했다.
+    """
+    return any("\uac00" <= c <= "\ud7a3"          # 한글
+               or "\u4e00" <= c <= "\u9fff"       # 한자
+               or "\u3040" <= c <= "\u30ff"       # 가나
+               for c in (text or ""))
+
+
+def _name_notes(req: ComposeLeadRequest) -> str:
+    """비한국어 메일에서 못 읽는 고유명사를 짚어 준다.
+
+    지어내라고 시키지 않는다: 공식 라틴 표기를 **확실히 아는 경우에만** 쓰고,
+    아니면 이름을 빼고 업종으로 지칭하게 한다. 이름을 지어내는 것보다
+    "한국의 대형 식음료 기업"이 정직하고, 상대에게도 더 읽힌다.
+    """
+    if req.language == "ko":
+        return ""
+    b = req.requester_profile.basic
+    bad = [r for r in req.requester_profile.references[:3] if _unreadable(r)]
+    if not _unreadable(b.name_latin or b.name) and not bad:
+        return ""
+    items = []
+    if _unreadable(b.name_latin or b.name):
+        items.append(f"우리 상호 '{b.name}'")
+    items += [f"레퍼런스 '{r}'" for r in bad]
+    return ("[읽을 수 없는 표기] " + " · ".join(items)
+            + " — 이 표기는 수신자가 읽지 못한다. 공식 라틴/영문 표기를 "
+              "**확실히 아는 경우에만** 그것으로 적어라. 확실하지 않으면 "
+              "이름을 쓰지 말고 업종·규모로 지칭한다"
+              "(예: '한국의 대형 식음료 기업과 화장품 기업'). "
+              "한글·한자를 그대로 두는 것과 없는 이름을 지어내는 것은 "
+              "둘 다 금지다.\n")
+
+
 def _user(req: ComposeLeadRequest) -> str:
     ins = req.candidate_insight
     b = req.requester_profile.basic
@@ -224,7 +264,8 @@ def _user(req: ComposeLeadRequest) -> str:
                f"다른 표기(원어·음역)를 섞지 마라 — 상대가 같은 회사인지 모른다.\n"
                if sender != b.name else "")
             + f"레퍼런스: {', '.join(req.requester_profile.references[:3]) or '없음'}\n"
-            f"[후보] {req.candidate_profile.basic.name} "
+            + _name_notes(req)
+            + f"[후보] {req.candidate_profile.basic.name} "
             f"({req.candidate_profile.basic.country})\n"
             f"[인사이트]\n"
             f"관측된 수요: {'; '.join(ins.observed_needs) or '없음'}\n"
