@@ -239,7 +239,7 @@ class TestFewShotNotOverfit:
     def test_hinge_form_is_free(self):
         """가정형 질문은 예시의 방식일 뿐 — 문형을 강제하지 않는다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "형식은 자유다" in P
+        assert "문형은 자유다" in P
 
     def test_tone_ceiling_is_kept(self):
         """참고 메일의 과장 수위는 가져오지 않는다 — 근거를 넘지 않는다."""
@@ -254,7 +254,7 @@ class TestReferenceDerivedRules:
         """관측 뒤에 소개를 바로 붙이면 관측이 판매 미끼로 읽힌다(영어 64/64).
         단, 강제하는 것은 '그 자리에 한 단락'이지 특정 문형이 아니다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "바로 넘어가지 않는다" in P and "64/64" in P
+        assert "반드시 둔다" in P and "64/64" in P
 
     def test_references_are_used_but_never_invented(self):
         """_user()가 레퍼런스를 넘기는데 프롬프트가 쓰라고 한 적이 없었다."""
@@ -278,7 +278,7 @@ class TestReferenceDerivedRules:
     def test_greeting_and_signoff_are_required(self):
         """우리 독일어 실측 출력에는 인사말도 맺음말도 없었다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "관용 인사" in P and "맺음 인사로 닫는다" in P
+        assert "인사말과 맺음말을 반드시 넣는다" in P
 
     def test_paragraph_count_grew_for_the_hinge(self):
         from app.engine.compose_lead import COMPOSE_LEAD_SCHEMA as S
