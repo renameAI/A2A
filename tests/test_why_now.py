@@ -485,3 +485,46 @@ class TestUnreadableProperNouns:
         from app.engine.compose_lead import _name_notes
         note = _name_notes(self._req("de", ["아모레퍼시픽"]))
         assert "지어내는 것은" in note and "둘 다 금지" in note
+
+
+class TestReadabilityWarnings:
+    """프롬프트는 판정을 바꾸고 집행은 코드가 한다 — 상호→레퍼런스→제목으로
+    새어 나간 같은 결함을, 마지막에 코드가 한 번 더 잡는다."""
+
+    def _req(self, lang):
+        from app.schemas import (BasicInfo, CandidateInsight,
+                                 ComposeLeadRequest, Intent, Profile,
+                                 ProvField, Provenance)
+        pf = ProvField(value="x", provenance=Provenance.inferred, confidence=0.5)
+        prof = Profile(basic=BasicInfo(name="DayOne", country="KR", industry="i"),
+                       description="", problem_solved=pf, solution=pf,
+                       target_customer=pf)
+        return ComposeLeadRequest(
+            requester_profile=prof, intent=Intent(value_props=["revenue_growth"]),
+            candidate_profile=prof,
+            candidate_insight=CandidateInsight(candidate_id="c1"), language=lang)
+
+    def test_korean_subject_in_german_mail_is_flagged(self):
+        """실측: 독일어 메일에 한국어 제목이 나갔다 — 열리지도 않는다."""
+        from app.engine.compose_lead import _readability_warnings
+        w = _readability_warnings(
+            self._req("de"), {"subject": "천연고분자 펠렛 제안", "paragraphs": []})
+        assert w and "제목에" in w[0]
+
+    def test_clean_german_mail_has_no_warning(self):
+        from app.engine.compose_lead import _readability_warnings
+        assert _readability_warnings(
+            self._req("de"),
+            {"subject": "Pellets für FKuR", "paragraphs": ["Guten Tag"]}) == []
+
+    def test_korean_mail_is_never_flagged(self):
+        from app.engine.compose_lead import _readability_warnings
+        assert _readability_warnings(
+            self._req("ko"), {"subject": "제안", "paragraphs": ["안녕하세요"]}) == []
+
+    def test_body_leak_is_flagged_once(self):
+        from app.engine.compose_lead import _readability_warnings
+        w = _readability_warnings(
+            self._req("ja"),
+            {"subject": "Proposal", "paragraphs": ["안녕", "또 한글"]})
+        assert len(w) == 1 and "본문에" in w[0]

@@ -97,6 +97,10 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
   여전히 금지다. **레퍼런스가 '없음'이면 절대 지어내지 마라** — 활동 지역·
   시장으로 대체하거나, 그것도 없으면 생략하고 작게 확인할 방법(자료·샘플·
   소량 시험)으로 신뢰를 대신한다.
+- **제목도 본문과 같은 지정 언어로 쓴다.** subject는 수신자가 받은편지함에서
+  보는 첫 글자다 — 여기에 한국어가 들어가면 열리지도 않는다(실측: 독일어
+  메일에 "…를 위한 천연고분자 펠렛 제안"이라는 한국어 제목이 나갔다).
+  한국어 제목은 subject_ko의 몫이다.
 - **제목에는 수신 회사 이름을 넣는다**(실측 프랑스어 34/52, 영어 36/64).
   회사명이 빠진 "{제품 카테고리} für Ihre {용도}" 형태는 같은 업종 어느
   수신자에게나 한 글자도 고치지 않고 들어맞아, 열기 전에 대량 발송으로
@@ -259,6 +263,27 @@ def _name_notes(req: ComposeLeadRequest) -> str:
               "둘 다 금지다.\n")
 
 
+def _readability_warnings(req: ComposeLeadRequest, d: dict) -> list:
+    """수신자가 못 읽는 글자가 남았으면 경고로 띄운다.
+
+    프롬프트로 세 번 고쳐도 새어 나오는 자리가 있다 — 상호에서 막으니
+    레퍼런스로, 본문에서 막으니 제목으로 옮겨갔다. 프롬프트는 판정을 바꾸지만
+    집행은 코드가 한다. 여기서 고치지는 않는다(무엇이 맞는 표기인지는 코드가
+    모른다). 다만 사용자가 모르고 보내는 일은 없게 한다.
+    """
+    if req.language == "ko":
+        return []
+    out = []
+    if _unreadable(d.get("subject") or ""):
+        out.append(f"제목에 수신자가 못 읽는 표기가 있어요 — 보내기 전에 "
+                   f"확인하세요: {d.get('subject', '')[:60]}")
+    for para in (d.get("paragraphs") or []):
+        if _unreadable(para):
+            out.append(f"본문에 수신자가 못 읽는 표기가 있어요: {para[:60]}")
+            break
+    return out
+
+
 def _user(req: ComposeLeadRequest) -> str:
     ins = req.candidate_insight
     b = req.requester_profile.basic
@@ -303,6 +328,8 @@ def compose_lead(extractor, req: ComposeLeadRequest) -> ComposeLeadResponse:
                          for c in d.get("claims", [])],
             sources_used=list(ins.source_urls),
             # 정직 표기 — 미확인이라 본문에서 뺀 것을 사용자에게 그대로 보여준다
-            warnings=[f"미확인이라 본문에서 제외: {u}" for u in ins.uncertainties],
+            warnings=([f"미확인이라 본문에서 제외: {u}"
+                       for u in ins.uncertainties]
+                      + _readability_warnings(req, d)),
         ))
     return ComposeLeadResponse(drafts=drafts, send_blocked=True)
