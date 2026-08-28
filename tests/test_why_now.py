@@ -205,9 +205,9 @@ class TestMailShape:
     def test_prompt_sends_paragraphs_as_an_array(self):
         """개행 지시로는 안 됐다 — 배열로 받아 코드가 잇는다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "빈 줄로 나눈 네" in P
         assert "`paragraphs` 배열" in P
-        assert "원소 안에 개행을 넣지 마라" in P
+        assert "개행을 넣지 마라" in P
+        assert "글자 수로 세지 마라" in P
 
     def test_prompt_counts_sentences_not_characters(self):
         """글자 수만 적으면 언어마다 다르게 해석된다."""
@@ -215,15 +215,55 @@ class TestMailShape:
         assert "2~4문장" in P
 
     def test_each_paragraph_has_a_job(self):
-        """길게가 아니라 전략적으로 — 라포·근거·연결·문턱."""
+        """길게가 아니라 전략적으로 — 라포·근거·경첩·연결·문턱."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        for role in ("라포", "근거", "연결", "문턱 낮추기"):
+        for role in ("라포", "근거", "만난다면", "연결", "문턱 낮추기"):
             assert role in P, role
+
+
+class TestReferenceDerivedRules:
+    """실제 발송 메일 160여 통에서 뽑은 규칙 — 각 규칙에 정량 근거가 붙어 있다."""
+
+    def test_hinge_paragraph_required(self):
+        """관측 뒤에 소개를 바로 붙이면 관측이 판매 미끼로 읽힌다(영어 64/64)."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "만난다면 어떨까요" in P and "64/64" in P
+
+    def test_references_are_used_but_never_invented(self):
+        """_user()가 레퍼런스를 넘기는데 프롬프트가 쓰라고 한 적이 없었다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "종속절로" in P
+        assert "절대 지어내지 마라" in P
+
+    def test_hedge_is_capped(self):
+        """이중·삼중 완충은 여지가 아니라 과제 자체를 지운다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "완충 표현은 문장당 하나까지" in P
+
+    def test_subject_must_name_the_recipient(self):
+        """회사명 없는 제목은 같은 업종 누구에게나 그대로 맞는다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "제목에는 수신 회사 이름을 넣는다" in P
+
+    def test_variants_split_by_asset_not_tone(self):
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "톤·인사말·CTA가 아니라" in P
+        assert "초안도 하나만 낸다" in P
+
+    def test_greeting_and_signoff_are_required(self):
+        """우리 독일어 실측 출력에는 인사말도 맺음말도 없었다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "관용 인사" in P and "맺음 인사" in P
+
+    def test_paragraph_count_grew_for_the_hinge(self):
+        from app.engine.compose_lead import COMPOSE_LEAD_SCHEMA as S
+        pg = S["properties"]["drafts"]["items"]["properties"]["paragraphs"]
+        assert pg["minItems"] == 4 and pg["maxItems"] == 6
 
     def test_generic_flattery_is_named_as_the_failure(self):
         """어느 회사에나 붙는 칭찬은 라포가 아니라 대량 발송의 표식이다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "어느\n     회사에나 붙는 칭찬" in P or "회사에나 붙는 칭찬" in P
+        assert "회사에나" in P and "붙는 칭찬" in P
 
 
 class TestBusinessLanguage:
@@ -254,7 +294,7 @@ class TestParagraphAssembly:
         from app.engine.compose_lead import COMPOSE_LEAD_SCHEMA as S
         item = S["properties"]["drafts"]["items"]
         assert "paragraphs" in item["required"]
-        assert item["properties"]["paragraphs"]["minItems"] == 3
+        assert item["properties"]["paragraphs"]["minItems"] >= 3
         assert "body" not in item["properties"]
 
 

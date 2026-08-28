@@ -43,9 +43,13 @@ def _req(method: str, path: str, body=None, _call=None):
     key = _key()
     url = f"{_BASE}{path}{'&' if '?' in path else '?'}api_key={urllib.parse.quote(key)}"
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        url, data=data, method=method,
-        headers={"Content-Type": "application/json"} if data else {})
+    # User-Agent를 밝힌다 — Smartlead 앞의 Cloudflare가 urllib 기본 UA를
+    # 차단한다(실측: 로컬은 200, Vercel에서 403 "error code: 1010").
+    # 로컬에서만 통과하는 커넥터는 통합이 아니다.
+    headers = {"User-Agent": "a2a-matching-engine/1.0"}
+    if data:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
     with urllib.request.urlopen(req, timeout=30) as r:
         raw = r.read()
         return json.loads(raw) if raw else None
