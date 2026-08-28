@@ -666,6 +666,12 @@ def delete_request(rid: str, user: SaasUser = Depends(current_user)):
 class OutreachPrepareIn(BaseModel):
     """발송 준비 — 어느 메일함으로 보낼지는 사용자가 고른다."""
     mailbox_ids: list[int] = []
+    # 변종이 여럿이면 어느 것을 보낼지 사용자가 고른다. 코드가 조용히
+    # drafts[0]을 집으면, A/B로 만든 두 초안 중 무엇이 나갔는지 아무도 모른다.
+    variant: "str | None" = None
+    # 반송 위험 주소로 보내는 것은 그 한 통으로 끝나지 않는다 — 발송 도메인의
+    # 평판이 깎여 이후 메일이 스팸함으로 간다. 그래도 보내려면 명시해야 한다.
+    send_to_invalid: bool = False
 
 
 class OutreachSendIn(BaseModel):
@@ -705,11 +711,34 @@ def outreach_prepare(rid: str, cid: str, body: OutreachPrepareIn,
                     _derived_key(doc, rid, cid))
     if not drf or not (drf.get("drafts") or []):
         raise EngineError(409, "invalid_state", "메일 초안을 먼저 만드세요")
-    d = drf["drafts"][0]
-    to = ((drf.get("recipient") or {}).get("email") or "").strip().lower()
+    drafts = drf["drafts"]
+    if body.variant:
+        d = next((x for x in drafts
+                  if x.get("variant_label") == body.variant), None)
+        if d is None:
+            raise EngineError(409, "invalid_state",
+                              f"변종 {body.variant}이(가) 없어요")
+    elif len(drafts) > 1:
+        labels = [x.get("variant_label") or "?" for x in drafts]
+        raise EngineError(409, "invalid_state",
+                          f"초안이 {len(drafts)}개예요 — 보낼 것을 고르세요"
+                          f" ({', '.join(labels)})")
+    else:
+        d = drafts[0]
+    rcp = drf.get("recipient") or {}
+    to = (rcp.get("email") or "").strip().lower()
     if not to:
         raise EngineError(409, "invalid_state",
                           "받는 사람 주소가 없어요 — 접점을 먼저 확보하세요")
+    # 반송 위험은 한 통의 실패로 끝나지 않는다. 검증이 invalid라고 말한
+    # 주소로 보내면 발송 도메인 평판이 깎이고, 그 대가는 이후 모든 메일이
+    # 치른다. unknown은 막지 않는다 — 모름은 나쁨이 아니다(한국 메일 서버는
+    # 검증 자체를 막는 경우가 흔하다).
+    vres = ((rcp.get("verify") or {}).get("result") or "")
+    if vres == "invalid" and not body.send_to_invalid:
+        raise EngineError(409, "invalid_recipient",
+                          f"{to}는 검증에서 반송 위험으로 나왔어요 — "
+                          "다른 접점을 쓰거나 그래도 보낼지 확인해주세요")
     res = smartlead.prepare(
         f"{cand['name']} — {rid}",
         subject=d.get("subject") or "", body=d.get("body") or "",
@@ -734,7 +763,12 @@ def outreach_prepare(rid: str, cid: str, body: OutreachPrepareIn,
         smartlead.register_webhook(camp, f"{base}/saas/webhooks/smartlead?t={tok}")
     _record_outcome(store, user.workspace_id, rid, cid, cand, stage="prepared")
     return {"campaign_id": camp, "to": to, "sent": False,
-            "mailboxes": len(body.mailbox_ids)}
+            "mailboxes": len(body.mailbox_ids),
+            "variant": d.get("variant_label"),
+            "verify": (rcp.get("verify") or {}).get("result", ""),
+            # 초안이 미확인이라 본문에서 뺀 것들 — 보내기 전에 사용자가
+            # 봐야 한다. 여기서 빠지면 정직 표기가 경계에서 세탁된다.
+            "excluded_uncertain": d.get("warnings") or []}
 
 
 @router.post("/lead-requests/{rid}/candidates/{cid}/outreach/send")

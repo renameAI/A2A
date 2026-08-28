@@ -120,3 +120,37 @@ class TestConnectorContract:
         src = inspect.getsource(router.smartlead_webhook)
         assert 'store.get("outreach_addr"' in src
         assert 'payload["ws"]' not in src and "payload.get(\"ws\")" not in src
+
+
+class TestPrepareGates:
+    """준비 단계가 조용히 고르거나 조용히 위험을 넘기지 않는다."""
+
+    def test_multiple_drafts_must_be_chosen(self):
+        """A/B로 만든 두 초안 중 코드가 집으면 무엇이 나갔는지 아무도 모른다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_prepare)
+        assert "보낼 것을 고르세요" in src
+        assert 'd = drafts[0]' in src        # 1개일 때만 자동 선택
+
+    def test_invalid_recipient_is_blocked(self):
+        """반송은 한 통으로 끝나지 않는다 — 발송 도메인 평판이 깎인다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_prepare)
+        assert 'vres == "invalid"' in src
+        assert "send_to_invalid" in src
+
+    def test_unknown_verification_is_not_blocked(self):
+        """모름은 나쁨이 아니다 — 한국 메일 서버는 검증 자체를 막는다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_prepare)
+        assert 'vres == "unknown"' not in src
+
+    def test_excluded_uncertain_travels_to_the_user(self):
+        """미확인이라 본문에서 뺀 것이 경계에서 세탁되면 정직 표기가 무의미하다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_prepare)
+        assert "excluded_uncertain" in src
