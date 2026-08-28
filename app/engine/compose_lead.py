@@ -121,7 +121,10 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
 - subject_ko / paragraphs_ko: 작성한 메일의 **한국어 대역**. paragraphs와
   원소 수를 맞춘다 — 단락이 어긋나면 사용자가 대조하며 읽을 수 없다. 보내는 사람이 내용을
   확인하고 승인해야 하므로, 읽을 수 없는 메일을 그대로 내보내면 안 된다.
-  지정 언어가 한국어면 subject·paragraphs와 같게 쓴다. 그 밖의 언어면 대역을
+  지정 언어가 한국어면 subject·paragraphs와 같게 쓴다.
+  **한국어가 아니면 subject와 subject_ko는 서로 다른 언어여야 한다** — 둘이
+  같은 글자면 둘 중 하나가 틀린 것이다(실측: 독일어 메일인데 양쪽 모두에
+  같은 한국어 제목이 들어갔다). 그 밖의 언어면 대역을
   **반드시** 채운다 — 빈 대역은 사용자가 내용을 모른 채 보내게 만든다.
   대역은 요약이 아니라 같은 뜻의 한국어 문장이어야 하고, 본문에 넣은 링크는
   대역에도 같은 주소로 남긴다."""
@@ -144,14 +147,20 @@ COMPOSE_LEAD_SCHEMA = {
                              "call_to_action", "claims"],
                 "properties": {
                     "variant_label": {"type": "string"},
-                    "subject": {"type": "string"},
+                    "subject": {"type": "string",
+                                "description": "메일 제목. 반드시 지정 언어로. "
+                                               "한국어 제목은 여기가 아니라 "
+                                               "subject_ko에 쓴다."},
                     # 본문은 문단 배열로 받는다 — 문단 나눔을 모델의 개행에
                     # 맡기면 지시를 세 번 고쳐도 한 덩어리로 나온다(실측:
                     # 스페인어 519자·독일어 1,025자 모두 단락 1개). 나눔은
                     # 모델의 판정, 이어 붙이는 것은 코드의 결정이다.
                     "paragraphs": {"type": "array", "minItems": 4,
                                    "maxItems": 6, "items": {"type": "string"}},
-                    "subject_ko": {"type": "string"},
+                    "subject_ko": {"type": "string",
+                                   "description": "subject의 한국어 대역. "
+                                                  "지정 언어가 한국어가 아니면 "
+                                                  "subject와 달라야 한다."},
                     "paragraphs_ko": {"type": "array", "minItems": 4,
                                       "maxItems": 6,
                                       "items": {"type": "string"}},

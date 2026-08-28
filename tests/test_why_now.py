@@ -528,3 +528,19 @@ class TestReadabilityWarnings:
             self._req("ja"),
             {"subject": "Proposal", "paragraphs": ["안녕", "또 한글"]})
         assert len(w) == 1 and "본문에" in w[0]
+
+
+class TestSubjectLanguageSplit:
+    """실측: 독일어 메일인데 subject·subject_ko 양쪽에 같은 한국어가 들어갔다.
+    본문(paragraphs/paragraphs_ko)은 제대로 갈라지는데 제목만 안 됐다."""
+
+    def test_schema_describes_both_subjects(self):
+        """필드 이름만으로는 모델이 둘을 같은 것으로 채운다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SCHEMA as S
+        props = S["properties"]["drafts"]["items"]["properties"]
+        assert "지정 언어" in props["subject"]["description"]
+        assert "달라야 한다" in props["subject_ko"]["description"]
+
+    def test_prompt_forbids_identical_subjects(self):
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "서로 다른 언어여야 한다" in P
