@@ -215,25 +215,51 @@ class TestMailShape:
         assert "2~4문장" in P
 
     def test_each_paragraph_has_a_job(self):
-        """길게가 아니라 전략적으로 — 라포·근거·경첩·연결·문턱."""
+        """단락마다 맡은 일이 있다 — 다만 문형이 아니라 '일'로 규정한다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        for role in ("라포", "근거", "만난다면", "연결", "문턱 낮추기"):
-            assert role in P, role
+        for job in ("관용 인사", "상대의 목표를 주어로",
+                    "부담 낮은 다음 행동", "레퍼런스"):
+            assert job in P, job
+
+
+class TestFewShotNotOverfit:
+    """참고 메일은 아트 콜라보 한 도메인이다 — 표현까지 규칙으로 박으면
+    다른 업종에서 어색해진다. 골격은 예시로 보이고 소재는 금지한다."""
+
+    def test_example_is_shown_not_prescribed(self):
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "Dear The Pearl Hotel Team" in P      # 실제 예시가 들어 있다
+        assert "골격만 배우고" in P
+
+    def test_domain_transfer_is_forbidden(self):
+        """호텔·아트 어휘를 그대로 옮기면 그것이 곧 어색함이다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "소재·표현·업종을" in P and "가져오지 마라" in P
+
+    def test_hinge_form_is_free(self):
+        """가정형 질문은 예시의 방식일 뿐 — 문형을 강제하지 않는다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "형식은 자유다" in P
+
+    def test_tone_ceiling_is_kept(self):
+        """참고 메일의 과장 수위는 가져오지 않는다 — 근거를 넘지 않는다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "과장의 수위" in P and "사실을 넘지 마라" in P
 
 
 class TestReferenceDerivedRules:
     """실제 발송 메일 160여 통에서 뽑은 규칙 — 각 규칙에 정량 근거가 붙어 있다."""
 
-    def test_hinge_paragraph_required(self):
-        """관측 뒤에 소개를 바로 붙이면 관측이 판매 미끼로 읽힌다(영어 64/64)."""
+    def test_hinge_is_required_as_a_job_not_a_phrase(self):
+        """관측 뒤에 소개를 바로 붙이면 관측이 판매 미끼로 읽힌다(영어 64/64).
+        단, 강제하는 것은 '그 자리에 한 단락'이지 특정 문형이 아니다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "만난다면 어떨까요" in P and "64/64" in P
+        assert "바로 넘어가지 않는다" in P and "64/64" in P
 
     def test_references_are_used_but_never_invented(self):
         """_user()가 레퍼런스를 넘기는데 프롬프트가 쓰라고 한 적이 없었다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "종속절로" in P
-        assert "절대 지어내지 마라" in P
+        assert "종속절로" in P and "절대 지어내지 마라" in P
 
     def test_hedge_is_capped(self):
         """이중·삼중 완충은 여지가 아니라 과제 자체를 지운다."""
@@ -247,13 +273,12 @@ class TestReferenceDerivedRules:
 
     def test_variants_split_by_asset_not_tone(self):
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "톤·인사말·CTA가 아니라" in P
-        assert "초안도 하나만 낸다" in P
+        assert "톤·인사말·CTA가 아니라" in P and "초안도 하나만 낸다" in P
 
     def test_greeting_and_signoff_are_required(self):
         """우리 독일어 실측 출력에는 인사말도 맺음말도 없었다."""
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
-        assert "관용 인사" in P and "맺음 인사" in P
+        assert "관용 인사" in P and "맺음 인사로 닫는다" in P
 
     def test_paragraph_count_grew_for_the_hinge(self):
         from app.engine.compose_lead import COMPOSE_LEAD_SCHEMA as S
