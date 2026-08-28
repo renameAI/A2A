@@ -105,6 +105,8 @@ type PipeRow = { request_id: string; request_title: string; company_id: string;
   name: string; source_url: string; drafted: boolean; replied: string;
   note: string; stage: string };
 type Pipeline = { stages: string[]; board: Record<string, PipeRow[]>; total: number };
+type OutreachEvent = { at: number; event: string; label: string;
+  name: string; source_url?: string; request_id: string; company_id: string };
 const STAGE_LABEL: Record<string, string> = {
   saved: "저장", contacted: "연락함", replied: "답장", meeting: "미팅",
   won: "성사", lost: "종료" };
@@ -605,6 +607,50 @@ function Workspace({ who }: { who: string }) {
     if (busy) return;
     api("/usage").then(setUsage).catch(() => {});
   }, [busy]);
+
+  /** 발송 이후의 소식을 대화로 가져온다.
+   *
+   *  답장은 우리가 만드는 사건이 아니라 **상대가 만드는 사건**이다. 사용자가
+   *  화면을 보고 있는 동안 그것이 도착하면, 원장에만 조용히 쌓이는 것이
+   *  아니라 대화에서 말해야 한다 — 이 제품에서 답장은 결과 그 자체다.
+   *
+   *  since를 ref로 드는 이유: state로 두면 폴링 클로저가 옛 값을 붙잡아
+   *  같은 답장을 매번 다시 알린다. 첫 폴링은 서버의 현재 시각만 받아 두고
+   *  아무것도 말하지 않는다 — 화면을 열었다는 이유로 지난 답장이 쏟아지면
+   *  그건 알림이 아니라 소음이다. */
+  const seenAt = useRef<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const since = seenAt.current;
+        const r = await api(`/outreach/events?since=${since ?? 0}`);
+        if (!alive) return;
+        if (since === null) { seenAt.current = r.now ?? 0; return; }
+        seenAt.current = r.now ?? since;
+        for (const e of (r.events ?? []) as OutreachEvent[]) {
+          push({ who: "agent",
+                 text: `${e.label} — ${e.name}`,
+                 jsx: e.event === "EMAIL_REPLY" ? (
+                   <div className="card reply-hit">
+                     <div className="card-head">회신 도착 · {e.name}</div>
+                     <div className="card-body">
+                       <p>이 회사가 답장했어요. 답장 사실은 원장에 기록돼,
+                         앞으로 비슷한 회사를 찾을 때 <b>연락 가능성 판정을
+                         덮어씁니다</b> — 추정이 아니라 실측이니까요.</p>
+                       {e.source_url && (
+                         <a href={e.source_url} target="_blank" rel="noreferrer">
+                           {e.source_url.replace(/^https?:\/\//, "").slice(0, 46)}
+                         </a>)}
+                     </div>
+                   </div>) : undefined });
+        }
+      } catch { /* 소식 폴링 실패가 작업을 막지 않는다 */ }
+    };
+    void tick();
+    const id = setInterval(tick, 20000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   /** 서버에 다 있는데 돌아갈 화면이 없던 것을 고친다.
    *  이전엔 새로고침 한 번에 승인된 프로필·후보·대화가 전부 사라졌다

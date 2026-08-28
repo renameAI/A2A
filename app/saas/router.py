@@ -841,7 +841,43 @@ async def smartlead_webhook(request: Request):
         return {"ok": True, "ignored": "unknown_candidate"}
     _record_outcome(store, ref["ws"], ref["request_id"], ref["company_id"],
                     cand, **ev["fields"])
+    # 사건 로그 — 원장은 "지금 어떤 상태인가"를 담고, 이건 "언제 무슨 일이
+    # 있었나"를 담는다. 화면이 "회신이 도착했습니다"를 말하려면 후자가 있어야
+    # 한다: 상태만 보면 이미 읽은 답장인지 방금 온 답장인지 구별할 수 없다.
+    import time as _t
+    at = _t.time()
+    store.put("outreach_event", ref["ws"], f"{at:.3f}-{ref['company_id']}",
+              {"at": at, "event": ev["event"],
+               "request_id": ref["request_id"], "company_id": ref["company_id"],
+               "name": cand.get("name", ""),
+               "source_url": cand.get("source_url", "")})
     return {"ok": True, "event": ev["event"]}
+
+
+# 화면이 말할 수 있는 사건만 옮긴다 — Smartlead 어휘를 사용자 말로.
+_EVENT_KO = {
+    "EMAIL_REPLY": "회신이 도착했습니다",
+    "EMAIL_OPEN": "메일을 열어봤어요",
+    "EMAIL_BOUNCE": "메일이 반송됐어요",
+    "EMAIL_SENT": "메일이 발송됐어요",
+}
+
+
+@router.get("/outreach/events")
+def outreach_events(since: float = 0.0, limit: int = 20,
+                    user: SaasUser = Depends(current_user)):
+    """발송 이후 일어난 일 — 화면이 폴링해 대화에 알린다.
+
+    since를 받는 이유: 화면은 "새로 생긴 것"만 말해야 한다. 매번 전부
+    돌려주면 폴링마다 같은 답장을 다시 알리게 된다.
+    """
+    rows = get_saas_store().list("outreach_event", user.workspace_id,
+                                 limit=max(1, min(limit, 100)))
+    fresh = [r for r in rows if float(r.get("at") or 0) > since]
+    fresh.sort(key=lambda r: float(r.get("at") or 0))
+    return {"events": [{**r, "label": _EVENT_KO.get(r.get("event", ""), "")}
+                       for r in fresh if _EVENT_KO.get(r.get("event", ""))],
+            "now": __import__("time").time()}
 
 
 class DeleteMe(BaseModel):

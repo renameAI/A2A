@@ -154,3 +154,35 @@ class TestPrepareGates:
         from app.saas import router
         src = inspect.getsource(router.outreach_prepare)
         assert "excluded_uncertain" in src
+
+
+class TestEventFeed:
+    """답장은 우리가 만드는 사건이 아니라 상대가 만드는 사건이다 —
+    원장에 조용히 쌓이지 말고 화면이 말해야 한다."""
+
+    def test_only_speakable_events_are_returned(self):
+        """Smartlead 어휘를 그대로 노출하지 않는다 — 옮길 말이 없으면 뺀다."""
+        from app.saas.router import _EVENT_KO
+        assert _EVENT_KO["EMAIL_REPLY"] == "회신이 도착했습니다"
+        assert "LEAD_UNSUBSCRIBED" not in _EVENT_KO
+
+    def test_since_filters_already_told_events(self):
+        """전부 돌려주면 폴링마다 같은 답장을 다시 알린다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_events)
+        assert 'float(r.get("at") or 0) > since' in src
+
+    def test_events_are_ordered_oldest_first(self):
+        """대화는 시간 순으로 읽힌다 — 최신이 위로 오면 순서가 뒤집힌다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_events)
+        assert 'fresh.sort(key=lambda r: float(r.get("at") or 0))' in src
+
+    def test_webhook_writes_an_event_log(self):
+        """원장은 '지금 상태', 사건 로그는 '언제 무슨 일' — 둘 다 필요하다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.smartlead_webhook)
+        assert 'store.put("outreach_event"' in src

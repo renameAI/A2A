@@ -693,3 +693,8 @@ a.ct-v{color:var(--blue)}
 .mail-to-v.ok{color:#3fb950}
 .mail-to-v.mid{color:#d29922}
 .mail-to-v.bad{color:#f85149}
+
+/* 회신 도착 — 이 제품에서 가장 좋은 소식이므로 눈에 띄어야 한다 */
+.card.reply-hit{border-color:rgba(63,185,80,.45);
+  background:linear-gradient(180deg,rgba(63,185,80,.08),transparent)}
+.card.reply-hit .card-head{color:#3fb950}
