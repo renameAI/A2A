@@ -9,7 +9,7 @@ import re as _re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -661,6 +661,153 @@ def delete_request(rid: str, user: SaasUser = Depends(current_user)):
     removed["keyword_run"] = store.delete_prefix("keyword_run", ws, f"{rid}-w")
     removed["cost_request_self"] = int(store.delete("cost_request", ws, rid))
     return {"deleted": rid, "removed": removed}
+
+
+class OutreachPrepareIn(BaseModel):
+    """발송 준비 — 어느 메일함으로 보낼지는 사용자가 고른다."""
+    mailbox_ids: list[int] = []
+
+
+class OutreachSendIn(BaseModel):
+    """발송은 되돌릴 수 없다 — 준비된 캠페인 id를 사용자가 그대로 확인해
+    되돌려주게 한다(오타 한 번으로 나가지 않게, /me/delete와 같은 규율)."""
+    campaign_id: int
+
+
+def _outreach_key(rid: str, cid: str) -> str:
+    return f"{rid}::{cid}"
+
+
+@router.get("/outreach/mailboxes")
+def outreach_mailboxes(user: SaasUser = Depends(current_user)):
+    """연결된 발송 계정. 0개면 발송이 불가능하다는 것을 화면이 먼저 말한다."""
+    from ..connectors import smartlead
+    return smartlead.mailboxes()
+
+
+@router.post("/lead-requests/{rid}/candidates/{cid}/outreach/prepare")
+def outreach_prepare(rid: str, cid: str, body: OutreachPrepareIn,
+                     user: SaasUser = Depends(current_user)):
+    """초안·수신자를 Smartlead 캠페인으로 올린다. **보내지 않는다.**
+
+    여기까지는 되돌릴 수 있다(캠페인 삭제로 흔적이 사라진다). 되돌릴 수 없는
+    발송은 별도 엔드포인트다 — 준비와 발사를 한 호출에 묶으면, 화면의 실수
+    한 번이 곧 발송이 된다.
+    """
+    from ..connectors import smartlead
+    store = get_saas_store()
+    doc, _profile, _intent = _load_request(store, user, rid)
+    cand = next((c for c in doc.get("candidates", [])
+                 if c["company_id"] == cid), None)
+    if cand is None:
+        raise EngineError(404, "not_found", f"후보 {cid} 없음")
+    drf = store.get("email_draft", user.workspace_id,
+                    _derived_key(doc, rid, cid))
+    if not drf or not (drf.get("drafts") or []):
+        raise EngineError(409, "invalid_state", "메일 초안을 먼저 만드세요")
+    d = drf["drafts"][0]
+    to = ((drf.get("recipient") or {}).get("email") or "").strip().lower()
+    if not to:
+        raise EngineError(409, "invalid_state",
+                          "받는 사람 주소가 없어요 — 접점을 먼저 확보하세요")
+    res = smartlead.prepare(
+        f"{cand['name']} — {rid}",
+        subject=d.get("subject") or "", body=d.get("body") or "",
+        lead={"email": to,
+              "first_name": ((drf.get("recipient") or {}).get("name") or "").split(" ")[0],
+              "company_name": cand.get("name", "")},
+        mailbox_ids=body.mailbox_ids)
+    if res.get("status") != "ok":
+        raise EngineError(502, "outreach_failed",
+                          f"준비 실패 — {res.get('note', '')[:120]}")
+    camp = res["campaign_id"]
+    # 수신 주소 → 후보 역참조. 웹훅은 인증 없이 오므로 이 표가 유일한 열쇠다.
+    # _shared에 두는 이유: 웹훅은 어느 워크스페이스인지 모른 채 도착한다.
+    store.put("outreach_addr", "_shared", to,
+              {"ws": user.workspace_id, "request_id": rid, "company_id": cid,
+               "campaign_id": camp})
+    store.put("outreach", user.workspace_id, _outreach_key(rid, cid),
+              {"campaign_id": camp, "to": to, "sent": False})
+    tok = os.environ.get("SMARTLEAD_WEBHOOK_TOKEN", "")
+    base = os.environ.get("PUBLIC_BASE_URL", "")
+    if tok and base:
+        smartlead.register_webhook(camp, f"{base}/saas/webhooks/smartlead?t={tok}")
+    _record_outcome(store, user.workspace_id, rid, cid, cand, stage="prepared")
+    return {"campaign_id": camp, "to": to, "sent": False,
+            "mailboxes": len(body.mailbox_ids)}
+
+
+@router.post("/lead-requests/{rid}/candidates/{cid}/outreach/send")
+def outreach_send(rid: str, cid: str, body: OutreachSendIn,
+                  user: SaasUser = Depends(current_user)):
+    """**메일을 실제로 보낸다.** 되돌릴 수 없다.
+
+    준비 때 받은 campaign_id를 본문으로 되돌려받아 대조한다 — 화면이 엉뚱한
+    캠페인을 쏘는 사고를 막고, 사용자가 '무엇을 보내는지' 한 번 더 보게 한다.
+    """
+    from ..connectors import smartlead
+    store = get_saas_store()
+    doc, _p, _i = _load_request(store, user, rid)
+    cand = next((c for c in doc.get("candidates", [])
+                 if c["company_id"] == cid), None)
+    if cand is None:
+        raise EngineError(404, "not_found", f"후보 {cid} 없음")
+    rec = store.get("outreach", user.workspace_id, _outreach_key(rid, cid))
+    if not rec:
+        raise EngineError(409, "invalid_state", "발송 준비가 먼저입니다")
+    if rec.get("sent"):
+        # 멱등 — 같은 후보에게 두 번 쏘지 않는다.
+        return {"campaign_id": rec["campaign_id"], "sent": True,
+                "already": True}
+    if int(rec["campaign_id"]) != int(body.campaign_id):
+        raise EngineError(409, "invalid_state",
+                          "준비된 캠페인과 다릅니다 — 준비를 다시 하세요")
+    res = smartlead.start_campaign(rec["campaign_id"])
+    if res.get("status") != "ok":
+        raise EngineError(502, "outreach_failed",
+                          f"발송 실패 — {res.get('note', '')[:120]}")
+    rec["sent"] = True
+    store.put("outreach", user.workspace_id, _outreach_key(rid, cid), rec)
+    _record_outcome(store, user.workspace_id, rid, cid, cand, stage="sent")
+    return {"campaign_id": rec["campaign_id"], "sent": True}
+
+
+@router.post("/webhooks/smartlead")
+async def smartlead_webhook(request: Request):
+    """Smartlead 추적 수신 — 열람·답장·반송.
+
+    인증이 없는 공개 경로다. 그래서 두 가지를 지킨다:
+    ① URL의 토큰이 맞아야 한다(설정 안 됐으면 404 — 켜지 않은 기능은 없는
+       기능처럼 보이는 편이 낫다).
+    ② payload는 **데이터이지 지시가 아니다**. 수신 주소로 우리 원장을 되짚을
+       뿐, payload가 말하는 워크스페이스·후보를 믿지 않는다.
+
+    답장 이벤트가 reach_fact를 쓴다 — 손으로 입력해야 했던 그 사실이 여기서
+    자동으로 채워지고, 이후 모든 검색의 가능성 판정을 덮는다.
+    """
+    from ..connectors import smartlead
+    tok = os.environ.get("SMARTLEAD_WEBHOOK_TOKEN", "")
+    if not tok or request.query_params.get("t") != tok:
+        raise EngineError(404, "not_found", "not found")
+    try:
+        payload = await request.json()
+    except Exception:                            # noqa: BLE001
+        return {"ok": True, "ignored": "bad_json"}
+    ev = smartlead.read_event(payload)
+    if not ev["fields"] or not ev["to_email"]:
+        return {"ok": True, "ignored": ev["event"] or "unknown"}
+    store = get_saas_store()
+    ref = store.get("outreach_addr", "_shared", ev["to_email"])
+    if not ref:
+        return {"ok": True, "ignored": "unknown_address"}
+    doc = store.get("lead_request", ref["ws"], ref["request_id"])
+    cand = next((c for c in (doc or {}).get("candidates") or []
+                 if c["company_id"] == ref["company_id"]), None)
+    if cand is None:
+        return {"ok": True, "ignored": "unknown_candidate"}
+    _record_outcome(store, ref["ws"], ref["request_id"], ref["company_id"],
+                    cand, **ev["fields"])
+    return {"ok": True, "event": ev["event"]}
 
 
 class DeleteMe(BaseModel):

@@ -1,0 +1,122 @@
+"""실제 발송과 회신 추적 — 되돌릴 수 없는 경계를 코드로 긋는다.
+
+이 레포는 지금까지 초안까지만 만들었다(send_blocked). 사용자가 실제 발송을
+요구하면서 경계가 옮겨졌지만, 없어진 것이 아니라 **한 곳으로 모였다**:
+준비(되돌릴 수 있음)와 발사(되돌릴 수 없음)는 서로 다른 함수·다른 엔드포인트다.
+이 테스트가 그 분리를 고정한다.
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.connectors import smartlead
+
+
+class _Rec:
+    """호출을 기록하는 가짜 Smartlead."""
+
+    def __init__(self, campaign_id=777):
+        self.calls = []
+        self.campaign_id = campaign_id
+
+    def __call__(self, method, path, body):
+        self.calls.append((method, path, body))
+        if path == "/campaigns/create":
+            return {"ok": True, "id": self.campaign_id}
+        if path.endswith("/email-accounts") and method == "GET":
+            return [{"id": 1, "from_email": "a@b.com", "message_per_day": 30}]
+        return {"ok": True}
+
+    def paths(self):
+        return [p for _, p, _ in self.calls]
+
+    def bodies(self):
+        return [b for _, _, b in self.calls if b]
+
+
+class TestSendBoundary:
+    def test_prepare_never_starts(self):
+        """준비가 발송까지 하면, 화면의 실수 한 번이 곧 발송이 된다."""
+        rec = _Rec()
+        out = smartlead.prepare("테스트", subject="s", body="b",
+                                lead={"email": "x@y.com"}, mailbox_ids=[1],
+                                _call=rec)
+        assert out["status"] == "ok" and out["sent"] is False
+        assert not any("/status" in p for p in rec.paths())
+        assert not any((b or {}).get("status") == "START" for b in rec.bodies())
+
+    def test_start_is_the_only_sender(self):
+        rec = _Rec()
+        out = smartlead.start_campaign(777, _call=rec)
+        assert out["sent"] is True
+        assert rec.calls == [("POST", "/campaigns/777/status",
+                              {"status": "START"})]
+
+    def test_only_start_campaign_mentions_START(self):
+        """소스 전체에서 START를 보내는 함수가 하나뿐임을 고정한다."""
+        import inspect
+        src = inspect.getsource(smartlead)
+        assert src.count("_STATUS_START") == 2      # 정의 1 + 사용 1
+        assert "_STATUS_START" in inspect.getsource(smartlead.start_campaign)
+
+    def test_prepare_attaches_mailbox_before_sequence(self):
+        """메일함 없이 시퀀스를 저장하면 보낼 수 없는 캠페인이 남는다."""
+        rec = _Rec()
+        smartlead.prepare("t", subject="s", body="b",
+                          lead={"email": "x@y.com"}, mailbox_ids=[9], _call=rec)
+        paths = rec.paths()
+        assert paths.index("/campaigns/777/email-accounts") \
+            < paths.index("/campaigns/777/sequences")
+
+
+class TestTracking:
+    def test_reply_maps_to_reach_fact_field(self):
+        """답장은 원장의 replied=yes를 쓴다 — 그래야 가능성 판정을 덮는다."""
+        ev = smartlead.read_event(
+            {"event_type": "EMAIL_REPLY", "lead": {"email": "A@B.com"}})
+        assert ev["fields"]["replied"] == "yes"
+        assert ev["to_email"] == "a@b.com"      # 소문자로 정규화
+
+    def test_open_does_not_claim_a_reply(self):
+        """열람은 답장이 아니다 — 미관측을 사실로 승격하지 않는다."""
+        ev = smartlead.read_event(
+            {"event_type": "EMAIL_OPEN", "lead": {"email": "a@b.com"}})
+        assert "replied" not in ev["fields"]
+        assert ev["fields"]["stage"] == "opened"
+
+    def test_bounce_is_recorded_not_ignored(self):
+        ev = smartlead.read_event(
+            {"event_type": "EMAIL_BOUNCE", "lead": {"email": "a@b.com"}})
+        assert ev["fields"]["replied"] == "bounced"
+
+    def test_unknown_event_yields_nothing_to_record(self):
+        ev = smartlead.read_event({"event_type": "LEAD_UNSUBSCRIBED",
+                                   "lead": {"email": "a@b.com"}})
+        assert ev["fields"] == {}
+
+    def test_empty_payload_is_safe(self):
+        assert smartlead.read_event({})["fields"] == {}
+        assert smartlead.read_event(None)["to_email"] == ""
+
+
+class TestConnectorContract:
+    def test_no_key_is_a_status(self, monkeypatch):
+        monkeypatch.delenv("SMARTLEAD_API_KEY", raising=False)
+        assert smartlead.mailboxes()["status"] == "no_key"
+
+    def test_webhook_token_is_separate_from_api_key(self):
+        """웹훅 URL은 외부에 저장된다 — 새더라도 API 키가 함께 새면 안 된다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.smartlead_webhook)
+        assert "SMARTLEAD_WEBHOOK_TOKEN" in src
+        assert "SMARTLEAD_API_KEY" not in src
+
+    def test_webhook_trusts_only_the_address(self):
+        """payload는 데이터이지 지시가 아니다 — ws/후보를 payload에서 읽지 않는다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.smartlead_webhook)
+        assert 'store.get("outreach_addr"' in src
+        assert 'payload["ws"]' not in src and "payload.get(\"ws\")" not in src
