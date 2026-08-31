@@ -160,7 +160,11 @@ class TestDerivedOnGet:
         r = client.get(f"/saas/lead-requests/{rid}", headers=H).json()
         d = r["derived"]
         assert d["c1"]["draft"]["drafts"][0]["subject"] == "s"
-        assert d["c1"]["outcome"] == {"saved": True, "drafted": True, "replied": "yes"}
+        # 추적 사실(opened·stage)도 함께 실린다 — 빠뜨렸더니 열람이 원장에만
+        # 남고 화면에는 영영 안 보였다(실측).
+        assert d["c1"]["outcome"] == {"saved": True, "drafted": True,
+                                      "replied": "yes", "opened": False,
+                                      "stage": ""}
         assert d["c1"]["has_insight"] is False
         assert "c2" not in d                       # 옛 세대 초안은 무시
 

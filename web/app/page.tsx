@@ -103,8 +103,11 @@ function humanTick(raw: string): string {
 
 type PipeRow = { request_id: string; request_title: string; company_id: string;
   name: string; source_url: string; drafted: boolean; replied: string;
-  note: string; stage: string };
+  note: string; stage: string; opened?: boolean };
 type Pipeline = { stages: string[]; board: Record<string, PipeRow[]>; total: number };
+type TrackLead = { company_id: string; request_id: string; name: string;
+  source_url?: string; sent_at: number | null; opened_at: number | null;
+  open_count: number; replied_at: number | null; bounced_at: number | null };
 type OutreachEvent = { at: number; event: string; label: string;
   name: string; source_url?: string; request_id: string; company_id: string };
 const STAGE_LABEL: Record<string, string> = {
@@ -584,6 +587,8 @@ function Workspace({ who }: { who: string }) {
   // 파이프라인 보드 — 요청 넘어 저장한 리드를 단계별로. 열 때만 불러온다.
   const [pipe, setPipe] = useState<Pipeline | null>(null);
   const [pipeOpen, setPipeOpen] = useState(false);
+  const [track, setTrack] = useState<{ leads: TrackLead[]; total: number } | null>(null);
+  const [trackOpen, setTrackOpen] = useState(false);
   const [likedC, setLikedC] = useState<Set<string>>(new Set());
   const [dislikedC, setDislikedC] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
@@ -1305,6 +1310,14 @@ function Workspace({ who }: { who: string }) {
               }}>
               <span className="hash">☆</span>
               <span className="nm">저장한 리드 보드{pipe ? ` · ${pipe.total}` : ""}</span></button>
+            <button className={`chan ${trackOpen ? "active" : ""}`}
+              onClick={async () => {
+                if (trackOpen) { setTrackOpen(false); return; }
+                try { setTrack(await api("/outreach/tracker")); setTrackOpen(true); setPipeOpen(false); }
+                catch (e) { push({ who: "agent", text: (e as Error).message }); }
+              }}>
+              <span className="hash">✉</span>
+              <span className="nm">보낸 메일 추적{track ? ` · ${track.total}` : ""}</span></button>
           </div>
         </div>
         <div className="side-foot">
@@ -1375,6 +1388,7 @@ function Workspace({ who }: { who: string }) {
             )}
           </div>
         </header>
+        {trackOpen && track && <MailTracker t={track} />}
         {pipeOpen && pipe && (
           <PipelineBoard pipe={pipe}
             onOpen={(rid) => { setPipeOpen(false); openRequest(rid); }}
@@ -1740,6 +1754,66 @@ function ProfileCard({ profile, onApprove, onFix }: {
 
 /** 파이프라인 보드 — 요청 넘어 저장한 리드를 단계별 열로. 단계 이동은 사용자의
  *  손이다(답장 여부 같은 사실은 자동으로 올라오고, 미팅·성사는 사용자만 안다). */
+/** 보낸 메일 추적 — 무엇이 언제 나갔고, 열렸고, 답이 왔는가.
+ *
+ *  시각을 보이는 이유: "열었다"만으로는 다음 행동을 정할 수 없다. 보낸 지
+ *  10분 만에 열었는지 사흘 뒤에 열었는지가 후속 연락 시점을 가른다. */
+function MailTracker({ t }: { t: { leads: TrackLead[]; total: number } }) {
+  const fmt = (v: number | null) =>
+    v ? new Date(v * 1000).toLocaleString("ko-KR",
+      { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : "—";
+  const gap = (a: number | null, b: number | null) => {
+    if (!a || !b) return "";
+    const m = Math.round((b - a) / 60);
+    if (m < 60) return `${m}분 만에`;
+    const h = Math.round(m / 60);
+    return h < 48 ? `${h}시간 만에` : `${Math.round(h / 24)}일 만에`;
+  };
+  return (
+    <div className="pipe">
+      <div className="pipe-head">보낸 메일 {t.total}건 — 발송·열람·답장</div>
+      {t.total === 0 ? (
+        <div className="quiet" style={{ padding: "10px 14px" }}>
+          아직 보낸 메일이 없어요. 후보 카드에서 초안을 만들고 발송하면 여기에 쌓입니다.
+        </div>
+      ) : (
+        <div className="track-tbl">
+          <div className="track-row track-hd">
+            <span>회사</span><span>발송</span><span>열람</span><span>답장</span>
+          </div>
+          {t.leads.map((l) => (
+            <div className="track-row" key={l.company_id}>
+              <span className="track-nm">{l.name}</span>
+              <span className="track-t">{fmt(l.sent_at)}</span>
+              <span className="track-t">
+                {l.opened_at ? (
+                  <>
+                    <b className="hit">{fmt(l.opened_at)}</b>
+                    {l.open_count > 1 && <i className="cnt">{l.open_count}회</i>}
+                    <i className="gap">{gap(l.sent_at, l.opened_at)}</i>
+                  </>) : <span className="none">안 열림</span>}
+              </span>
+              <span className="track-t">
+                {l.bounced_at ? <b className="bad">반송</b>
+                  : l.replied_at ? (
+                    <>
+                      <b className="hit">{fmt(l.replied_at)}</b>
+                      <i className="gap">{gap(l.sent_at, l.replied_at)}</i>
+                    </>) : <span className="none">—</span>}
+              </span>
+            </div>))}
+        </div>
+      )}
+      {/* 열람은 확정 사실이 아니다 — 화면이 그걸 숨기면 사용자가 과신한다 */}
+      <div className="quiet" style={{ padding: "8px 14px" }}>
+        열람은 추적 픽셀로 재요 — 이미지를 자동으로 받는 메일 앱에서는
+        열지 않아도 잡힐 수 있어요. 답장만이 확정 사실입니다.
+      </div>
+    </div>
+  );
+}
+
 function PipelineBoard({ pipe, onOpen, onStage }: {
   pipe: Pipeline;
   onOpen: (rid: string) => void;
@@ -1764,7 +1838,13 @@ function PipelineBoard({ pipe, onOpen, onStage }: {
                 title="이 요청 열기">{r.request_title}</button>
               <div className="board-meta">
                 {r.drafted && <span className="mini">초안</span>}
+                {/* 열람은 단계가 아니라 표식 — "보냈고 열어는 봤다"가
+                    '연락함' 칸 안에서 구별돼야 다음 행동을 정할 수 있다. */}
+                {r.opened && r.replied !== "yes" && (
+                  <span className="mini opened" title="상대가 메일을 열어봤어요">열람</span>)}
                 {r.replied === "yes" && <span className="mini saved">답장</span>}
+                {r.replied === "bounced" && (
+                  <span className="mini bounced" title="메일이 반송됐어요 — 주소를 확인하세요">반송</span>)}
               </div>
               <select className="board-sel" value={r.stage}
                 onChange={(e) => onStage(r, e.target.value)}>

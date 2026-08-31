@@ -622,6 +622,11 @@ def get_request(rid: str, user: SaasUser = Depends(current_user)):
                             "draft": drf,
                             "outcome": {"saved": bool((out or {}).get("saved")),
                                         "drafted": bool((out or {}).get("drafted")),
+                                        # 추적 사실도 싣는다 — 빠뜨렸더니
+                                        # 열람이 원장에만 남고 화면에는
+                                        # 영영 안 보였다(실측).
+                                        "opened": bool((out or {}).get("opened")),
+                                        "stage": (out or {}).get("stage", ""),
                                         "replied": (out or {}).get("replied", "")}}
     # 표시용 적합도는 순수 함수라 조회 때 메운다 — 보정을 넣기 전에 랭킹된
     # 요청(실측 19건 중 18건)은 저장된 match가 없어 배지가 통째로 안 떴다.
@@ -878,6 +883,47 @@ _EVENT_KO = {
     "EMAIL_BOUNCE": "메일이 반송됐어요",
     "EMAIL_SENT": "메일이 발송됐어요",
 }
+
+
+@router.get("/outreach/tracker")
+def outreach_tracker(user: SaasUser = Depends(current_user)):
+    """뿌린 메일 전부 — 무엇이 언제 나갔고, 열렸고, 답이 왔는가.
+
+    사건 로그를 리드 단위로 접는다. 원장(outcome)은 "지금 어떤 상태인가"만
+    알아서 "언제"를 답하지 못한다 — 발송 시각과 열람 시각의 간격은 사용자가
+    후속 연락 시점을 정하는 재료다.
+
+    열람 횟수를 세는 이유: 한 번 스쳐 본 것과 세 번 다시 연 것은 다른
+    신호다. 다만 **열람은 답장이 아니다** — 이미지 프리페치로도 잡히므로
+    확정 사실로 취급하지 않는다(reach_fact를 쓰지 않는 이유와 같다).
+    """
+    store = get_saas_store()
+    rows = store.list("outreach_event", user.workspace_id, limit=500)
+    leads: dict = {}
+    for r in rows:
+        cid = r.get("company_id")
+        if not cid:
+            continue
+        at = float(r.get("at") or 0)
+        L = leads.setdefault(cid, {
+            "company_id": cid, "request_id": r.get("request_id", ""),
+            "name": r.get("name", ""), "source_url": r.get("source_url", ""),
+            "sent_at": None, "opened_at": None, "open_count": 0,
+            "replied_at": None, "bounced_at": None})
+        ev = r.get("event")
+        if ev == "EMAIL_SENT":
+            L["sent_at"] = at if L["sent_at"] is None else min(L["sent_at"], at)
+        elif ev == "EMAIL_OPEN":
+            L["open_count"] += 1
+            # 처음 연 시각을 남긴다 — 발송~첫 열람 간격이 신호다
+            L["opened_at"] = at if L["opened_at"] is None else min(L["opened_at"], at)
+        elif ev == "EMAIL_REPLY":
+            L["replied_at"] = at if L["replied_at"] is None else min(L["replied_at"], at)
+        elif ev == "EMAIL_BOUNCE":
+            L["bounced_at"] = at
+    out = sorted(leads.values(),
+                 key=lambda x: -(x["sent_at"] or x["opened_at"] or 0))
+    return {"leads": out, "total": len(out)}
 
 
 @router.get("/outreach/events")
@@ -1688,20 +1734,30 @@ def pipeline(user: SaasUser = Depends(current_user)):
     보여야 한다. 원장(outcome)에 이미 있는 것을 모으는 것뿐이라 비용이 없다.
     """
     store = get_saas_store()
+    # 저장한 것만 보여주면, 메일을 보낸 회사가 보드에 없다 — 저장 버튼을
+    # 누르지 않았다는 이유로. 활동(발송·열람·답장)이 있으면 그것이 곧
+    # "이 리드를 다루고 있다"는 뜻이므로 보드에 올린다.
     rows = [o for o in store.list("outcome", user.workspace_id, limit=500)
-            if o.get("saved")]
+            if o.get("saved") or o.get("replied") or o.get("opened")
+            or o.get("stage") in ("contacted", "replied", "meeting",
+                                  "won", "lost")]
     titles = {r["request_id"]: (r.get("title") or r["request_id"])
               for r in store.list("lead_request", user.workspace_id, limit=200)}
     board = {st: [] for st in STAGES}
     for o in rows:
         st = o.get("stage") or "saved"
         if st not in board:
-            st = "saved"
+            # 모르는 단계를 조용히 "saved"로 내리면 발송한 리드가 저장만 한
+            # 리드로 보인다(실측: 웹훅이 쓴 "sent"가 그렇게 사라졌다).
+            # 활동 기록이 있으면 최소한 '연락함'으로 올린다.
+            st = "contacted" if (o.get("drafted") or o.get("opened")) else "saved"
         board[st].append({
             "request_id": o["request_id"], "request_title": titles.get(o["request_id"], o["request_id"]),
             "company_id": o["company_id"], "name": o.get("name", ""),
             "source_url": o.get("source_url", ""), "drafted": bool(o.get("drafted")),
-            "replied": o.get("replied", ""), "note": o.get("note", ""), "stage": st})
+            "replied": o.get("replied", ""), "note": o.get("note", ""),
+            # 열람은 단계가 아니라 리드에 붙는 사실 — 카드에 표식으로 뜬다
+            "opened": bool(o.get("opened")), "stage": st})
     return {"stages": list(STAGES), "board": board, "total": len(rows)}
 
 

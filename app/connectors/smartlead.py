@@ -161,9 +161,15 @@ def delete_campaign(campaign_id: int, _call=None) -> dict:
 # ── 웹훅 수신 ──────────────────────────────────────────────────────
 # Smartlead가 부르는 쪽. 이벤트 이름은 Smartlead 어휘를 그대로 쓴다 —
 # 번역하면 나중에 문서와 대조가 안 된다.
+# stage는 **보드의 깔때기 어휘**(saved/contacted/replied/meeting/won/lost)만
+# 쓴다. 처음엔 "sent"·"opened"라는 새 값을 썼는데, 보드가 모르는 값이라
+# 조용히 "saved"로 강등돼 발송한 회사가 저장만 한 회사처럼 보였다.
+#
+# 열람은 단계가 아니다 — 깔때기의 칸이 아니라 그 리드에 붙는 사실이므로
+# 별도 필드로 남긴다. "열어봤지만 아직 답이 없다"는 contacted 안의 상태다.
 _EVENT_TO_OUTCOME = {
-    "EMAIL_SENT": {"stage": "sent"},
-    "EMAIL_OPEN": {"stage": "opened"},
+    "EMAIL_SENT": {"stage": "contacted"},
+    "EMAIL_OPEN": {"opened": True},
     "EMAIL_REPLY": {"replied": "yes"},        # ← reach_fact를 쓰는 유일한 이벤트
     "EMAIL_BOUNCE": {"replied": "bounced"},
 }

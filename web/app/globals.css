@@ -698,3 +698,21 @@ a.ct-v{color:var(--blue)}
 .card.reply-hit{border-color:rgba(63,185,80,.45);
   background:linear-gradient(180deg,rgba(63,185,80,.08),transparent)}
 .card.reply-hit .card-head{color:#3fb950}
+
+/* 추적 표식 — 열람은 주황(신호), 반송은 빨강(고쳐야 할 것) */
+.mini.opened{background:rgba(210,153,34,.16);color:#d29922}
+.mini.bounced{background:rgba(248,81,73,.16);color:#f85149}
+
+/* 보낸 메일 추적 표 */
+.track-tbl{display:flex;flex-direction:column;padding:4px 14px 8px}
+.track-row{display:grid;grid-template-columns:1.6fr 1fr 1.3fr 1.2fr;gap:10px;
+  padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12px;
+  align-items:baseline}
+.track-hd{color:var(--txt-3);font-size:11px;font-weight:700;border-bottom-color:var(--line)}
+.track-nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.track-t{color:var(--txt-2);font-variant-numeric:tabular-nums}
+.track-t .hit{color:#3fb950;font-weight:600}
+.track-t .bad{color:#f85149;font-weight:600}
+.track-t .none{color:var(--txt-3)}
+.track-t .cnt{font-style:normal;margin-left:5px;color:#d29922;font-size:11px}
+.track-t .gap{font-style:normal;display:block;color:var(--txt-3);font-size:10.5px}

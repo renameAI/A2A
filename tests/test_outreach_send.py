@@ -79,11 +79,11 @@ class TestTracking:
         assert ev["to_email"] == "a@b.com"      # 소문자로 정규화
 
     def test_open_does_not_claim_a_reply(self):
-        """열람은 답장이 아니다 — 미관측을 사실로 승격하지 않는다."""
+        """열람은 답장이 아니다 — 이미지 프리페치로도 잡힌다."""
         ev = smartlead.read_event(
             {"event_type": "EMAIL_OPEN", "lead": {"email": "a@b.com"}})
         assert "replied" not in ev["fields"]
-        assert ev["fields"]["stage"] == "opened"
+        assert ev["fields"] == {"opened": True}
 
     def test_bounce_is_recorded_not_ignored(self):
         ev = smartlead.read_event(
@@ -234,3 +234,71 @@ class TestSchedule:
         rec = _Rec()
         smartlead.start_campaign(777, _call=rec)
         assert not any("schedule" in p for p in rec.paths())
+
+
+class TestTrackingReachesTheBoard:
+    """원장에 기록되는 것과 화면에 보이는 것은 다르다 — 실측: 웹훅이 쓴
+    stage='sent'를 보드가 몰라서 조용히 'saved'로 강등, 발송한 회사가
+    저장만 한 회사처럼 보였다."""
+
+    def test_events_use_the_board_vocabulary(self):
+        from app.connectors.smartlead import _EVENT_TO_OUTCOME
+        from app.saas.router import STAGES
+        for fields in _EVENT_TO_OUTCOME.values():
+            if "stage" in fields:
+                assert fields["stage"] in STAGES, fields
+
+    def test_open_is_a_fact_not_a_stage(self):
+        """'열어봤지만 답이 없다'는 깔때기의 칸이 아니라 그 안의 상태다."""
+        from app.connectors.smartlead import _EVENT_TO_OUTCOME
+        assert _EVENT_TO_OUTCOME["EMAIL_OPEN"] == {"opened": True}
+
+    def test_board_shows_leads_with_activity_not_only_saved(self):
+        """저장 버튼을 안 눌렀다는 이유로 발송한 회사가 사라지면 안 된다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.pipeline)
+        assert 'o.get("replied") or o.get("opened")' in src
+
+    def test_unknown_stage_is_not_silently_demoted(self):
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.pipeline)
+        assert '"contacted" if (o.get("drafted") or o.get("opened"))' in src
+
+    def test_board_row_carries_opened(self):
+        import inspect
+        from app.saas import router
+        assert '"opened": bool(o.get("opened"))' in inspect.getsource(router.pipeline)
+
+
+class TestTracker:
+    """1. 뿌린 메일이 전부 보인다 2. 열람 여부 3. 시각."""
+
+    def test_folds_events_into_one_row_per_lead(self):
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_tracker)
+        for f in ("sent_at", "opened_at", "open_count", "replied_at",
+                  "bounced_at"):
+            assert f in src, f
+
+    def test_first_open_is_kept_not_last(self):
+        """발송~첫 열람 간격이 신호다 — 마지막 열람으로 덮으면 그걸 잃는다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_tracker)
+        assert 'min(L["opened_at"], at)' in src
+
+    def test_open_count_is_kept(self):
+        """한 번 스쳐 본 것과 세 번 다시 연 것은 다른 신호다."""
+        import inspect
+        from app.saas import router
+        assert 'L["open_count"] += 1' in inspect.getsource(router.outreach_tracker)
+
+    def test_outcome_projection_carries_tracking(self):
+        """투영에서 빠뜨렸더니 열람이 원장에만 남고 화면엔 안 보였다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.get_request)
+        assert '"opened": bool((out or {}).get("opened"))' in src
