@@ -186,3 +186,35 @@ class TestEventFeed:
         from app.saas import router
         src = inspect.getsource(router.smartlead_webhook)
         assert 'store.put("outreach_event"' in src
+
+
+class TestTestSend:
+    """진짜 보내기 전에 자기 받은편지함으로 한 통 — 정당한 단계다.
+    다만 그 한 통이 '이 회사에 연락했다'로 기록되면 원장이 거짓이 된다."""
+
+    def test_override_does_not_touch_the_outcome_ledger(self):
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_prepare)
+        assert "if not body.to_override:" in src
+
+    def test_sent_test_is_not_recorded_as_contacted(self):
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_send)
+        assert 'if not rec.get("test")' in src
+
+    def test_test_flag_travels_in_both_responses(self):
+        """화면이 '테스트였다'를 말할 수 있어야 오해가 없다."""
+        import inspect
+        from app.saas import router
+        for fn in (router.outreach_prepare, router.outreach_send):
+            assert '"test"' in inspect.getsource(fn)
+
+    def test_override_skips_the_bounce_gate(self):
+        """내 주소의 반송 위험은 내가 안다 — 게이트가 테스트를 막으면 안 된다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_prepare)
+        i, j = src.find("if body.to_override:"), src.find('vres == "invalid"')
+        assert i != -1 and j != -1 and i < j

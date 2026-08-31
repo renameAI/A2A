@@ -666,6 +666,10 @@ def delete_request(rid: str, user: SaasUser = Depends(current_user)):
 class OutreachPrepareIn(BaseModel):
     """발송 준비 — 어느 메일함으로 보낼지는 사용자가 고른다."""
     mailbox_ids: list[int] = []
+    # 테스트 발송 — 실제 후보 대신 이 주소로 보낸다. 진짜 상대에게 나가기
+    # 전에 본문과 추적을 자기 받은편지함에서 확인하는 용도다. 원장에는
+    # test=True로 남아, 나중에 "이 회사에 연락했다"로 오해되지 않는다.
+    to_override: "str | None" = None
     # 변종이 여럿이면 어느 것을 보낼지 사용자가 고른다. 코드가 조용히
     # drafts[0]을 집으면, A/B로 만든 두 초안 중 무엇이 나갔는지 아무도 모른다.
     variant: "str | None" = None
@@ -730,6 +734,12 @@ def outreach_prepare(rid: str, cid: str, body: OutreachPrepareIn,
     if not to:
         raise EngineError(409, "invalid_state",
                           "받는 사람 주소가 없어요 — 접점을 먼저 확보하세요")
+    if body.to_override:
+        # 테스트 발송 — 실제 후보 대신 내 주소로 보내 본문·추적을 확인한다.
+        # 진짜 보내기 전에 한 번 받아보는 것은 이 제품에서 정당한 단계다.
+        # 검증 게이트는 건너뛴다: 내 주소의 반송 위험은 내가 안다.
+        to = body.to_override.strip().lower()
+        rcp = {**rcp, "email": to, "verify": {"result": "test"}}
     # 반송 위험은 한 통의 실패로 끝나지 않는다. 검증이 invalid라고 말한
     # 주소로 보내면 발송 도메인 평판이 깎이고, 그 대가는 이후 모든 메일이
     # 치른다. unknown은 막지 않는다 — 모름은 나쁨이 아니다(한국 메일 서버는
@@ -756,13 +766,17 @@ def outreach_prepare(rid: str, cid: str, body: OutreachPrepareIn,
               {"ws": user.workspace_id, "request_id": rid, "company_id": cid,
                "campaign_id": camp})
     store.put("outreach", user.workspace_id, _outreach_key(rid, cid),
-              {"campaign_id": camp, "to": to, "sent": False})
+              {"campaign_id": camp, "to": to, "sent": False,
+               "test": bool(body.to_override)})
     tok = os.environ.get("SMARTLEAD_WEBHOOK_TOKEN", "")
     base = os.environ.get("PUBLIC_BASE_URL", "")
     if tok and base:
         smartlead.register_webhook(camp, f"{base}/saas/webhooks/smartlead?t={tok}")
-    _record_outcome(store, user.workspace_id, rid, cid, cand, stage="prepared")
+    if not body.to_override:
+        _record_outcome(store, user.workspace_id, rid, cid, cand,
+                        stage="prepared")
     return {"campaign_id": camp, "to": to, "sent": False,
+            "test": bool(body.to_override),
             "mailboxes": len(body.mailbox_ids),
             "variant": d.get("variant_label"),
             "verify": (rcp.get("verify") or {}).get("result", ""),
@@ -802,8 +816,11 @@ def outreach_send(rid: str, cid: str, body: OutreachSendIn,
                           f"발송 실패 — {res.get('note', '')[:120]}")
     rec["sent"] = True
     store.put("outreach", user.workspace_id, _outreach_key(rid, cid), rec)
-    _record_outcome(store, user.workspace_id, rid, cid, cand, stage="sent")
-    return {"campaign_id": rec["campaign_id"], "sent": True}
+    # 테스트 발송은 "이 회사에 연락함"이 아니다 — 원장에 남기지 않는다.
+    if not rec.get("test"):
+        _record_outcome(store, user.workspace_id, rid, cid, cand, stage="sent")
+    return {"campaign_id": rec["campaign_id"], "sent": True,
+            "test": bool(rec.get("test")), "to": rec.get("to")}
 
 
 @router.post("/webhooks/smartlead")
