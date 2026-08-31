@@ -42,3 +42,4 @@ tests/test_hunter.py
 tests/test_concurrency_holes.py
 tests/test_job_dedupe.py
 tests/test_outreach_send.py
+tests/test_compliance.py

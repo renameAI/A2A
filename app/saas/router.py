@@ -668,6 +668,33 @@ def delete_request(rid: str, user: SaasUser = Depends(current_user)):
     return {"deleted": rid, "removed": removed}
 
 
+class SenderIdentityIn(BaseModel):
+    """발송에 필요한 발신자 신원. 법이 요구하는 것이라 선택 사항이 아니다."""
+    legal_name: str = ""
+    postal_address: str = ""
+    contact_email: str = ""
+    phone: str = ""
+    website: str = ""
+    unsubscribe_url: str = ""
+
+
+@router.get("/outreach/identity")
+def get_identity(user: SaasUser = Depends(current_user)):
+    from ..engine import compliance
+    d = get_saas_store().get("sender_identity", user.workspace_id, "self") or {}
+    return {"identity": d, "missing": compliance.missing_fields(d)}
+
+
+@router.put("/outreach/identity")
+def put_identity(body: SenderIdentityIn,
+                 user: SaasUser = Depends(current_user)):
+    """발신자 신원 저장 — 발송의 전제 조건."""
+    from ..engine import compliance
+    d = body.model_dump()
+    get_saas_store().put("sender_identity", user.workspace_id, "self", d)
+    return {"identity": d, "missing": compliance.missing_fields(d)}
+
+
 class OutreachPrepareIn(BaseModel):
     """발송 준비 — 어느 메일함으로 보낼지는 사용자가 고른다."""
     mailbox_ids: list[int] = []
@@ -754,9 +781,27 @@ def outreach_prepare(rid: str, cid: str, body: OutreachPrepareIn,
         raise EngineError(409, "invalid_recipient",
                           f"{to}는 검증에서 반송 위험으로 나왔어요 — "
                           "다른 접점을 쓰거나 그래도 보낼지 확인해주세요")
+    # 법적 고지 — 보내는 순간 메일은 규제 대상이 된다. 코드가 붙이고,
+    # 붙일 수 없으면 보내지 않는다(빈칸을 그럴듯한 문장으로 채우는 것이
+    # 가장 나쁜 실패다). 참고 자료의 운영 프롬프트 4/5가 이걸 고정 문구로
+    # 갖고 있었다 — 모델이 매번 새로 쓸 문장이 아니라는 뜻이다.
+    from ..engine import compliance
+    ident = store.get("sender_identity", user.workspace_id, "self") or {}
+    lack = compliance.missing_fields(ident)
+    if lack:
+        raise EngineError(
+            409, "identity_required",
+            "발신자 정보가 없어 보낼 수 없어요 — 콜드메일에는 발신자의 "
+            f"우편 주소와 수신 거부 수단이 법으로 요구됩니다. 빠진 항목: "
+            f"{', '.join(lack)}")
+    tail = compliance.footer(
+        ident, language=drf.get("language") or "ko",
+        country=(cand.get("ontology") or {}).get("country")
+        or (_intent.target_region or ""))
     res = smartlead.prepare(
         f"{cand['name']} — {rid}",
-        subject=d.get("subject") or "", body=d.get("body") or "",
+        subject=d.get("subject") or "",
+        body=(d.get("body") or "") + "\n\n" + tail,
         lead={"email": to,
               "first_name": ((drf.get("recipient") or {}).get("name") or "").split(" ")[0],
               "company_name": cand.get("name", "")},
