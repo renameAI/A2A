@@ -108,6 +108,18 @@ def prepare(name: str, *, subject: str, body: str, lead: dict,
                              "email_body": body}]}, _call=_call)
         _req("POST", f"/campaigns/{cid}/leads",
              {"lead_list": [lead]}, _call=_call)
+        # 스케줄이 없으면 Smartlead가 START를 거부한다(실측: "Cron Exp value
+        # is empty!"). 준비 단계에 넣는 이유는, 발송 함수가 스케줄까지
+        # 만지면 "보내기"가 아니라 "설정하고 보내기"가 되기 때문이다 —
+        # 되돌릴 수 있는 일은 전부 준비 쪽에 있어야 경계가 선명하다.
+        # 창을 넓게 두는 것은 의도다: 좁히면 사용자가 누른 뒤 몇 시간 뒤에
+        # 나가서, 방금 보낸 것인지 아닌지 알 수 없게 된다.
+        _req("POST", f"/campaigns/{cid}/schedule",
+             {"timezone": "Asia/Seoul",
+              "days_of_the_week": [0, 1, 2, 3, 4, 5, 6],
+              "start_hour": "00:00", "end_hour": "23:59",
+              "min_time_btw_emails": 10,
+              "max_new_leads_per_day": 20}, _call=_call)
         return {"campaign_id": cid, "sent": False}
     return _wrap(go, _call=_call)
 

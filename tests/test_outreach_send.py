@@ -218,3 +218,19 @@ class TestTestSend:
         src = inspect.getsource(router.outreach_prepare)
         i, j = src.find("if body.to_override:"), src.find('vres == "invalid"')
         assert i != -1 and j != -1 and i < j
+
+
+class TestSchedule:
+    """실측: 스케줄 없이 START하면 "Cron Exp value is empty!"로 거부된다."""
+
+    def test_prepare_sets_a_schedule(self):
+        rec = _Rec()
+        smartlead.prepare("t", subject="s", body="b",
+                          lead={"email": "x@y.com"}, mailbox_ids=[1], _call=rec)
+        assert "/campaigns/777/schedule" in rec.paths()
+
+    def test_schedule_belongs_to_prepare_not_send(self):
+        """되돌릴 수 있는 일은 전부 준비 쪽에 — 발송은 발송만 한다."""
+        rec = _Rec()
+        smartlead.start_campaign(777, _call=rec)
+        assert not any("schedule" in p for p in rec.paths())
