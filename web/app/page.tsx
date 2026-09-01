@@ -591,6 +591,7 @@ function Workspace({ who }: { who: string }) {
   const [pipeOpen, setPipeOpen] = useState(false);
   const [track, setTrack] = useState<{ leads: TrackLead[]; total: number } | null>(null);
   const [trackOpen, setTrackOpen] = useState(false);
+  const [identOpen, setIdentOpen] = useState(false);
   const [likedC, setLikedC] = useState<Set<string>>(new Set());
   const [dislikedC, setDislikedC] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
@@ -1328,6 +1329,10 @@ function Workspace({ who }: { who: string }) {
               }}>
               <span className="hash">✉</span>
               <span className="nm">보낸 메일 추적{track ? ` · ${track.total}` : ""}</span></button>
+            <button className={`chan ${identOpen ? "active" : ""}`}
+              onClick={() => { setIdentOpen((v) => !v); setPipeOpen(false); setTrackOpen(false); }}>
+              <span className="hash">⚖</span>
+              <span className="nm">발신자 정보</span></button>
           </div>
         </div>
         <div className="side-foot">
@@ -1398,6 +1403,8 @@ function Workspace({ who }: { who: string }) {
             )}
           </div>
         </header>
+        {identOpen && <SenderIdentity api={api}
+          onDone={() => push({ who: "agent", text: "발신자 정보를 저장했어요. 이제 발송할 수 있습니다." })} />}
         {trackOpen && track && <MailTracker t={track} />}
         {pipeOpen && pipe && (
           <PipelineBoard pipe={pipe}
@@ -1764,6 +1771,72 @@ function ProfileCard({ profile, onApprove, onFix }: {
 
 /** 파이프라인 보드 — 요청 넘어 저장한 리드를 단계별 열로. 단계 이동은 사용자의
  *  손이다(답장 여부 같은 사실은 자동으로 올라오고, 미팅·성사는 사용자만 안다). */
+/** 발신자 정보 — 콜드메일에 법이 요구하는 것.
+ *
+ *  하드코딩하지 않는 이유는 분명하다: 이건 우리가 아는 사실이 아니라
+ *  **보내는 사람이 아는 사실**이다. 법인명과 우편 주소를 대신 지어 넣으면
+ *  고지가 아니라 거짓말이 된다. 그래서 빈칸으로 두고 사람이 채운다. */
+function SenderIdentity({ api, onDone }: {
+  api: (p: string, b?: unknown, m?: string) => Promise<any>;
+  onDone?: () => void }) {
+  const [v, setV] = useState<Record<string, string>>({});
+  const [missing, setMissing] = useState<string[]>([]);
+  const [busy, setBusy] = useState(true);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    api("/outreach/identity")
+      .then((r) => { setV(r.identity ?? {}); setMissing(r.missing ?? []); })
+      .catch((e) => setMsg((e as Error).message))
+      .finally(() => setBusy(false));
+  }, []);
+  const F: [string, string, string][] = [
+    ["legal_name", "법인명", "메일에 표시될 정식 상호 — 수신자가 읽을 수 있는 표기로"],
+    ["postal_address", "우편 주소", "미국 CAN-SPAM이 실제 주소를 요구해요"],
+    ["contact_email", "연락 이메일", "수신 거부·문의가 도착할 주소"],
+    ["phone", "전화 (선택)", ""],
+    ["website", "웹사이트 (선택)", ""],
+    ["unsubscribe_url", "수신 거부 링크 (선택)", "비우면 '회신으로 거부' 안내만 들어갑니다"],
+  ];
+  async function save() {
+    setBusy(true); setMsg("");
+    try {
+      const r = await api("/outreach/identity", v, "PUT");
+      setMissing(r.missing ?? []);
+      if ((r.missing ?? []).length === 0) { setMsg("저장했어요 — 발송이 열렸습니다."); onDone?.(); }
+      else setMsg("아직 빈 항목이 있어요.");
+    } catch (e) { setMsg((e as Error).message); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="pipe">
+      <div className="pipe-head">발신자 정보 — 콜드메일의 법적 요건</div>
+      <div className="ident">
+        <p className="quiet">
+          보내는 메일 끝에 발신자와 수신 거부 방법을 밝혀야 합니다(미국
+          CAN-SPAM, 유럽·영국 GDPR, 일본 특정전자메일법 등). 아래를 채우면
+          코드가 수신 국가의 언어로 고지를 붙입니다. <b>채우기 전에는
+          발송이 막힙니다</b> — 반쪽 고지는 고지가 아니니까요.
+        </p>
+        {F.map(([k, label, hint]) => (
+          <label className="ident-row" key={k}>
+            <span className="ident-k">
+              {label}
+              {missing.includes(k) && <i className="need">필요</i>}
+            </span>
+            <input className="ident-in" value={v[k] ?? ""} disabled={busy}
+              onChange={(e) => setV({ ...v, [k]: e.target.value })} />
+            {hint && <span className="ident-hint">{hint}</span>}
+          </label>))}
+        <div className="sc-act">
+          <button className="btn coral" onClick={save} disabled={busy}>
+            {busy ? "…" : "저장"}</button>
+          {msg && <span className="quiet">{msg}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** 보낸 메일 추적 — 무엇이 언제 나갔고, 열렸고, 답이 왔는가.
  *
  *  시각을 보이는 이유: "열었다"만으로는 다음 행동을 정할 수 없다. 보낸 지
@@ -2018,7 +2091,14 @@ function MailDraft({ d, kit, lang, recipient, rid, cid, api, onSent }: {
       onSent?.(line);
     } catch (e) {
       firedRef.current = false;          // 실패했으면 다시 눌러볼 수 있어야 한다
-      setSendMsg((e as Error).message);
+      const m = (e as Error).message;
+      // 막힌 이유가 '어디서 고치는지'를 함께 말해야 사용자가 헤매지 않는다.
+      setSendMsg(
+        m.includes("발신자 정보")
+          ? m + " — 왼쪽 '발신자 정보'에서 채울 수 있어요."
+          : m.includes("고쳐야 할 것")
+            ? m + " — '수정'으로 고친 뒤 다시 보내세요."
+            : m);
     } finally { setSaving(false); }
   }
   const vr = recipient?.verify?.result;

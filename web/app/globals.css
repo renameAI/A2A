@@ -733,3 +733,16 @@ a.ct-v{color:var(--blue)}
 .sc-box{background:var(--paper);color:var(--txt);border:1px solid var(--line);
   border-radius:7px;padding:6px 9px;font:inherit;font-size:12px}
 .sc-act{display:flex;gap:7px;flex-wrap:wrap}
+
+/* 발신자 정보 폼 */
+.ident{padding:6px 14px 12px;display:flex;flex-direction:column;gap:9px;
+  max-width:620px}
+.ident-row{display:flex;flex-direction:column;gap:3px}
+.ident-k{font-size:12px;font-weight:600;color:var(--txt-2);display:flex;
+  gap:6px;align-items:center}
+.ident-k .need{font-style:normal;font-size:10.5px;color:#f85149;
+  background:rgba(248,81,73,.14);border-radius:4px;padding:1px 5px}
+.ident-in{background:var(--paper);color:var(--txt);border:1px solid var(--line);
+  border-radius:7px;padding:7px 10px;font:inherit;font-size:12.5px}
+.ident-in:focus{outline:none;border-color:var(--coral)}
+.ident-hint{font-size:11px;color:var(--txt-3)}

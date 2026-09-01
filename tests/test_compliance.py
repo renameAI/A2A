@@ -119,3 +119,32 @@ class TestFabricatedUrl:
         from app.saas import router
         src = inspect.getsource(router.outreach_prepare)
         assert "draft_needs_fix" in src and "지어낸 주소" in src
+
+
+class TestIdentityIsUserEntered:
+    """법인명과 우편 주소는 우리가 아는 사실이 아니라 보내는 사람이 아는
+    사실이다 — 대신 지어 넣으면 고지가 아니라 거짓말이 된다."""
+
+    def test_form_exists_in_the_ui(self):
+        import pathlib
+        src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
+        assert "function SenderIdentity" in src
+        assert '"/outreach/identity", v, "PUT"' in src
+
+    def test_no_hardcoded_identity_anywhere(self):
+        """기본값을 심어두면 아무도 안 고치고 그대로 나간다."""
+        import pathlib
+        for f in ("app/engine/compliance.py", "app/saas/router.py"):
+            src = pathlib.Path(f).read_text(encoding="utf-8")
+            assert "renamecorp" not in src.lower()
+            assert "테헤란로" not in src
+
+    def test_block_message_points_at_the_form(self):
+        import pathlib
+        src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
+        assert "왼쪽 '발신자 정보'에서 채울 수 있어요" in src
+
+    def test_missing_fields_are_marked_in_the_form(self):
+        import pathlib
+        src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
+        assert "missing.includes(k)" in src
