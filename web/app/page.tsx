@@ -1217,7 +1217,8 @@ function Workspace({ who }: { who: string }) {
         jsx: <MailDraft d={d} kit={res.outreach} lang={res.language}
           recipient={(res as { recipient?: Recipient }).recipient}
           rid={requestId} cid={cid} api={api}
-          onSent={(m) => push({ who: "agent", text: m })} />,
+          onSent={(m) => push({ who: "agent", text: m })}
+          onNeedIdentity={() => { setIdentOpen(true); setPipeOpen(false); setTrackOpen(false); }} />,
       });
     } catch (e) { push({ who: "agent", text: (e as Error).message }); }
     finally { setBusy(false); }
@@ -1233,7 +1234,8 @@ function Workspace({ who }: { who: string }) {
            jsx: <MailDraft d={d} kit={stored?.outreach} lang={stored?.language}
              recipient={(stored as { recipient?: Recipient } | null | undefined)?.recipient}
              rid={requestId ?? undefined} cid={cid} api={api}
-             onSent={(m) => push({ who: "agent", text: m })} /> });
+             onSent={(m) => push({ who: "agent", text: m })}
+             onNeedIdentity={() => { setIdentOpen(true); setPipeOpen(false); setTrackOpen(false); }} /> });
   }
 
   function send() {
@@ -2021,11 +2023,15 @@ function myEmail(): string {
   try { return localStorage.getItem("a2a:email") || ""; } catch { return ""; }
 }
 
-function MailDraft({ d, kit, lang, recipient, rid, cid, api, onSent }: {
+function MailDraft({ d, kit, lang, recipient, rid, cid, api, onSent,
+                     onNeedIdentity }: {
   d: Draft; kit?: OutreachKit; lang?: string; recipient?: Recipient;
   rid?: string; cid?: string;
   api?: (p: string, b?: unknown, m?: string) => Promise<any>;
-  onSent?: (msg: string) => void }) {
+  onSent?: (msg: string) => void;
+  /** 발신자 정보가 없어 막혔을 때 그 화면을 열어 준다 — 어디서 채우는지
+   *  말해 주는 것보다 데려다 주는 편이 낫다. */
+  onNeedIdentity?: () => void }) {
   const hasKo = !!d.body_ko && d.body_ko !== d.body;
   const [ko, setKo] = useState(hasKo);   // 기본은 읽을 수 있는 쪽
   // 사람이 고친 값이 있으면 그것이 진짜다 — 모델 출력은 초안이지 결정이 아니다.
@@ -2060,6 +2066,17 @@ function MailDraft({ d, kit, lang, recipient, rid, cid, api, onSent }: {
 
   async function openSend(kind: "real" | "test") {
     if (!canSend) return;
+    // 막을 것은 **누르기 전에** 막는다. 확인 대화상자까지 다 거친 뒤
+    // 409로 튕기면 사용자는 같은 벽에 반복해서 부딪힌다(실측: 3회).
+    try {
+      const id = await api!("/outreach/identity");
+      if ((id.missing ?? []).length) {
+        setSendMsg("발신자 정보가 아직 비어 있어요 — 콜드메일에는 발신자의 "
+                   + "우편 주소와 수신 거부 방법이 법으로 요구됩니다.");
+        onNeedIdentity?.();
+        return;
+      }
+    } catch { /* 조회 실패는 발송을 막지 않는다 — 서버가 다시 판정한다 */ }
     if (!boxes) {
       try {
         const r = await api!("/outreach/mailboxes");

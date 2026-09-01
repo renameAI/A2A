@@ -148,3 +148,30 @@ class TestIdentityIsUserEntered:
         import pathlib
         src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
         assert "missing.includes(k)" in src
+
+
+class TestBlockBeforeCommitting:
+    """실측: 발송하기 → 확인 → 지금 보내기를 다 누른 뒤에야 409로 막혀
+    사용자가 같은 벽에 세 번 부딪혔다. 막을 것은 누르기 전에 막는다."""
+
+    def test_identity_checked_when_opening_the_send_flow(self):
+        import pathlib
+        src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
+        i = src.find("async function openSend")
+        j = src.find("setConfirming(kind)", i)
+        assert i != -1 and j != -1
+        assert '"/outreach/identity"' in src[i:j]
+
+    def test_it_opens_the_form_rather_than_only_naming_it(self):
+        """어디서 채우는지 말해 주는 것보다 데려다 주는 편이 낫다."""
+        import pathlib
+        src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
+        assert "onNeedIdentity?.()" in src
+        assert "onNeedIdentity={() => { setIdentOpen(true)" in src
+
+    def test_lookup_failure_does_not_block(self):
+        """조회 실패로 발송을 막으면 서버가 허용할 것도 화면이 막는다."""
+        import pathlib
+        src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
+        i = src.find("async function openSend")
+        assert "발송을 막지 않는다" in src[i:i + 1400]
