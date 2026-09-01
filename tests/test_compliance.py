@@ -67,3 +67,55 @@ class TestSendGate:
         import inspect
         from app.saas import router
         assert "compliance.footer" in inspect.getsource(router.outreach_prepare)
+
+
+class TestFabricatedUrl:
+    """실측: 모델이 인용 주소를 한 글자 바꿔 적어 404가 됐다
+    (…-la-agricultura → …-la-agriculture). 인용이 신뢰를 부수는 순간이다."""
+
+    def _req(self, srcs):
+        from app.schemas import (BasicInfo, CandidateInsight,
+                                 ComposeLeadRequest, Intent, Profile,
+                                 ProvField, Provenance)
+        pf = ProvField(value="x", provenance=Provenance.inferred, confidence=0.5)
+        prof = Profile(basic=BasicInfo(name="A", country="KR", industry="i"),
+                       description="", problem_solved=pf, solution=pf,
+                       target_customer=pf)
+        return ComposeLeadRequest(
+            requester_profile=prof, intent=Intent(value_props=["revenue_growth"]),
+            candidate_profile=prof,
+            candidate_insight=CandidateInsight(candidate_id="c1",
+                                               source_urls=srcs),
+            language="de")
+
+    def test_altered_url_is_flagged(self):
+        from app.engine.compose_lead import _url_warnings
+        w = _url_warnings(
+            self._req(["https://fkur.com/es/a-la-agricultura"]),
+            {"paragraphs": ["Auf https://fkur.com/es/a-la-agriculture gesehen."]})
+        assert w and "지어낸" in w[0]
+
+    def test_exact_url_passes(self):
+        from app.engine.compose_lead import _url_warnings
+        assert _url_warnings(
+            self._req(["https://fkur.com/es/a"]),
+            {"paragraphs": ["Auf https://fkur.com/es/a gesehen."]}) == []
+
+    def test_trailing_slash_is_not_a_fabrication(self):
+        """정규화가 없으면 오탐이 쌓여 사용자가 경고를 무시하게 된다."""
+        from app.engine.compose_lead import _url_warnings
+        assert _url_warnings(
+            self._req(["https://fkur.com/es/a/"]),
+            {"paragraphs": ["Auf https://fkur.com/es/a gesehen."]}) == []
+
+    def test_no_known_urls_means_no_claim(self):
+        """대조할 것이 없으면 판정하지 않는다 — 모르면 모른다고 한다."""
+        from app.engine.compose_lead import _url_warnings
+        assert _url_warnings(self._req([]),
+                             {"paragraphs": ["https://x.com/y"]}) == []
+
+    def test_send_is_blocked_on_these(self):
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.outreach_prepare)
+        assert "draft_needs_fix" in src and "지어낸 주소" in src

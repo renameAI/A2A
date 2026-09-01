@@ -831,6 +831,17 @@ def outreach_prepare(rid: str, cid: str, body: OutreachPrepareIn,
         raise EngineError(409, "invalid_recipient",
                           f"{to}는 검증에서 반송 위험으로 나왔어요 — "
                           "다른 접점을 쓰거나 그래도 보낼지 확인해주세요")
+    # 초안이 스스로 남긴 경고 중 **보내면 안 되는 것**은 발송을 막는다.
+    # 경고는 사람에게 보이라고 만든 것이지만, 죽은 링크와 읽을 수 없는
+    # 제목은 "확인하세요"로 넘길 일이 아니다 — 전자는 인용을 신뢰 대신
+    # 의심으로 바꾸고, 후자는 메일이 열리지도 않게 한다. 사람이 고치면
+    # (수정 → 저장) 경고가 사라지고 발송이 열린다.
+    blockers = [w for w in (d.get("warnings") or [])
+                if "지어낸 주소" in w or "제목에 수신자가 못 읽는" in w]
+    if blockers and not body.to_override:
+        raise EngineError(409, "draft_needs_fix",
+                          "보내기 전에 고쳐야 할 것이 있어요 — "
+                          + " / ".join(w.split("—")[0].strip() for w in blockers))
     # 법적 고지 — 보내는 순간 메일은 규제 대상이 된다. 코드가 붙이고,
     # 붙일 수 없으면 보내지 않는다(빈칸을 그럴듯한 문장으로 채우는 것이
     # 가장 나쁜 실패다). 참고 자료의 운영 프롬프트 4/5가 이걸 고정 문구로

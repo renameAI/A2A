@@ -19,6 +19,9 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
 - 첫 문장은 personalization_hooks 중 하나로 시작한다 — 템플릿 인사말 금지.
 - **무엇을 보고 연락하는지 밝힌다.** 킷에 근거 링크가 있으면 첫 단락에서
   그 주소를 본문에 그대로 적는다("귀사의 https://… 페이지에서 …를 보았습니다").
+  **주소는 한 글자도 바꾸지 말고 그대로 복사해라.** 옮겨 적으면서 고치는
+  일이 실제로 일어난다(실측: "…-la-agricultura"를 "…-la-agriculture"로
+  적어 404가 됐다). 죽은 링크를 주면 인용은 신뢰를 만드는 대신 부순다.
   링크 없이 "보았습니다"라고만 하면 상대는 확인할 방법이 없어 대량 발송으로
   읽는다. 링크가 없으면 무엇을 보았는지 구체적으로 쓰되 지어낸 주소는 절대
   넣지 마라.
@@ -299,6 +302,49 @@ def _name_notes(req: ComposeLeadRequest) -> str:
               "둘 다 금지다.\n")
 
 
+def _norm_url(u: str) -> str:
+    """비교용 정규화 — 끝 슬래시·대소문자 호스트 차이로 오탐하지 않게."""
+    u = (u or "").strip().rstrip(").,;\u3002")
+    if u.endswith("/"):
+        u = u[:-1]
+    i = u.find("://")
+    if i > 0:
+        j = u.find("/", i + 3)
+        host = u[:j if j > 0 else len(u)].lower()
+        return host + (u[j:] if j > 0 else "")
+    return u
+
+
+def known_urls(req: ComposeLeadRequest) -> set:
+    """본문이 인용해도 되는 주소 — 우리가 실제로 읽었거나 판독이 남긴 것."""
+    ins = req.candidate_insight
+    kit = ins.outreach or {}
+    cands = list(ins.source_urls or [])
+    cands += [kit.get("hook_url") or "", kit.get("channel_value") or ""]
+    return {_norm_url(u) for u in cands if u}
+
+
+def _url_warnings(req: ComposeLeadRequest, d: dict) -> list:
+    """본문의 주소가 우리가 읽은 것과 다르면 지어낸 것이다.
+
+    실측: 모델이 인용 주소를 한 글자 바꿔 적었다 —
+    ".../plasticos-biodegradables-para-la-agricultura"를 "...-agriculture"로.
+    실제로 404다. "여기서 봤습니다"라며 죽은 링크를 주면 인용은 신뢰를
+    만드는 대신 부순다. 주소가 맞는지는 판정이 아니라 대조라서 코드가 한다.
+    """
+    import re
+    ok = known_urls(req)
+    if not ok:
+        return []
+    body = "\n".join(d.get("paragraphs") or [])
+    out = []
+    for raw in re.findall(r"https?://[^\s<>\"')]+", body):
+        if _norm_url(raw) not in ok:
+            out.append(f"본문의 주소가 우리가 읽은 것과 달라요 — 지어낸 "
+                       f"주소일 수 있으니 보내기 전에 확인하세요: {raw[:90]}")
+    return out
+
+
 def _readability_warnings(req: ComposeLeadRequest, d: dict) -> list:
     """수신자가 못 읽는 글자가 남았으면 경고로 띄운다.
 
@@ -366,6 +412,7 @@ def compose_lead(extractor, req: ComposeLeadRequest) -> ComposeLeadResponse:
             # 정직 표기 — 미확인이라 본문에서 뺀 것을 사용자에게 그대로 보여준다
             warnings=([f"미확인이라 본문에서 제외: {u}"
                        for u in ins.uncertainties]
-                      + _readability_warnings(req, d)),
+                      + _readability_warnings(req, d)
+                      + _url_warnings(req, d)),
         ))
     return ComposeLeadResponse(drafts=drafts, send_blocked=True)
