@@ -668,6 +668,56 @@ def delete_request(rid: str, user: SaasUser = Depends(current_user)):
     return {"deleted": rid, "removed": removed}
 
 
+class DraftEditIn(BaseModel):
+    """사람이 고친 초안. 모델이 쓴 것을 사람이 다듬는 것은 이 제품의 정상
+    경로다 — 고친 뒤에 보내야 하므로 저장된 초안 자체를 갱신한다."""
+    variant: "str | None" = None
+    subject: "str | None" = None
+    body: "str | None" = None
+
+
+@router.patch("/lead-requests/{rid}/candidates/{cid}/draft")
+def edit_draft(rid: str, cid: str, body: DraftEditIn,
+               user: SaasUser = Depends(current_user)):
+    """초안 손질. 사람이 고친 흔적을 남긴다 — 나중에 답장률을 볼 때
+    '모델이 쓴 그대로'와 '사람이 고친 것'을 구별할 수 있어야 한다."""
+    store = get_saas_store()
+    doc, _p, _i = _load_request(store, user, rid)
+    key = _derived_key(doc, rid, cid)
+    drf = store.get("email_draft", user.workspace_id, key)
+    if not drf or not (drf.get("drafts") or []):
+        raise EngineError(404, "not_found", "초안이 없습니다")
+    drafts = drf["drafts"]
+    if body.variant:
+        d = next((x for x in drafts
+                  if x.get("variant_label") == body.variant), None)
+        if d is None:
+            raise EngineError(404, "not_found", f"변종 {body.variant} 없음")
+    else:
+        if len(drafts) > 1:
+            raise EngineError(409, "invalid_state",
+                              "초안이 여럿이에요 — 고칠 것을 지정하세요")
+        d = drafts[0]
+    if body.subject is not None:
+        d["subject"] = body.subject[:300]
+    if body.body is not None:
+        d["body"] = body.body[:20000]
+    if body.subject is not None or body.body is not None:
+        d["edited"] = True
+        # 사람이 고친 본문에는 우리 가독성 검사를 다시 돌린다 — 고치다가
+        # 한글이 들어갈 수 있고, 그건 보내기 전에 알아야 한다.
+        from ..engine.compose_lead import _unreadable
+        keep = [w for w in (d.get("warnings") or []) if "못 읽는" not in w]
+        if (drf.get("language") or "ko") != "ko":
+            if _unreadable(d.get("subject") or ""):
+                keep.append("제목에 수신자가 못 읽는 표기가 있어요")
+            if _unreadable(d.get("body") or ""):
+                keep.append("본문에 수신자가 못 읽는 표기가 있어요")
+        d["warnings"] = keep
+    store.put("email_draft", user.workspace_id, key, drf)
+    return {"draft": d}
+
+
 class SenderIdentityIn(BaseModel):
     """발송에 필요한 발신자 신원. 법이 요구하는 것이라 선택 사항이 아니다."""
     legal_name: str = ""

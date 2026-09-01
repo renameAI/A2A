@@ -716,3 +716,20 @@ a.ct-v{color:var(--blue)}
 .track-t .none{color:var(--txt-3)}
 .track-t .cnt{font-style:normal;margin-left:5px;color:#d29922;font-size:11px}
 .track-t .gap{font-style:normal;display:block;color:var(--txt-3);font-size:10.5px}
+
+/* 초안 편집 — 모델이 쓴 것을 사람이 다듬는 것은 정상 경로다 */
+.mail-edit{width:100%;background:var(--paper);color:var(--txt);
+  border:1px solid var(--line);border-radius:8px;padding:9px 11px;
+  font:inherit;line-height:1.65;resize:vertical}
+.mail-edit.sub{font-weight:700;margin-bottom:6px}
+.mail-edit:focus{outline:none;border-color:var(--coral)}
+.mail-note.send{color:var(--txt-2)}
+/* 발송 확인 — 되돌릴 수 없는 일 앞에서 한 번 멈춘다 */
+.send-confirm{border:1px solid rgba(255,107,69,.45);border-radius:10px;
+  background:rgba(255,107,69,.06);padding:10px 12px;margin-top:8px;
+  display:flex;flex-direction:column;gap:7px}
+.sc-head{font-weight:700;font-size:12.5px}
+.sc-to{font-family:ui-monospace,monospace;font-size:12.5px;color:var(--txt)}
+.sc-box{background:var(--paper);color:var(--txt);border:1px solid var(--line);
+  border-radius:7px;padding:6px 9px;font:inherit;font-size:12px}
+.sc-act{display:flex;gap:7px;flex-wrap:wrap}

@@ -302,3 +302,31 @@ class TestTracker:
         from app.saas import router
         src = inspect.getsource(router.get_request)
         assert '"opened": bool((out or {}).get("opened"))' in src
+
+
+class TestDraftEdit:
+    """모델이 쓴 것을 사람이 다듬는 것은 이 제품의 정상 경로다."""
+
+    def test_edit_marks_the_draft(self):
+        """답장률을 볼 때 '모델 그대로'와 '사람이 고친 것'을 구별해야 한다."""
+        import inspect
+        from app.saas import router
+        assert 'd["edited"] = True' in inspect.getsource(router.edit_draft)
+
+    def test_edit_reruns_the_readability_check(self):
+        """고치다가 한글이 들어갈 수 있고, 그건 보내기 전에 알아야 한다."""
+        import inspect
+        from app.saas import router
+        src = inspect.getsource(router.edit_draft)
+        assert "_unreadable" in src and "못 읽는" in src
+
+    def test_stale_readability_warnings_are_replaced(self):
+        """고쳐서 해결된 경고가 남아 있으면 사용자가 무시하는 법을 배운다."""
+        import inspect
+        from app.saas import router
+        assert '"못 읽는" not in w' in inspect.getsource(router.edit_draft)
+
+    def test_ambiguous_variant_is_refused(self):
+        import inspect
+        from app.saas import router
+        assert "고칠 것을 지정하세요" in inspect.getsource(router.edit_draft)

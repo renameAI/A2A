@@ -46,7 +46,9 @@ const REACH_TAG: Record<string, [string, string]> = {
   low: ["가능성 낮음", "ask"], mid: ["가능성 중간", "inf"],
   high: ["가능성 높음", "ok"] };
 type Draft = { subject: string; body: string;
-  subject_ko?: string; body_ko?: string; warnings: string[] };
+  subject_ko?: string; body_ko?: string; warnings: string[];
+  // 변종 라벨 — 초안이 여럿이면 서버가 "어느 것을 보낼지" 묻는다
+  variant_label?: string };
 type Recipient = { email: string; confidence: number; position?: string;
   name?: string; sources: string[];
   verify?: { result: string; score: number; smtp: boolean } };
@@ -606,6 +608,10 @@ function Workspace({ who }: { who: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { api("/settings/llm").then(setLlm).catch(() => {}); }, []);
+  // 테스트 발송은 자기 자신에게 간다 — 그 주소를 초안 카드가 알아야 한다.
+  useEffect(() => {
+    try { if (who) localStorage.setItem("a2a:email", who); } catch { /* 사파리 사생활 모드 */ }
+  }, [who]);
   // 이번 달 얼마 썼는지 아무도 볼 수 없던 것을 헤더에 상시 노출한다.
   // busy가 끝날 때마다 갱신 — 검색 한 번에 얼마가 빠지는지 보인다.
   useEffect(() => {
@@ -1208,7 +1214,9 @@ function Workspace({ who }: { who: string }) {
       push({
         who: "agent", text: "초안이에요. 발송은 직접 하셔야 해요.",
         jsx: <MailDraft d={d} kit={res.outreach} lang={res.language}
-          recipient={(res as { recipient?: Recipient }).recipient} />,
+          recipient={(res as { recipient?: Recipient }).recipient}
+          rid={requestId} cid={cid} api={api}
+          onSent={(m) => push({ who: "agent", text: m })} />,
       });
     } catch (e) { push({ who: "agent", text: (e as Error).message }); }
     finally { setBusy(false); }
@@ -1222,7 +1230,9 @@ function Workspace({ who }: { who: string }) {
     if (!d) return;
     push({ who: "agent", text: `${name}에게 보낼 저장된 초안이에요.`,
            jsx: <MailDraft d={d} kit={stored?.outreach} lang={stored?.language}
-             recipient={(stored as { recipient?: Recipient } | null | undefined)?.recipient} /> });
+             recipient={(stored as { recipient?: Recipient } | null | undefined)?.recipient}
+             rid={requestId ?? undefined} cid={cid} api={api}
+             onSent={(m) => push({ who: "agent", text: m })} /> });
   }
 
   function send() {
@@ -1932,12 +1942,81 @@ const VERIFY_KO: Record<string, [string, string]> = {
   invalid: ["반송 위험 — 이 주소는 쓰지 마세요", "bad"],
 };
 
-function MailDraft({ d, kit, lang, recipient }: {
-  d: Draft; kit?: OutreachKit; lang?: string; recipient?: Recipient }) {
+/** 테스트 발송 주소 — 로그인한 사람 자신. 남의 주소로 "테스트"를 보내면
+ *  그건 테스트가 아니라 발송이다. */
+function myEmail(): string {
+  try { return localStorage.getItem("a2a:email") || ""; } catch { return ""; }
+}
+
+function MailDraft({ d, kit, lang, recipient, rid, cid, api, onSent }: {
+  d: Draft; kit?: OutreachKit; lang?: string; recipient?: Recipient;
+  rid?: string; cid?: string;
+  api?: (p: string, b?: unknown, m?: string) => Promise<any>;
+  onSent?: (msg: string) => void }) {
   const hasKo = !!d.body_ko && d.body_ko !== d.body;
   const [ko, setKo] = useState(hasKo);   // 기본은 읽을 수 있는 쪽
-  const sub = ko && hasKo ? (d.subject_ko || d.subject) : d.subject;
-  const body = ko && hasKo ? (d.body_ko || d.body) : d.body;
+  // 사람이 고친 값이 있으면 그것이 진짜다 — 모델 출력은 초안이지 결정이 아니다.
+  const [sub0, setSub0] = useState(d.subject);
+  const [body0, setBody0] = useState(d.body);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [boxes, setBoxes] = useState<{ id: number; from_email: string }[] | null>(null);
+  const [mbox, setMbox] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState<"" | "real" | "test">("");
+  const [sendMsg, setSendMsg] = useState("");
+  const firedRef = useRef(false);
+  const sub = ko && hasKo ? (d.subject_ko || d.subject) : sub0;
+  const body = ko && hasKo ? (d.body_ko || d.body) : body0;
+  const canSend = !!(rid && cid && api);
+
+  async function save() {
+    if (!canSend) return;
+    setSaving(true);
+    try {
+      await api!(`/lead-requests/${rid}/candidates/${cid}/draft`,
+                 { variant: d.variant_label, subject: sub0, body: body0 }, "PATCH");
+      setEditing(false);
+      setSendMsg("고친 내용을 저장했어요.");
+    } catch (e) { setSendMsg((e as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  async function openSend(kind: "real" | "test") {
+    if (!canSend) return;
+    if (!boxes) {
+      try {
+        const r = await api!("/outreach/mailboxes");
+        setBoxes(r.accounts ?? []);
+        if ((r.accounts ?? []).length === 1) setMbox(r.accounts[0].id);
+      } catch (e) { setSendMsg((e as Error).message); return; }
+    }
+    setConfirming(kind);
+  }
+
+  async function doSend(kind: "real" | "test") {
+    // 발송은 되돌릴 수 없다 — ref 래치로 연타를 잠근다(state는 늦다).
+    if (firedRef.current || !canSend) return;
+    firedRef.current = true;
+    setSaving(true);
+    try {
+      const prep = await api!(
+        `/lead-requests/${rid}/candidates/${cid}/outreach/prepare`,
+        { mailbox_ids: mbox ? [mbox] : [], variant: d.variant_label,
+          ...(kind === "test" ? { to_override: myEmail() } : {}) }, "POST");
+      const res = await api!(
+        `/lead-requests/${rid}/candidates/${cid}/outreach/send`,
+        { campaign_id: prep.campaign_id }, "POST");
+      const line = kind === "test"
+        ? `테스트 메일을 ${res.to}로 보냈어요. 받은편지함에서 확인해보세요.`
+        : `${prep.to}로 보냈어요. 열람·답장은 '보낸 메일 추적'에 쌓입니다.`;
+      setSendMsg(line);
+      setConfirming("");
+      onSent?.(line);
+    } catch (e) {
+      firedRef.current = false;          // 실패했으면 다시 눌러볼 수 있어야 한다
+      setSendMsg((e as Error).message);
+    } finally { setSaving(false); }
+  }
   const vr = recipient?.verify?.result;
   const kitRows: [string, string][] = kit ? ([
     ["받는 사람", kit.to_role ?? ""],
@@ -1981,16 +2060,77 @@ function MailDraft({ d, kit, lang, recipient }: {
           {ko && <span className="mail-hint">이건 확인용이에요. 보내는 건 원문입니다.</span>}
         </div>
       )}
-      <div className="mail-sub">{sub}</div>
+      {editing ? (
+        <input className="mail-edit sub" value={sub0}
+          onChange={(e) => setSub0(e.target.value)} aria-label="메일 제목" />
+      ) : (
+        <div className="mail-sub">{sub}</div>
+      )}
       {/* 본문의 URL은 눌러서 확인할 수 있어야 한다 — 메일이 "여기서 봤습니다"라고
           말하는데 사용자가 그 페이지를 못 열면 검수가 안 된다. 복사는 원문
           그대로 나가므로 표시만 링크로 바꾼다. */}
-      <div className="mail-body">{linkify(body)}</div>
+      {editing ? (
+        <textarea className="mail-edit" value={body0} rows={14}
+          onChange={(e) => setBody0(e.target.value)}
+          aria-label="메일 본문" />
+      ) : (
+        <div className="mail-body">{linkify(body)}</div>
+      )}
       {d.warnings.map((w, k) => (
         <div className="mail-note" key={k}><b>제외됨</b> {w}</div>))}
+      {sendMsg && <div className="mail-note send"><b>·</b> {sendMsg}</div>}
+      {confirming && (
+        /* 발송은 되돌릴 수 없다 — 무엇이 어디로 가는지 한 번 더 보여준 뒤
+           누르게 한다. 우리 서비스에서 사람이 직접 보내야 추적도 시작된다. */
+        <div className="send-confirm">
+          <div className="sc-head">
+            {confirming === "test" ? "나에게 테스트 발송" : "이 주소로 실제 발송"}
+          </div>
+          <div className="sc-to">
+            {confirming === "test" ? (myEmail() || "내 주소") : (recipient?.email || "받는 사람 미정")}
+          </div>
+          {(boxes?.length ?? 0) > 1 && (
+            <select className="sc-box" value={mbox ?? ""}
+              onChange={(e) => setMbox(Number(e.target.value))}>
+              <option value="">보낼 메일함 선택</option>
+              {boxes!.map((b) => (
+                <option key={b.id} value={b.id}>{b.from_email}</option>))}
+            </select>)}
+          {boxes?.length === 0 && (
+            <div className="quiet">연결된 발송 메일함이 없어요 — Smartlead에서 먼저 연결해주세요.</div>)}
+          <div className="sc-act">
+            <button className="btn coral" disabled={saving || !mbox}
+              onClick={() => doSend(confirming as "real" | "test")}>
+              {saving ? "보내는 중…" : confirming === "test" ? "테스트 보내기" : "지금 보내기"}
+            </button>
+            <button className="btn" disabled={saving}
+              onClick={() => setConfirming("")}>취소</button>
+          </div>
+        </div>
+      )}
       <div className="card-foot">
-        <button className="btn coral"
-          onClick={() => navigator.clipboard.writeText(d.body)}>원문 복사</button>
+        {canSend && !editing && (
+          <>
+            <button className="btn coral" disabled={saving}
+              onClick={() => openSend("real")}>발송하기</button>
+            <button className="btn" disabled={saving}
+              onClick={() => openSend("test")}
+              title="받는 사람 대신 내 주소로 먼저 보내봅니다">나에게 테스트</button>
+            <button className="btn" onClick={() => { setKo(false); setEditing(true); }}>
+              수정</button>
+          </>
+        )}
+        {editing && (
+          <>
+            <button className="btn coral" disabled={saving} onClick={save}>
+              {saving ? "저장 중…" : "저장"}</button>
+            <button className="btn" disabled={saving}
+              onClick={() => { setSub0(d.subject); setBody0(d.body); setEditing(false); }}>
+              되돌리기</button>
+          </>
+        )}
+        <button className="btn"
+          onClick={() => navigator.clipboard.writeText(body0)}>원문 복사</button>
         {hasKo && (
           <button className="btn"
             onClick={() => navigator.clipboard.writeText(d.body_ko!)}>대역 복사</button>
