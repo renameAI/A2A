@@ -544,3 +544,29 @@ class TestSubjectLanguageSplit:
     def test_prompt_forbids_identical_subjects(self):
         from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
         assert "서로 다른 언어여야 한다" in P
+
+
+class TestReferencePromptParity:
+    """운영 중인 아웃리치 프롬프트 5종과 대조해 채운 것들."""
+
+    def test_forwarding_request_is_required(self):
+        """색인에서 찾은 주소는 담당자가 아닌 경우가 많다 — 참고 자료 전부가
+        이 문장을 필수로 둔다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "전달해 주시면" in P and "지어내지 말고" in P
+
+    def test_taboos_are_named(self):
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        for t in ("세계 1위", "(ESG)", "압도적인", "깎아내리는"):
+            assert t in P, t
+
+    def test_deficit_and_no_belittling_are_reconciled(self):
+        """②의 결핍 지목과 '깎아내리지 마라'가 충돌하는 것처럼 보이면
+        모델이 둘 중 하나를 버린다 — 관계를 명시한다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "충돌하지 않는다" in P
+
+    def test_proposal_count_follows_the_evidence(self):
+        """3꼭지를 강제하면 없는 접점을 지어낸다 — 카탈로그가 된다."""
+        from app.engine.compose_lead import COMPOSE_LEAD_SYSTEM as P
+        assert "하나뿐이면" in P and "카탈로그" in P
