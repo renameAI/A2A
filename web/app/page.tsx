@@ -1963,6 +1963,10 @@ function MailDraft({ d, kit, lang, recipient, rid, cid, api, onSent }: {
   const [boxes, setBoxes] = useState<{ id: number; from_email: string }[] | null>(null);
   const [mbox, setMbox] = useState<number | null>(null);
   const [confirming, setConfirming] = useState<"" | "real" | "test">("");
+  // 테스트 주소는 고를 수 있어야 한다. 발신함과 같은 주소로 보내면 Gmail이
+  // 자기 메일로 알아보고 받은편지함에 안 띄우는 경우가 있다(실측: 발송·열람
+  // 기록은 남는데 받은편지함에 없었다). 다른 주소로 보내야 도달을 확인한다.
+  const [testTo, setTestTo] = useState(myEmail());
   const [sendMsg, setSendMsg] = useState("");
   const firedRef = useRef(false);
   const sub = ko && hasKo ? (d.subject_ko || d.subject) : sub0;
@@ -2002,7 +2006,7 @@ function MailDraft({ d, kit, lang, recipient, rid, cid, api, onSent }: {
       const prep = await api!(
         `/lead-requests/${rid}/candidates/${cid}/outreach/prepare`,
         { mailbox_ids: mbox ? [mbox] : [], variant: d.variant_label,
-          ...(kind === "test" ? { to_override: myEmail() } : {}) }, "POST");
+          ...(kind === "test" ? { to_override: testTo.trim() } : {}) }, "POST");
       const res = await api!(
         `/lead-requests/${rid}/candidates/${cid}/outreach/send`,
         { campaign_id: prep.campaign_id }, "POST");
@@ -2086,9 +2090,19 @@ function MailDraft({ d, kit, lang, recipient, rid, cid, api, onSent }: {
           <div className="sc-head">
             {confirming === "test" ? "나에게 테스트 발송" : "이 주소로 실제 발송"}
           </div>
-          <div className="sc-to">
-            {confirming === "test" ? (myEmail() || "내 주소") : (recipient?.email || "받는 사람 미정")}
-          </div>
+          {confirming === "test" ? (
+            <>
+              <input className="sc-box" value={testTo} type="email"
+                placeholder="테스트로 받을 주소"
+                onChange={(e) => setTestTo(e.target.value)} />
+              {testTo.trim() && boxes?.some((b) => b.from_email === testTo.trim()) && (
+                <div className="quiet">보내는 주소와 같아요 — Gmail이 자기
+                  메일로 알아보고 받은편지함에 안 띄울 수 있습니다. 다른
+                  주소로 보내면 도달을 확실히 확인할 수 있어요.</div>)}
+            </>
+          ) : (
+            <div className="sc-to">{recipient?.email || "받는 사람 미정"}</div>
+          )}
           {(boxes?.length ?? 0) > 1 && (
             <select className="sc-box" value={mbox ?? ""}
               onChange={(e) => setMbox(Number(e.target.value))}>
@@ -2099,7 +2113,9 @@ function MailDraft({ d, kit, lang, recipient, rid, cid, api, onSent }: {
           {boxes?.length === 0 && (
             <div className="quiet">연결된 발송 메일함이 없어요 — Smartlead에서 먼저 연결해주세요.</div>)}
           <div className="sc-act">
-            <button className="btn coral" disabled={saving || !mbox}
+            <button className="btn coral"
+              disabled={saving || !mbox
+                        || (confirming === "test" && !testTo.trim())}
               onClick={() => doSend(confirming as "real" | "test")}>
               {saving ? "보내는 중…" : confirming === "test" ? "테스트 보내기" : "지금 보내기"}
             </button>

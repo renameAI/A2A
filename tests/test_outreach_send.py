@@ -330,3 +330,21 @@ class TestDraftEdit:
         import inspect
         from app.saas import router
         assert "고칠 것을 지정하세요" in inspect.getsource(router.edit_draft)
+
+
+class TestSelfSendPitfall:
+    """실측: tools@ → tools@ 로 보냈더니 Smartlead는 발송·열람을 기록했는데
+    받은편지함에는 없었다. Gmail이 자기 메일을 특별 취급한다 —
+    자기 주소는 도달 확인용으로 나쁜 기본값이다."""
+
+    def test_ui_warns_when_test_address_equals_sender(self):
+        import pathlib
+        src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
+        assert "보내는 주소와 같아요" in src
+        assert "b.from_email === testTo.trim()" in src
+
+    def test_test_address_is_editable(self):
+        """자기 주소로 고정하면 도달을 영영 확인할 수 없다."""
+        import pathlib
+        src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
+        assert "to_override: testTo.trim()" in src
