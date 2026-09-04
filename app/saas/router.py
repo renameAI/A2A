@@ -1003,16 +1003,24 @@ def outreach_tracker(user: SaasUser = Depends(current_user)):
     신호다. 다만 **열람은 답장이 아니다** — 이미지 프리페치로도 잡히므로
     확정 사실로 취급하지 않는다(reach_fact를 쓰지 않는 이유와 같다).
     """
+    # 워크스페이스 전체를 하나로 본다 — 요청(세션)은 검색을 나눈 것일 뿐,
+    # "내가 뿌린 메일"은 세션 경계를 모른다. store.list에 request 필터를
+    # 걸지 않는 이유가 여기 있다: 세션마다 따로 보여주면 그로스 담당자가
+    # 전체 캠페인 성과를 보려고 탭을 오가며 손으로 합산해야 한다.
     store = get_saas_store()
     rows = store.list("outreach_event", user.workspace_id, limit=500)
+    titles = {r["request_id"]: (r.get("title") or r["request_id"])
+              for r in store.list("lead_request", user.workspace_id, limit=200)}
     leads: dict = {}
     for r in rows:
         cid = r.get("company_id")
         if not cid:
             continue
         at = float(r.get("at") or 0)
+        rid = r.get("request_id", "")
         L = leads.setdefault(cid, {
-            "company_id": cid, "request_id": r.get("request_id", ""),
+            "company_id": cid, "request_id": rid,
+            "request_title": titles.get(rid, rid),
             "name": r.get("name", ""), "source_url": r.get("source_url", ""),
             "sent_at": None, "opened_at": None, "open_count": 0,
             "replied_at": None, "bounced_at": None})
@@ -1029,7 +1037,36 @@ def outreach_tracker(user: SaasUser = Depends(current_user)):
             L["bounced_at"] = at
     out = sorted(leads.values(),
                  key=lambda x: -(x["sent_at"] or x["opened_at"] or 0))
-    return {"leads": out, "total": len(out)}
+
+    # 퍼널 집계 — 그로스 담당자가 세션을 오가며 손으로 더하지 않게 코드가
+    # 미리 합산한다. 발송 안 된 준비(prepare)만 있는 행은 분모에서 뺀다 —
+    # "보내지도 않은 메일의 오픈율"은 의미가 없는 숫자다.
+    sent = [x for x in out if x["sent_at"]]
+    opened = [x for x in sent if x["opened_at"]]
+    replied = [x for x in sent if x["replied_at"]]
+    bounced = [x for x in sent if x["bounced_at"]]
+
+    def rate(n: int, d: int) -> float:
+        return round(n / d, 4) if d else 0.0
+
+    # 최근 14일 발송 추이 — 그로스 대시보드의 '흐름' 감각. 날짜별 카운트만
+    # 넘기고 그리기는 화면에 맡긴다(막대 하나 그리는 데 차트 라이브러리는
+    # 과하다).
+    import datetime as _dt
+    today = _dt.date.today()
+    by_day = {(today - _dt.timedelta(days=i)).isoformat(): 0 for i in range(13, -1, -1)}
+    for x in sent:
+        d = _dt.date.fromtimestamp(x["sent_at"]).isoformat()
+        if d in by_day:
+            by_day[d] += 1
+
+    return {"leads": out, "total": len(out),
+            "funnel": {"sent": len(sent), "opened": len(opened),
+                      "replied": len(replied), "bounced": len(bounced),
+                      "open_rate": rate(len(opened), len(sent)),
+                      "reply_rate": rate(len(replied), len(sent)),
+                      "bounce_rate": rate(len(bounced), len(sent))},
+            "by_day": [{"date": k, "sent": v} for k, v in by_day.items()]}
 
 
 @router.get("/outreach/events")

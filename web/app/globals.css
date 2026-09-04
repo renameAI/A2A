@@ -44,10 +44,12 @@ button{font:inherit;cursor:pointer;border:none;background:none}
 ::-webkit-scrollbar-thumb{background:#C9CDD6;border-radius:4px}
 /* 오른쪽 패널을 걷어낸 뒤로 3단이다 — 후보는 캐러셀에, 저장한 리드는
    파이프라인 보드에, 메일 초안은 대화 안에 있다. */
-.app{display:grid;grid-template-columns:44px 256px 1fr;height:100vh}
+.app{display:grid;grid-template-columns:44px 256px 1fr;
+  height:100vh;height:100dvh}
 
 /* ═══════════ ① 워크스페이스 레일 ═══════════ */
-.rail{background:var(--ink-3);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:10px}
+.rail{background:var(--ink-3);display:flex;flex-direction:column;align-items:center;
+  padding:10px 0;gap:10px;min-height:0}
 .rail .ws{width:30px;height:30px;border-radius:8px;background:var(--coral);color:#fff;
   font-weight:800;font-size:15px;display:grid;place-items:center;letter-spacing:-.5px}
 .rail .spacer{flex:1}
@@ -57,7 +59,13 @@ button{font:inherit;cursor:pointer;border:none;background:none}
   border-radius:50%;background:#2BAC76;border:2px solid var(--ink-3)}
 
 /* ═══════════ ② 사이드바 ═══════════ */
-.side{background:var(--ink);color:#C7CCDA;display:flex;flex-direction:column;min-width:0}
+/* min-height:0 필수 — grid item(.app의 자식)은 기본 min-height:auto라
+   flex column 내부 콘텐츠(리드 목록 20개+)가 길어지면 grid 트랙 자체를
+   밀어낸다. 그러면 .app이 100vh를 넘고 body가 스크롤 가능해져, 스크롤할
+   때마다 .side-scroll/.msgs의 내부 스크롤 대신 body 전체가 밀려 헤더까지
+   화면 밖으로 잘렸다(실측). min-width:0과 같은 이유의 같은 함정이다. */
+.side{background:var(--ink);color:#C7CCDA;display:flex;flex-direction:column;
+  min-width:0;min-height:0}
 .side-head{padding:14px 16px 12px;display:flex;align-items:center;justify-content:space-between;
   border-bottom:1px solid rgba(255,255,255,.07)}
 .side-head .brand{font-size:17px;font-weight:800;color:#fff;letter-spacing:-.3px}
@@ -705,6 +713,7 @@ a.ct-v{color:var(--blue)}
 
 /* 보낸 메일 추적 표 */
 .track-tbl{display:flex;flex-direction:column;padding:4px 14px 8px}
+.dash .track-row{grid-template-columns:1.3fr 1fr 1fr 1.3fr 1.2fr}
 .track-row{display:grid;grid-template-columns:1.6fr 1fr 1.3fr 1.2fr;gap:10px;
   padding:7px 0;border-bottom:1px solid var(--line-soft);font-size:12px;
   align-items:baseline}
@@ -746,3 +755,31 @@ a.ct-v{color:var(--blue)}
   border-radius:7px;padding:7px 10px;font:inherit;font-size:12.5px}
 .ident-in:focus{outline:none;border-color:var(--coral)}
 .ident-hint{font-size:11px;color:var(--txt-3)}
+
+/* 보낸 메일 대시보드 — Salesforce류 요약 카드 + 필터 테이블 */
+.dash-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;
+  padding:6px 14px 4px}
+.dash-stat{background:var(--line-soft);border:1px solid var(--line);
+  border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:2px}
+.dash-stat b{font-size:20px;font-variant-numeric:tabular-nums;line-height:1.1}
+.dash-stat span{font-size:11px;color:var(--txt-2)}
+.dash-stat.hi b{color:#d29922}
+.dash-stat.ok b{color:#3fb950}
+.dash-stat.bad b{color:#f85149}
+.dash-trend{display:flex;align-items:flex-end;gap:3px;height:36px;
+  padding:8px 14px 2px}
+.dash-bar{flex:1;height:100%;display:flex;align-items:flex-end}
+.dash-bar i{display:block;width:100%;border-radius:2px 2px 0 0;
+  background:var(--line)}
+.dash-bar i.hit{background:var(--coral)}
+.dash-filters{display:flex;gap:6px;flex-wrap:wrap;padding:8px 14px 4px;
+  align-items:center}
+.dash-f{font-size:11.5px;padding:4px 10px;border-radius:20px;
+  border:1px solid var(--line);background:transparent;color:var(--txt-2)}
+.dash-f.on{background:var(--coral);border-color:var(--coral);color:#fff;
+  font-weight:700}
+.dash-q{font-size:12px;padding:4px 9px;border-radius:7px;
+  border:1px solid var(--line);background:var(--paper);color:var(--txt);
+  min-width:120px}
+.track-req{color:var(--txt-3);font-size:11px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}

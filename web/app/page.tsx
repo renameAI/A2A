@@ -107,9 +107,14 @@ type PipeRow = { request_id: string; request_title: string; company_id: string;
   name: string; source_url: string; drafted: boolean; replied: string;
   note: string; stage: string; opened?: boolean };
 type Pipeline = { stages: string[]; board: Record<string, PipeRow[]>; total: number };
-type TrackLead = { company_id: string; request_id: string; name: string;
+type TrackLead = { company_id: string; request_id: string;
+  request_title?: string; name: string;
   source_url?: string; sent_at: number | null; opened_at: number | null;
   open_count: number; replied_at: number | null; bounced_at: number | null };
+type Funnel = { sent: number; opened: number; replied: number; bounced: number;
+  open_rate: number; reply_rate: number; bounce_rate: number };
+type TrackerData = { leads: TrackLead[]; total: number; funnel: Funnel;
+  by_day: { date: string; sent: number }[] };
 type OutreachEvent = { at: number; event: string; label: string;
   name: string; source_url?: string; request_id: string; company_id: string };
 const STAGE_LABEL: Record<string, string> = {
@@ -589,7 +594,7 @@ function Workspace({ who }: { who: string }) {
   // 파이프라인 보드 — 요청 넘어 저장한 리드를 단계별로. 열 때만 불러온다.
   const [pipe, setPipe] = useState<Pipeline | null>(null);
   const [pipeOpen, setPipeOpen] = useState(false);
-  const [track, setTrack] = useState<{ leads: TrackLead[]; total: number } | null>(null);
+  const [track, setTrack] = useState<TrackerData | null>(null);
   const [trackOpen, setTrackOpen] = useState(false);
   const [identOpen, setIdentOpen] = useState(false);
   const [likedC, setLikedC] = useState<Set<string>>(new Set());
@@ -1330,7 +1335,7 @@ function Workspace({ who }: { who: string }) {
                 catch (e) { push({ who: "agent", text: (e as Error).message }); }
               }}>
               <span className="hash">✉</span>
-              <span className="nm">보낸 메일 추적{track ? ` · ${track.total}` : ""}</span></button>
+              <span className="nm">보낸 메일{track ? ` · ${track.total}` : ""}</span></button>
             <button className={`chan ${identOpen ? "active" : ""}`}
               onClick={() => { setIdentOpen((v) => !v); setPipeOpen(false); setTrackOpen(false); }}>
               <span className="hash">⚖</span>
@@ -1839,11 +1844,16 @@ function SenderIdentity({ api, onDone }: {
   );
 }
 
-/** 보낸 메일 추적 — 무엇이 언제 나갔고, 열렸고, 답이 왔는가.
+/** 보낸 메일 대시보드 — 세션(요청)을 넘어 "내가 뿌린 메일 전체"를 하나로.
  *
- *  시각을 보이는 이유: "열었다"만으로는 다음 행동을 정할 수 없다. 보낸 지
- *  10분 만에 열었는지 사흘 뒤에 열었는지가 후속 연락 시점을 가른다. */
-function MailTracker({ t }: { t: { leads: TrackLead[]; total: number } }) {
+ *  세션 하나하나를 열어야 성과를 알 수 있으면 그로스 도구가 아니라
+ *  로그 뷰어다. 이 화면은 워크스페이스 전체를 한 사용자의 캠페인으로
+ *  본다 — Salesforce의 리드 리스트가 캠페인을 넘나들듯, 여기서도
+ *  "어느 요청에서 나왔는지"는 필터일 뿐 경계가 아니다.
+ */
+function MailTracker({ t }: { t: TrackerData }) {
+  const [filter, setFilter] = useState<"all" | "opened" | "replied" | "bounced" | "pending">("all");
+  const [q, setQ] = useState("");
   const fmt = (v: number | null) =>
     v ? new Date(v * 1000).toLocaleString("ko-KR",
       { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
@@ -1855,42 +1865,102 @@ function MailTracker({ t }: { t: { leads: TrackLead[]; total: number } }) {
     const h = Math.round(m / 60);
     return h < 48 ? `${h}시간 만에` : `${Math.round(h / 24)}일 만에`;
   };
+  const requests = [...new Set(t.leads.map((l) => l.request_title).filter(Boolean))] as string[];
+  const [reqFilter, setReqFilter] = useState("");
+
+  const rows = t.leads.filter((l) => {
+    if (reqFilter && l.request_title !== reqFilter) return false;
+    if (q && !l.name.toLowerCase().includes(q.toLowerCase())) return false;
+    if (filter === "opened") return !!l.opened_at && !l.replied_at;
+    if (filter === "replied") return !!l.replied_at;
+    if (filter === "bounced") return !!l.bounced_at;
+    if (filter === "pending") return !!l.sent_at && !l.opened_at && !l.replied_at;
+    return true;
+  });
+
+  const f = t.funnel;
+  const maxDay = Math.max(1, ...t.by_day.map((d) => d.sent));
+
   return (
-    <div className="pipe">
-      <div className="pipe-head">보낸 메일 {t.total}건 — 발송·열람·답장</div>
+    <div className="pipe dash">
+      <div className="pipe-head">보낸 메일 대시보드 — 워크스페이스 전체</div>
+
+      {/* 퍼널 — 발송·열람·답장·반송을 한 줄로. 세션을 오가며 손으로
+          더하지 않게 서버가 이미 합산했다. */}
+      <div className="dash-stats">
+        <div className="dash-stat">
+          <b>{f.sent}</b><span>발송</span></div>
+        <div className="dash-stat hi">
+          <b>{f.opened}</b><span>열람 · {Math.round(f.open_rate * 100)}%</span></div>
+        <div className="dash-stat ok">
+          <b>{f.replied}</b><span>답장 · {Math.round(f.reply_rate * 100)}%</span></div>
+        <div className="dash-stat bad">
+          <b>{f.bounced}</b><span>반송 · {Math.round(f.bounce_rate * 100)}%</span></div>
+      </div>
+
+      {/* 최근 14일 추이 — 발송이 꾸준한지 몰아서 했는지 한눈에 */}
+      {f.sent > 0 && (
+        <div className="dash-trend">
+          {t.by_day.map((d) => (
+            <div className="dash-bar" key={d.date}
+              title={`${d.date} · ${d.sent}건`}>
+              <i style={{ height: `${Math.max(3, (d.sent / maxDay) * 100)}%` }}
+                className={d.sent > 0 ? "hit" : ""} />
+            </div>))}
+        </div>
+      )}
+
       {t.total === 0 ? (
         <div className="quiet" style={{ padding: "10px 14px" }}>
           아직 보낸 메일이 없어요. 후보 카드에서 초안을 만들고 발송하면 여기에 쌓입니다.
         </div>
       ) : (
-        <div className="track-tbl">
-          <div className="track-row track-hd">
-            <span>회사</span><span>발송</span><span>열람</span><span>답장</span>
+        <>
+          <div className="dash-filters">
+            {([["all", "전체"], ["opened", "열람만"], ["replied", "답장"],
+               ["bounced", "반송"], ["pending", "무응답"]] as const).map(([k, label]) => (
+              <button key={k} className={`dash-f ${filter === k ? "on" : ""}`}
+                onClick={() => setFilter(k)}>{label}</button>))}
+            <input className="dash-q" placeholder="회사명 검색"
+              value={q} onChange={(e) => setQ(e.target.value)} />
+            {requests.length > 1 && (
+              <select className="dash-q" value={reqFilter}
+                onChange={(e) => setReqFilter(e.target.value)}>
+                <option value="">모든 요청</option>
+                {requests.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>)}
           </div>
-          {t.leads.map((l) => (
-            <div className="track-row" key={l.company_id}>
-              <span className="track-nm">{l.name}</span>
-              <span className="track-t">{fmt(l.sent_at)}</span>
-              <span className="track-t">
-                {l.opened_at ? (
-                  <>
-                    <b className="hit">{fmt(l.opened_at)}</b>
-                    {l.open_count > 1 && <i className="cnt">{l.open_count}회</i>}
-                    <i className="gap">{gap(l.sent_at, l.opened_at)}</i>
-                  </>) : <span className="none">안 열림</span>}
-              </span>
-              <span className="track-t">
-                {l.bounced_at ? <b className="bad">반송</b>
-                  : l.replied_at ? (
+          <div className="track-tbl">
+            <div className="track-row track-hd">
+              <span>회사</span><span>요청</span><span>발송</span><span>열람</span><span>답장</span>
+            </div>
+            {rows.length === 0 ? (
+              <div className="quiet" style={{ padding: "10px 0" }}>조건에 맞는 메일이 없어요.</div>
+            ) : rows.map((l) => (
+              <div className="track-row" key={l.company_id}>
+                <span className="track-nm">{l.name}</span>
+                <span className="track-req" title={l.request_title}>{l.request_title}</span>
+                <span className="track-t">{fmt(l.sent_at)}</span>
+                <span className="track-t">
+                  {l.opened_at ? (
                     <>
-                      <b className="hit">{fmt(l.replied_at)}</b>
-                      <i className="gap">{gap(l.sent_at, l.replied_at)}</i>
-                    </>) : <span className="none">—</span>}
-              </span>
-            </div>))}
-        </div>
+                      <b className="hit">{fmt(l.opened_at)}</b>
+                      {l.open_count > 1 && <i className="cnt">{l.open_count}회</i>}
+                      <i className="gap">{gap(l.sent_at, l.opened_at)}</i>
+                    </>) : <span className="none">안 열림</span>}
+                </span>
+                <span className="track-t">
+                  {l.bounced_at ? <b className="bad">반송</b>
+                    : l.replied_at ? (
+                      <>
+                        <b className="hit">{fmt(l.replied_at)}</b>
+                        <i className="gap">{gap(l.sent_at, l.replied_at)}</i>
+                      </>) : <span className="none">—</span>}
+                </span>
+              </div>))}
+          </div>
+        </>
       )}
-      {/* 열람은 확정 사실이 아니다 — 화면이 그걸 숨기면 사용자가 과신한다 */}
       <div className="quiet" style={{ padding: "8px 14px" }}>
         열람은 추적 픽셀로 재요 — 이미지를 자동으로 받는 메일 앱에서는
         열지 않아도 잡힐 수 있어요. 답장만이 확정 사실입니다.
