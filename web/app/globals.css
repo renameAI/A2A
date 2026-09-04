@@ -128,6 +128,10 @@ button{font:inherit;cursor:pointer;border:none;background:none}
   border:1px solid var(--line);padding:3px 14px;border-radius:20px;margin:0 10px}
 .msg{display:flex;gap:11px;padding:5px 20px;position:relative}
 .msg[hidden]{display:none}   /* .msg의 display:flex가 UA의 [hidden]을 덮어쓴다 */
+.msgs[hidden],.composer[hidden]{display:none}
+/* 패널(대시보드·보드·발신자 정보)이 열려 있을 때 채팅 대신 보이는 안내 */
+.panel-hint{padding:8px 20px;color:var(--txt-3);font-size:12px;
+  border-top:1px solid var(--line);text-align:center}
 .msg:hover{background:var(--line-soft)}
 .msg .ava{width:36px;height:36px;border-radius:8px;flex:none;display:grid;
   place-items:center;font-weight:800;font-size:14px;color:#fff;margin-top:2px}

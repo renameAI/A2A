@@ -597,6 +597,10 @@ function Workspace({ who }: { who: string }) {
   const [track, setTrack] = useState<TrackerData | null>(null);
   const [trackOpen, setTrackOpen] = useState(false);
   const [identOpen, setIdentOpen] = useState(false);
+  // 패널(대시보드·보드·발신자 정보) 중 하나라도 열려 있으면 채팅은 숨긴다.
+  // 실측 지적: 대시보드를 열어도 채팅 목록(온보딩 인사말)이 아래 그대로
+  // 남아, 대시보드 밑에 나올 이유 없는 대화가 보였다.
+  const panelOpen = identOpen || trackOpen || pipeOpen;
   const [likedC, setLikedC] = useState<Set<string>>(new Set());
   const [dislikedC, setDislikedC] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
@@ -1424,7 +1428,7 @@ function Workspace({ who }: { who: string }) {
               } catch (e) { push({ who: "agent", text: (e as Error).message }); }
             }} />
         )}
-        <div className="msgs">
+        <div className="msgs" hidden={panelOpen}>
           <div className="day"><span>오늘</span></div>
           {msgs.map((m, i) => m.who === "stamp" ? (
             <div className="stamp" key={i}><b>보람</b>님이 {m.text}</div>
@@ -1659,7 +1663,12 @@ function Workspace({ who }: { who: string }) {
           ))}
           <div ref={bottom} />
         </div>
-        <div className="composer">
+        {panelOpen && (
+          <div className="panel-hint">
+            채팅으로 돌아가려면 왼쪽에서 열려 있는 패널을 다시 누르세요.
+          </div>
+        )}
+        <div className="composer" hidden={panelOpen}>
           <div className="comp-box">
             <textarea rows={1} value={input}
               placeholder={versionId
