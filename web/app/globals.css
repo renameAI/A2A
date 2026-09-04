@@ -628,7 +628,20 @@ a.ct-v{color:var(--blue)}
 @media (max-width:1400px){ .carousel{width:calc(100vw - 620px)} }
 @media (max-width:1080px){ .carousel{width:calc(100vw - 340px)} }
 @media (max-width:720px){
-  .carousel{width:calc(100vw - 40px)}
+  /* 실측(375px): minmax(150px,1fr)의 1fr이 화면 전체 폭까지 늘어나
+     칸반 6열(저장·연락함·답장·미팅·성사·실패) 중 한 번에 1.5칸 정도만
+     보였다. 폭을 고정해 옆 칸이 살짝 보이게 하면 "더 있다"는 게
+     스크롤 없이도 눈에 들어온다. */
+  .board{grid-auto-columns:64vw}
+
+  /* calc(100vw - 40px)이 .msg의 아바타(36px)+gap(11px)을
+     안 빼서 캐러셀이 뷰포트보다 24px 넓게 계산됐다. .main이 overflow:hidden
+     이라 가로 스크롤도 안 되고 카드 오른쪽이 그냥 잘려 안 보였다. 매직넘버
+     대신 flex 계산에 맡긴다 — .body가 남는 공간(뷰포트 − 아바타 − gap −
+     좌우 패딩)만큼 자동으로 줄어들고, .carousel width:100%는 그 폭을
+     그대로 따른다. */
+  .msg .body:has(.carousel){width:100%}
+  .carousel{width:100%}
   .carousel .cand-card{flex-basis:86vw}
 }
 
