@@ -695,6 +695,11 @@ function Workspace({ who }: { who: string }) {
   /** 저장된 요청을 화면으로 되살린다. 대화 기록 자체는 서버에 없으므로
    *  (메시지는 클라이언트 상태다) 무엇이 복원됐는지 정직하게 말한다. */
   async function openRequest(rid: string, opts: { silent?: boolean } = {}) {
+    // 다른 요청을 열면 채팅으로 돌아온다 — 실측: 발신자 정보 패널을 연 채
+    // 사이드바에서 다른 요청을 클릭해도 패널이 안 닫혀 그 요청의 채팅이
+    // 아니라 여전히 발신자 정보 화면이 보였다. openRequest가 요청을 여는
+    // 유일한 경로이므로 여기서 한 번만 닫으면 모든 진입점이 같이 고쳐진다.
+    setIdentOpen(false); setTrackOpen(false); setPipeOpen(false);
     try {
       const doc = await api(`/lead-requests/${rid}`);
       setRequestId(rid);
@@ -750,6 +755,9 @@ function Workspace({ who }: { who: string }) {
   /** 새 대화 — location.reload()는 상태를 통째로 버리는 대신 로그인 왕복까지
    *  일으킨다. 필요한 것만 비운다. */
   function newRequest() {
+    // 같은 이유로 여기서도 닫는다 — 패널이 열린 채 '새 Lead Request'를
+    // 눌러도 새 대화가 아니라 패널이 그대로 남아 있었다.
+    setIdentOpen(false); setTrackOpen(false); setPipeOpen(false);
     setRequestId(null); setVersionId(null); setSession(null); setCompanyName(null); setCompanyLatin(null);
     setAwaitingLatin(false);
     setCands([]); setRecs([]); setQuestions([]);
@@ -1324,9 +1332,15 @@ function Workspace({ who }: { who: string }) {
           </div>
           <div className="sec">
             <div className="sec-title"><span className="tri">▾</span> 파이프라인</div>
+            {/* 셋 다 같은 규칙: 나를 다시 누르면 닫고, 아니면 나만 열고
+                나머지 둘은 반드시 끈다. 예전엔 각자 다르게 구현돼 있어서
+                (파이프라인은 자기만 끄고 다른 둘은 안 건드림, 보낸 메일은
+                파이프라인만 끔) 패널을 연 채 다른 패널 버튼을 눌러도
+                이전 패널이 그대로 남아 있었다(실측 3회). */}
             <button className={`chan ${pipeOpen ? "active" : ""}`}
               onClick={async () => {
                 if (pipeOpen) { setPipeOpen(false); return; }
+                setTrackOpen(false); setIdentOpen(false);
                 try { setPipe(await api("/pipeline")); setPipeOpen(true); }
                 catch (e) { push({ who: "agent", text: (e as Error).message }); }
               }}>
@@ -1335,13 +1349,17 @@ function Workspace({ who }: { who: string }) {
             <button className={`chan ${trackOpen ? "active" : ""}`}
               onClick={async () => {
                 if (trackOpen) { setTrackOpen(false); return; }
-                try { setTrack(await api("/outreach/tracker")); setTrackOpen(true); setPipeOpen(false); }
+                setPipeOpen(false); setIdentOpen(false);
+                try { setTrack(await api("/outreach/tracker")); setTrackOpen(true); }
                 catch (e) { push({ who: "agent", text: (e as Error).message }); }
               }}>
               <span className="hash">✉</span>
               <span className="nm">보낸 메일{track ? ` · ${track.total}` : ""}</span></button>
             <button className={`chan ${identOpen ? "active" : ""}`}
-              onClick={() => { setIdentOpen((v) => !v); setPipeOpen(false); setTrackOpen(false); }}>
+              onClick={() => {
+                if (identOpen) { setIdentOpen(false); return; }
+                setPipeOpen(false); setTrackOpen(false); setIdentOpen(true);
+              }}>
               <span className="hash">⚖</span>
               <span className="nm">발신자 정보</span></button>
           </div>
@@ -1415,7 +1433,13 @@ function Workspace({ who }: { who: string }) {
           </div>
         </header>
         {identOpen && <SenderIdentity api={api}
-          onDone={() => push({ who: "agent", text: "발신자 정보를 저장했어요. 이제 발송할 수 있습니다." })} />}
+          onDone={() => {
+            // 저장이 끝나면 채팅으로 돌아온다 — 실측: 패널을 안 닫으면
+            // 이 push 메시지도 화면에 안 보이고(채팅이 숨겨진 채라),
+            // 애초에 발신자 정보를 열게 만든 초안 카드로도 못 돌아갔다.
+            setIdentOpen(false);
+            push({ who: "agent", text: "발신자 정보를 저장했어요. 이제 발송할 수 있습니다." });
+          }} />}
         {trackOpen && track && <MailTracker t={track} />}
         {pipeOpen && pipe && (
           <PipelineBoard pipe={pipe}
