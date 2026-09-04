@@ -385,6 +385,11 @@ button{font:inherit;cursor:pointer;border:none;background:none}
    (같은 명시도에서는 소스 순서가 이긴다: 뒤에 오는 쪽이 이긴다). */
 .menu-btn{display:none}
 .nav-scrim{display:none}
+/* display:contents — 이 컨테이너는 grid item이 아니라 자식(rail·side)이
+   .app의 직계 grid item으로 참여해야 데스크톱 3열 레이아웃이 유지된다.
+   묶지 않으면 grid item이 2개(.nav-drawer, .main)가 되어 rail·side가
+   한 트랙에 눌린다. */
+.nav-drawer{display:contents}
 @media (max-width:900px){
   .chat-head .topic{display:none}
 
@@ -394,11 +399,16 @@ button{font:inherit;cursor:pointer;border:none;background:none}
      기본은 화면 밖(translateX)에 숨겨 둔다 — main이 유일한 컬럼이라
      항상 뷰포트 전체를 쓴다. */
   .app{grid-template-columns:1fr}
-  .rail,.side{position:fixed;top:0;bottom:0;z-index:60;
-    transition:transform .2s ease}
-  .rail{left:0;width:44px;transform:translateX(-100%)}
-  .side{left:44px;width:min(78vw,280px);transform:translateX(-100%)}
-  .app.nav-open .rail,.app.nav-open .side{transform:translateX(0)}
+  /* rail·side를 한 컨테이너로 묶어 하나의 transform으로 이동한다 — 각자
+     따로 옮기면 폭을 정확히 합산해야 하는데(rail 44px + side 자기 폭),
+     .side를 left:44px + translateX(-100%)로 뒀을 때 자기 폭만큼만 이동해
+     rail 폭(44px)이 화면에 줄무늬로 남았다(실측). flex 컨테이너 하나면
+     내부 폭이 몇 개든 신경 쓸 필요가 없다. */
+  .nav-drawer{display:flex;position:fixed;top:0;left:0;bottom:0;z-index:60;
+    transform:translateX(-100%);transition:transform .2s ease}
+  .nav-drawer .rail{width:44px}
+  .nav-drawer .side{width:min(78vw,280px)}
+  .app.nav-open .nav-drawer{transform:translateX(0)}
 
   .nav-scrim{display:block;position:fixed;inset:0;background:rgba(7,8,11,.55);
     z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}

@@ -1304,6 +1304,12 @@ function Workspace({ who }: { who: string }) {
           CSS가 이 요소를 렌더하지 않는다(.nav-scrim은 900px 이하에서만
           display:block). */}
       <div className="nav-scrim" onClick={() => setNavOpen(false)} />
+      {/* rail·side를 한 덩어리로 묶어 하나의 transform으로 밀어 넣는다 —
+          따로 옮기면 각자의 폭(44px, 280px)을 정확히 계산해야 하는데,
+          .side를 left:44px + translateX(-100%)로 뒀더니 자기 폭만큼만
+          이동해 rail 폭(44px)만큼이 화면에 줄무늬로 남았다(실측). 컨테이너
+          하나를 옮기면 안에 뭐가 몇 개든 폭 계산이 필요 없다. */}
+      <div className="nav-drawer">
       <nav className="rail" aria-label="워크스페이스">
         <div className="ws" title="rename">r.</div>
         <div className="spacer" />
@@ -1410,6 +1416,7 @@ function Workspace({ who }: { who: string }) {
           </div>
         )}
       </aside>
+      </div>
 
       <main className="main">
         <header className="chat-head">
