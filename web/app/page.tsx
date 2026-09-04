@@ -548,6 +548,14 @@ function Workspace({ who }: { who: string }) {
   const [versionId, setVersionId] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const [cands, setCands] = useState<Cand[]>([]);
+  // 캐러셀이 지금 보여주는 카드 번호(0-base) — 여러 장을 옆으로 겹쳐
+  // 보이게 하려다 폭 계산이 화면 크기·사이드바 폭·아바타 오프셋을 전부
+  // 맞물려 따라가야 했고, 그때마다 어긋났다(실측 4회: 720px 카드 잘림,
+  // 375px 24px 초과, 92% 재조정, 1280px 유령 grid 트랙). 한 장만 보여주면
+  // "카드 하나가 컨테이너를 100% 채운다"는 사실 하나로 끝난다 — 화면
+  // 크기가 몇이든 다시 맞출 게 없다.
+  const [cardIdx, setCardIdx] = useState(0);
+  const carouselRef = useRef<HTMLDivElement>(null);
   // 저장은 **스냅샷**이다 — Set에 id만 담고 cands에서 찾아 쓰면, 다음 웨이브에서
   // 그 후보가 밀려났을 때 "이 회사 좋다"고 저장해둔 것이 정체불명 문자열로
   // 바뀐다(감사 확정 high). 저장 시점의 후보를 통째로 들고 있는다.
@@ -710,6 +718,7 @@ function Workspace({ who }: { who: string }) {
       setRequestId(rid);
       setVersionId(doc.profile_version_id ?? null);
       setCands(doc.candidates ?? []);
+      setCardIdx(0);          // 새 요청 — 캐러셀은 1번 카드부터
       const fb = doc.feedback ?? {};
       setLikedC(new Set(fb.liked ?? []));
       setDislikedC(new Set(fb.disliked ?? []));
@@ -765,7 +774,7 @@ function Workspace({ who }: { who: string }) {
     setIdentOpen(false); setTrackOpen(false); setPipeOpen(false); setNavOpen(false);
     setRequestId(null); setVersionId(null); setSession(null); setCompanyName(null); setCompanyLatin(null);
     setAwaitingLatin(false);
-    setCands([]); setRecs([]); setQuestions([]);
+    setCands([]); setCardIdx(0); setRecs([]); setQuestions([]);
     setSaved(new Map()); setReplied(new Set());
     setLikedC(new Set()); setDislikedC(new Set());
     const u = new URL(location.href);
@@ -1144,6 +1153,7 @@ function Workspace({ who }: { who: string }) {
         { candidates: Cand[]; keyword_recommendations: KwRec[];
           clarify: ClarifyQ[] };
       setCands(res.candidates);
+      setCardIdx(0);          // 새 검색 결과 — 캐러셀은 1번 카드부터
       setRecs(res.keyword_recommendations || []);
       if (res.candidates.length) void deepRead(rid);
       const bySeg = new Map<string, number>();
@@ -1202,6 +1212,7 @@ function Workspace({ who }: { who: string }) {
         candidates: Cand[]; clarify: ClarifyQ[]; final: boolean;
         wave: number; new_found?: number; note?: string };
       setCands(res.candidates);
+      setCardIdx(0);          // 재정렬된 새 순위 — 캐러셀은 1번 카드부터
       if (res.final) {
         push({ who: "stamp", text: "후보를 확정했습니다" });
         void deepRead(rid);
@@ -1514,7 +1525,35 @@ function Workspace({ who }: { who: string }) {
                 {m.kind === "candidates" && cands.length > 0
                   && i === msgs.reduce((a, x, j) =>
                        x.kind === "candidates" ? j : a, -1) && (
-                <div className="carousel">
+                <div className="carousel-wrap">
+                  {/* 한 장씩 — 카드가 컨테이너를 100% 채우므로 화면 폭이
+                      몇이든 다시 계산할 게 없다. 화살표는 카드 한 장 폭만큼
+                      scrollBy 한다 — snap이 정확한 카드 경계에 맞춰 준다. */}
+                  {cands.length > 1 && cardIdx > 0 && (
+                    <button className="car-arrow car-prev" aria-label="이전 후보"
+                      onClick={() => {
+                        const el = carouselRef.current; if (!el) return;
+                        el.scrollBy({ left: -el.clientWidth, behavior: "smooth" });
+                      }}>‹</button>
+                  )}
+                  {cands.length > 1 && cardIdx < cands.length - 1 && (
+                    <button className="car-arrow car-next" aria-label="다음 후보"
+                      onClick={() => {
+                        const el = carouselRef.current; if (!el) return;
+                        el.scrollBy({ left: el.clientWidth, behavior: "smooth" });
+                      }}>›</button>
+                  )}
+                  {cands.length > 1 && (
+                    <div className="car-dots">
+                      {Math.min(cardIdx + 1, cands.length)} / {cands.length}
+                    </div>
+                  )}
+                  <div className="carousel" ref={carouselRef}
+                    onScroll={(e) => {
+                      const el = e.currentTarget;
+                      const idx = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+                      setCardIdx(Math.max(0, Math.min(idx, cands.length - 1)));
+                    }}>
                   {cands.map((c, i) => (
                     <div className="cand-card" key={c.company_id}>
   <div className="bubble">
@@ -1703,6 +1742,7 @@ function Workspace({ who }: { who: string }) {
                   </div>
                     </div>
                   ))}
+                  </div>
                 </div>
                 )}
               </div>

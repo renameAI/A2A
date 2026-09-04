@@ -617,19 +617,22 @@ a.ct-v{color:var(--blue)}
 
 
 /* ═══════════ 후보 캐러셀 ═══════════ */
-/* 후보 10곳을 버블 10개로 쌓으면 대화가 목록이 된다 — 한 메시지 안에서
-   가로로 넘긴다. 스크롤 스냅으로 카드 단위가 또렷하게 멈춘다. */
+/* 후보를 한 장씩 넘겨 본다 — 화면 폭·사이드바 폭·아바타 오프셋에 맞춰
+   "여러 장이 얼마나 겹쳐 보여야 하는지"를 계산하다가 네 번 어긋났다
+   (720px 카드 잘림 → 375px 24px 초과 → 92% 재조정 → 1280px 유령 grid
+   트랙까지 겹쳐 카드가 화면 밖으로 나갔다). 카드가 컨테이너를 늘 100%
+   채우게 하면 "화면이 몇 픽셀이든" 다시 맞출 게 없다 — 카드 자신의
+   폭만 정하면 되고, 그 폭은 고정값(읽기 편한 최대 폭) 하나로 끝난다. */
 .bubble-wide{max-width:none}
-/* 캐러셀은 말풍선 폭(680px) 밖으로 나간다 — 카드가 열 줄짜리 판독을 담는데
-   680px 안에 320px 카드 두 장이면 어느 쪽도 제대로 안 읽힌다. */
-.carousel{display:flex;gap:12px;overflow-x:auto;padding:10px 2px 14px;
-  scroll-snap-type:x mandatory;scrollbar-width:thin;
-  width:min(1040px, calc(100vw - 640px));max-width:none}
-.carousel .cand-card{flex:0 0 396px;scroll-snap-align:start;
-  /* 클릭 직후 커밋에서 화면 밖 카드(10장 중 ~7장)의 레이아웃·페인트를
+.carousel-wrap{position:relative;max-width:min(460px,100%)}
+.carousel{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;
+  scrollbar-width:none;border-radius:14px}
+.carousel::-webkit-scrollbar{display:none}
+.carousel .cand-card{flex:0 0 100%;scroll-snap-align:start;
+  /* 클릭 직후 커밋에서 화면 밖 카드(10장 중 ~9장)의 레이아웃·페인트를
      건너뛴다 — 진단 실측: 초기 커밋이 SVG 레이더 10개+막대 100줄을 한 번에
-     그려 수백 ms 점유. intrinsic-size는 스크롤바 점프 방지용 추정 크기. */
-  content-visibility:auto;contain-intrinsic-size:396px 560px;
+     그려 수백 ms 점유. intrinsic-size는 스크롤바 점프 방지용 추정 크기다. */
+  content-visibility:auto;contain-intrinsic-size:440px 560px;
   background:var(--raise);border:1px solid var(--raise-line);border-radius:14px;
   box-shadow:0 1px 3px rgba(0,0,0,.35), 0 6px 16px rgba(0,0,0,.22);
   padding:14px 15px;display:flex;flex-direction:column;gap:8px}
@@ -637,29 +640,24 @@ a.ct-v{color:var(--blue)}
 .carousel .cand-card .bubble{background:none;border:none;padding:0;
   max-width:none;box-shadow:none}
 .carousel .cand-acts,.carousel .cand-react{flex-wrap:wrap}
-@media (max-width:1400px){ .carousel{width:calc(100vw - 620px)} }
-@media (max-width:1080px){ .carousel{width:calc(100vw - 340px)} }
+/* 화살표 — 카드 위에 오버레이. 카드가 하나뿐이거나 양 끝에 닿으면 그
+   방향 화살표를 아예 안 그린다(JSX가 판단) — 눌러도 안 움직이는 버튼을
+   보여주는 것보다 없는 편이 정직하다. */
+.car-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:5;
+  width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(14,17,22,.82);border:1px solid var(--raise-line);
+  color:var(--txt);font-size:18px;line-height:1;backdrop-filter:blur(2px)}
+.car-arrow:hover{background:var(--raise);border-color:#4b5563}
+.car-prev{left:6px}
+.car-next{right:6px}
+.car-dots{position:absolute;top:-22px;right:2px;font-size:11px;
+  color:var(--txt-3);font-variant-numeric:tabular-nums}
 @media (max-width:720px){
   /* 실측(375px): minmax(150px,1fr)의 1fr이 화면 전체 폭까지 늘어나
      칸반 6열(저장·연락함·답장·미팅·성사·실패) 중 한 번에 1.5칸 정도만
      보였다. 폭을 고정해 옆 칸이 살짝 보이게 하면 "더 있다"는 게
      스크롤 없이도 눈에 들어온다. */
   .board{grid-auto-columns:64vw}
-
-  /* calc(100vw - 40px)이 .msg의 아바타(36px)+gap(11px)을
-     안 빼서 캐러셀이 뷰포트보다 24px 넓게 계산됐다. .main이 overflow:hidden
-     이라 가로 스크롤도 안 되고 카드 오른쪽이 그냥 잘려 안 보였다. 매직넘버
-     대신 flex 계산에 맡긴다 — .body가 남는 공간(뷰포트 − 아바타 − gap −
-     좌우 패딩)만큼 자동으로 줄어들고, .carousel width:100%는 그 폭을
-     그대로 따른다. */
-  .msg .body:has(.carousel){width:100%}
-  .carousel{width:100%}
-  /* 86vw는 뷰포트 기준이라, .carousel 자신의 실제 폭(위 수정으로
-     "뷰포트 − 아바타 − gap"이 됨, 375px에서 283px)보다 커져 카드
-     텍스트가 항상 옆으로 스크롤해야 다 보였다(실측). %는 캐러셀 자신의
-     content box 기준이므로 카드가 정확히 그 폭에 맞는다 — 8% 여백을
-     남겨 다음 카드가 살짝 보이게 해 "옆에 더 있다"는 힌트를 준다. */
-  .carousel .cand-card{flex-basis:92%}
 }
 
 
