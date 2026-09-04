@@ -597,6 +597,11 @@ function Workspace({ who }: { who: string }) {
   const [track, setTrack] = useState<TrackerData | null>(null);
   const [trackOpen, setTrackOpen] = useState(false);
   const [identOpen, setIdentOpen] = useState(false);
+  // 모바일 폭(≤900px)에서 사이드바를 오버레이 드로어로 연다 — 실측: 375px
+  // 화면은 grid가 44+220+1fr을 그대로 유지해 사이드바가 뷰포트를 넘고
+  // 메인 콘텐츠가 화면 밖으로 밀렸다. 데스크톱 폭에서는 이 값이 CSS
+  // 미디어쿼리 밖에서 아무것도 건드리지 않는다.
+  const [navOpen, setNavOpen] = useState(false);
   // 패널(대시보드·보드·발신자 정보) 중 하나라도 열려 있으면 채팅은 숨긴다.
   // 실측 지적: 대시보드를 열어도 채팅 목록(온보딩 인사말)이 아래 그대로
   // 남아, 대시보드 밑에 나올 이유 없는 대화가 보였다.
@@ -699,7 +704,7 @@ function Workspace({ who }: { who: string }) {
     // 사이드바에서 다른 요청을 클릭해도 패널이 안 닫혀 그 요청의 채팅이
     // 아니라 여전히 발신자 정보 화면이 보였다. openRequest가 요청을 여는
     // 유일한 경로이므로 여기서 한 번만 닫으면 모든 진입점이 같이 고쳐진다.
-    setIdentOpen(false); setTrackOpen(false); setPipeOpen(false);
+    setIdentOpen(false); setTrackOpen(false); setPipeOpen(false); setNavOpen(false);
     try {
       const doc = await api(`/lead-requests/${rid}`);
       setRequestId(rid);
@@ -757,7 +762,7 @@ function Workspace({ who }: { who: string }) {
   function newRequest() {
     // 같은 이유로 여기서도 닫는다 — 패널이 열린 채 '새 Lead Request'를
     // 눌러도 새 대화가 아니라 패널이 그대로 남아 있었다.
-    setIdentOpen(false); setTrackOpen(false); setPipeOpen(false);
+    setIdentOpen(false); setTrackOpen(false); setPipeOpen(false); setNavOpen(false);
     setRequestId(null); setVersionId(null); setSession(null); setCompanyName(null); setCompanyLatin(null);
     setAwaitingLatin(false);
     setCands([]); setRecs([]); setQuestions([]);
@@ -1294,7 +1299,11 @@ function Workspace({ who }: { who: string }) {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${navOpen ? "nav-open" : ""}`}>
+      {/* 모바일 전용 배경막 — 드로어 밖을 누르면 닫힌다. 데스크톱 폭에서는
+          CSS가 이 요소를 렌더하지 않는다(.nav-scrim은 900px 이하에서만
+          display:block). */}
+      <div className="nav-scrim" onClick={() => setNavOpen(false)} />
       <nav className="rail" aria-label="워크스페이스">
         <div className="ws" title="rename">r.</div>
         <div className="spacer" />
@@ -1340,7 +1349,7 @@ function Workspace({ who }: { who: string }) {
             <button className={`chan ${pipeOpen ? "active" : ""}`}
               onClick={async () => {
                 if (pipeOpen) { setPipeOpen(false); return; }
-                setTrackOpen(false); setIdentOpen(false);
+                setTrackOpen(false); setIdentOpen(false); setNavOpen(false);
                 try { setPipe(await api("/pipeline")); setPipeOpen(true); }
                 catch (e) { push({ who: "agent", text: (e as Error).message }); }
               }}>
@@ -1349,7 +1358,7 @@ function Workspace({ who }: { who: string }) {
             <button className={`chan ${trackOpen ? "active" : ""}`}
               onClick={async () => {
                 if (trackOpen) { setTrackOpen(false); return; }
-                setPipeOpen(false); setIdentOpen(false);
+                setPipeOpen(false); setIdentOpen(false); setNavOpen(false);
                 try { setTrack(await api("/outreach/tracker")); setTrackOpen(true); }
                 catch (e) { push({ who: "agent", text: (e as Error).message }); }
               }}>
@@ -1358,7 +1367,7 @@ function Workspace({ who }: { who: string }) {
             <button className={`chan ${identOpen ? "active" : ""}`}
               onClick={() => {
                 if (identOpen) { setIdentOpen(false); return; }
-                setPipeOpen(false); setTrackOpen(false); setIdentOpen(true);
+                setPipeOpen(false); setTrackOpen(false); setIdentOpen(true); setNavOpen(false);
               }}>
               <span className="hash">⚖</span>
               <span className="nm">발신자 정보</span></button>
@@ -1404,6 +1413,8 @@ function Workspace({ who }: { who: string }) {
 
       <main className="main">
         <header className="chat-head">
+          <button className="menu-btn" aria-label="메뉴 열기"
+            onClick={() => setNavOpen((v) => !v)}>☰</button>
           <h1><span className="hash">#</span> lead-discovery</h1>
           {busy && (
             <span className="pill run">
