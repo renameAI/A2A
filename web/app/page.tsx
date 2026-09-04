@@ -1337,8 +1337,13 @@ function Workspace({ who }: { who: string }) {
                   onClick={() => openRequest(r.request_id)}>
                   <span className="hash">#</span>
                   <span className="nm">{r.title || r.request_id}</span>
+                  {/* 후보 개수다 — 안읽음 카운트가 아니다. 슬랙과 똑같은
+                      진한 원형 배지 모양이라 실측에서 "안읽으면 사라져야
+                      하는 거 아니냐"는 오해를 샀다. 모양을 카운트 라벨로
+                      바꾸고 무엇인지 hover로 밝힌다. */}
                   {r.candidate_count > 0 &&
-                    <span className="badge">{r.candidate_count}</span>}
+                    <span className="badge" title={`후보 ${r.candidate_count}곳`}>
+                      {r.candidate_count}</span>}
                 </button>
                 <button className="chan-del" disabled={busy} title="이 요청 삭제"
                   onClick={() => removeRequest(r)}>×</button>

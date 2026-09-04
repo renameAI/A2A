@@ -87,9 +87,15 @@ button{font:inherit;cursor:pointer;border:none;background:none}
 .chan:hover{background:var(--ink-2)}
 .chan.active{background:var(--coral);color:#fff;font-weight:600}
 .chan .hash{opacity:.55;font-weight:600}
-.chan .badge{margin-left:auto;background:var(--coral);color:#fff;font-size:10.5px;
-  font-weight:700;padding:1px 7px;border-radius:9px}
-.chan.active .badge{background:rgba(255,255,255,.25)}
+/* 후보 개수 라벨 — 슬랙의 안읽음 배지(진한 원형+흰 숫자)와 같은 모양이라
+   실측에서 "읽으면 사라지는 카운트"로 오해를 샀다. 옅은 톤 + 사각 pill로
+   "지금 상태를 알리는 배지"가 아니라 "정보 라벨"로 읽히게 한다 — 후보
+   수는 요청을 열어도 그대로 유효한 사실이라 사라지면 안 된다. */
+.chan .badge{margin-left:auto;background:var(--line-soft);color:var(--txt-2);
+  font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:5px;
+  border:1px solid rgba(255,255,255,.08)}
+.chan.active .badge{background:rgba(255,255,255,.18);color:#fff;
+  border-color:rgba(255,255,255,.25)}
 .chan .st{margin-left:auto;font-size:10.5px;color:#7C8499;flex:none;padding-left:6px}
 .chan .badge{flex:none}
 .chan.done .hash{opacity:.3}
@@ -312,7 +318,13 @@ button{font:inherit;cursor:pointer;border:none;background:none}
 .mined-i{font-size:12.5px;color:var(--txt-2);padding:4px 0;border-top:1px solid var(--line-soft)}
 
 /* 반응형 */
-@media (max-width:1280px){.app{grid-template-columns:44px 232px 1fr 320px}}
+/* 실측(1200px): 4번째 트랙(320px)이 정의는 됐지만 grid 자식은 3개(rail·
+   side·main)뿐이라 그 320px가 화면 오른쪽에서 그냥 낭비되고, .main이
+   604px로 —실제 필요한 924px보다 320px나 좁게— 눌려 카드가 뷰포트
+   경계에서 잘려 보였다("PC에서도 깨진다"는 지적 그대로). 트랙이 남으면
+   자식이 없어도 그 트랙의 공간은 grid 계산에서 사라지지 않는다 — "안 쓰는
+   트랙은 무해하다"고 판단했던 것이 틀렸다. */
+@media (max-width:1280px){.app{grid-template-columns:44px 232px 1fr}}
 @media (max-width:1080px){.app{grid-template-columns:44px 220px 1fr}}
 @media (prefers-reduced-motion:reduce){
   .dot-live,.typing i{animation:none}
@@ -642,7 +654,12 @@ a.ct-v{color:var(--blue)}
      그대로 따른다. */
   .msg .body:has(.carousel){width:100%}
   .carousel{width:100%}
-  .carousel .cand-card{flex-basis:86vw}
+  /* 86vw는 뷰포트 기준이라, .carousel 자신의 실제 폭(위 수정으로
+     "뷰포트 − 아바타 − gap"이 됨, 375px에서 283px)보다 커져 카드
+     텍스트가 항상 옆으로 스크롤해야 다 보였다(실측). %는 캐러셀 자신의
+     content box 기준이므로 카드가 정확히 그 폭에 맞는다 — 8% 여백을
+     남겨 다음 카드가 살짝 보이게 해 "옆에 더 있다"는 힌트를 준다. */
+  .carousel .cand-card{flex-basis:92%}
 }
 
 
