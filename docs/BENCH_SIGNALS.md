@@ -5,7 +5,7 @@
 `scripts/run_signal_bench.py`.
 
 ```bash
-LLM_PROVIDER=openai python scripts/run_signal_bench.py --k 3
+python scripts/run_signal_bench.py --k 3
 ```
 
 ## 왜 이 축을 재는가

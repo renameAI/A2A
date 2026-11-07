@@ -2,14 +2,14 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-from tests.test_product import DIVEIN_TEXT, _run_job
+from tests.test_product import SAMPLEHOTEL_TEXT, _run_job
 
 client = TestClient(app)
 
 
 def _onboard_id() -> str:
     job = _run_job("/product/onboard", {
-        "assets": [{"type": "text", "content": DIVEIN_TEXT}]})
+        "assets": [{"type": "text", "content": SAMPLEHOTEL_TEXT}]})
     return job["result"]["company_id"]
 
 

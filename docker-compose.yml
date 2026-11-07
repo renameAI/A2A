@@ -1,0 +1,103 @@
+# 로컬 전체 스택 — 메시징 플랫폼(셀 2개) + Redis 팬아웃 + 엔진 + 웹.
+#
+#   docker compose up --build        → http://localhost:13200/?as=boram  (어드민: /admin)
+#   ANTHROPIC_API_KEY=sk-ant-... docker compose up   → Claude로 AI 기능까지
+#
+# 운영 구성이 아니다: 인증은 dev 모드(X-Dev-User, 허용 목록 안의 사용자만), 웹은 next dev.
+# 셀 Postgres를 서버 두 대로 띄우는 이유 — 테넌트 배치·셀 이동이 실제로 다른 서버
+# 사이에서 일어나는지 확인할 수 있게(docs/MESSAGING_PLATFORM.md §12).
+name: a2a
+
+x-pg: &pg
+  image: postgres:17
+  environment:
+    POSTGRES_HOST_AUTH_METHOD: trust
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres"]
+    interval: 2s
+    retries: 30
+
+x-engine-env: &engine-env
+  SAAS_AUTH: dev
+  SAAS_STORE: local
+  SAAS_DB_PATH: /data/saas.db
+  SAAS_ALLOWED_USERS: boram,alice,bob,carol,vendor,ops,acme_ceo
+  CHAT_CONTROL_DSN: postgresql://postgres@pg-a:5432/control
+  DEV_CELL_A: postgresql://postgres@pg-a:5432/cell_a
+  DEV_CELL_B: postgresql://postgres@pg-b:5432/cell_b
+  CHAT_FANOUT: redis
+  CHAT_REDIS_URL: redis://redis:6379/0
+  CHAT_ARCHIVE_DIR: /data/archive
+  LLM_PROVIDER: anthropic
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+services:
+  pg-a:
+    <<: *pg
+    volumes:
+      - ./deploy/compose/initdb-a.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pg-a:/var/lib/postgresql/data
+  pg-b:
+    <<: *pg
+    volumes:
+      - ./deploy/compose/initdb-b.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pg-b:/var/lib/postgresql/data
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  # 셀 등록·테넌트·사용자·채널 시드 — 다시 돌려도 안전하다(이미 있으면 건너뜀)
+  seed:
+    build: .
+    environment: *engine-env
+    command: ["python", "scripts/chat_dev_seed.py"]
+    depends_on:
+      pg-a: { condition: service_healthy }
+      pg-b: { condition: service_healthy }
+    volumes: [engine-data:/data]
+
+  engine:
+    build: .
+    environment:
+      <<: *engine-env
+      # 셀 이동은 아래 worker가 맡는다 — 요청 스레드에서 돌리지 않는다
+      CHAT_MOVE_INLINE: "0"
+    ports: ["18423:8080"]
+    depends_on:
+      seed: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    volumes: [engine-data:/data]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 3s
+      retries: 30
+
+  # 셀 이동 등 백그라운드 작업 — 대기열(tenant_moves)을 SKIP LOCKED로 집어 간다.
+  # 여러 개 띄워도 한 이동을 두 워커가 잡지 않고, 죽으면 다른 워커가 하트비트
+  # 끊김을 보고 되돌린다(app/chat/move.py recover_stale).
+  worker:
+    build: .
+    command: ["python", "-m", "app.chat.worker"]
+    environment: *engine-env
+    depends_on:
+      engine: { condition: service_healthy }
+    volumes: [engine-data:/data]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    environment:
+      ENGINE_URL: http://engine:8080
+    ports: ["13200:3200"]
+    depends_on:
+      engine: { condition: service_healthy }
+
+volumes:
+  pg-a:
+  pg-b:
+  engine-data:

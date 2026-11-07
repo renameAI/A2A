@@ -97,19 +97,11 @@ def get_job(job_id: str, user: SaasUser = Depends(current_user)):
 _os = os
 
 
-class LlmToggle(BaseModel):
-    provider: Literal["local", "openai"]
-
-
 def _llm_state() -> dict:
+    """모델 상태 — 외부 모델 API는 Claude 하나(2026-10 통일). 공급자 토글은 없앴다."""
     s = get_settings()
-    return {
-        "provider": s.llm_provider,
-        "model": s.openai_model if s.llm_provider == "openai" else s.local_model,
-        "label": "GPT Luna" if s.llm_provider == "openai" else "EXAONE 로컬",
-        "ready": {"local": bool(s.local_base_url and s.local_model),
-                  "openai": bool(s.openai_api_key)},
-    }
+    return {"provider": "anthropic", "label": "Claude", "model": s.anthropic_model,
+            "ready": bool(s.anthropic_api_key)}
 
 
 @router.get("/settings/llm")
@@ -117,50 +109,37 @@ def llm_settings(user: SaasUser = Depends(current_user)):
     return _llm_state()
 
 
-class OpenAIKey(BaseModel):
+class ProviderKey(BaseModel):
     key: str = Field(min_length=20)
 
 
-@router.post("/settings/openai-key")
-def set_openai_key(req: OpenAIKey, user: SaasUser = Depends(current_user)):
-    """사용자가 브라우저에서 직접 붙여넣은 키를 받는다 — 채팅·로그 미경유.
-
-    처리: ① 형식 검사 ② 프로세스 env 반영(즉시 사용 가능) ③ .env에 영속
-    (재시작 생존 — .env는 gitignore라 커밋 불가). 키 값은 어떤 로그·응답에도
-    전문을 남기지 않는다(마스킹만 반환)."""
-    key = req.key.strip()
-    if not key.startswith("sk-"):
-        raise EngineError(400, "invalid_input",
-                          "OpenAI 키 형식이 아닙니다 (sk- 로 시작해야 해요)")
-    _os.environ["OPENAI_API_KEY"] = key
+def _save_key(env_name: str, key: str) -> bool:
+    """프로세스 env에 반영하고 .env에 영속한다(.env는 gitignore). 키 전문은 어떤
+    로그·응답에도 남기지 않는다 — 마스킹만 돌려준다."""
+    _os.environ[env_name] = key
     env_path = _os.environ.get("A2A_ENV_FILE", ".env")
     try:
         from pathlib import Path
         p = Path(env_path)
         lines = p.read_text().splitlines() if p.exists() else []
-        lines = [l for l in lines if not l.startswith("OPENAI_API_KEY=")]
-        lines.append(f"OPENAI_API_KEY={key}")
+        lines = [l for l in lines if not l.startswith(f"{env_name}=")]
+        lines.append(f"{env_name}={key}")
         p.write_text("\n".join(lines) + "\n")
-        persisted = True
+        return True
     except OSError:
-        persisted = False   # 읽기 전용 컨테이너 등 — 프로세스 env로는 이미 유효
+        return False   # 읽기 전용 컨테이너 등 — 프로세스 env로는 이미 유효
+
+
+@router.post("/settings/anthropic-key")
+def set_anthropic_key(req: ProviderKey, user: SaasUser = Depends(current_user)):
+    """사용자가 브라우저에서 직접 붙여넣은 Claude API 키 — 채팅·로그 미경유."""
+    key = req.key.strip()
+    if not key.startswith("sk-ant-"):
+        raise EngineError(400, "invalid_input",
+                          "Claude API 키 형식이 아닙니다 (sk-ant- 로 시작해야 해요)")
+    persisted = _save_key("ANTHROPIC_API_KEY", key)
     return {"saved": True, "persisted": persisted,
-            "masked": f"sk-****{key[-4:]}", **_llm_state()}
-
-
-@router.post("/settings/llm")
-def set_llm(req: LlmToggle, user: SaasUser = Depends(current_user)):
-    s = get_settings()
-    if req.provider == "openai" and not s.openai_api_key:
-        raise EngineError(409, "config_error",
-                          "OPENAI_API_KEY가 없어 GPT로 전환할 수 없습니다 — "
-                          "키를 설정한 뒤 다시 시도하세요.")
-    if req.provider == "local" and not (s.local_base_url and s.local_model):
-        raise EngineError(409, "config_error",
-                          "LOCAL_LLM_BASE_URL·LOCAL_LLM_MODEL이 없어 로컬로 "
-                          "전환할 수 없습니다.")
-    _os.environ["LLM_PROVIDER"] = req.provider
-    return _llm_state()
+            "masked": f"sk-ant-****{key[-4:]}", **_llm_state()}
 
 
 @router.get("/usage")
@@ -226,6 +205,24 @@ def sign_upload_url(body: UploadSignIn,
 
 # ── 사용자·워크스페이스 ─────────────────────────────────────────────
 
+@router.get("/workspace")
+def workspace_status(user: SaasUser = Depends(current_user)):
+    """리드 데이터가 지금 어느 워크스페이스에 있는지, 이전이 남았는지."""
+    from .workspace import status
+    return status(user.uid, user.tenant_slug)
+
+
+class MigrateIn(BaseModel):
+    tenant_slug: str = Field(min_length=2, max_length=41)
+
+
+@router.post("/workspace/migrate")
+def workspace_migrate(req: MigrateIn, user: SaasUser = Depends(current_user)):
+    """예전 워크스페이스(ws-{uid})의 리드 데이터를 테넌트로 옮긴다 — 복사 후 '이전됨' 표시."""
+    from .workspace import migrate
+    return migrate(user.uid, user.email, req.tenant_slug)
+
+
 @router.get("/me")
 def me(user: SaasUser = Depends(current_user)):
     store = get_saas_store()
@@ -273,6 +270,8 @@ class OnboardingAnswer(BaseModel):
 @router.post("/onboarding-sessions", status_code=201)
 def create_session(req: OnboardingCreate,
                    user: SaasUser = Depends(current_user)):
+    from .assetguard import check as check_assets
+    check_assets(req.assets, user.workspace_id)        # 로컬 경로·남의 파일·내부 주소 거부
     store = get_saas_store()
     sid = store.new_id("ob")
     doc = {"session_id": sid, "status": "collecting",
@@ -454,6 +453,8 @@ def add_assets(sid: str, req: OnboardingAssets,
     프로필이 이미 있으면 추가 자료로 다시 만든다(다음 /run이 재생성). 승인된
     뒤에는 붙일 수 없다 — 그 프로필은 이미 버전으로 굳었다.
     """
+    from .assetguard import check as check_assets
+    check_assets(req.assets, user.workspace_id)
     store = get_saas_store()
     doc = store.get("onboarding", user.workspace_id, sid)
     if doc is None:
@@ -665,6 +666,10 @@ def delete_request(rid: str, user: SaasUser = Depends(current_user)):
     # 키워드 원장은 f"{rid}-w{wave}" 형태
     removed["keyword_run"] = store.delete_prefix("keyword_run", ws, f"{rid}-w")
     removed["cost_request_self"] = int(store.delete("cost_request", ws, rid))
+    # 요청 = 채널. 채널이 사라지면 그 대화도 따라간다.
+    removed["chat_msg"] = store.delete_prefix("chat_msg", ws, f"{rid}::")
+    removed["thread_meta"] = store.delete_prefix("thread_meta", ws, f"{rid}::")
+    removed["channel_meta"] = int(store.delete("channel_meta", ws, rid))
     return {"deleted": rid, "removed": removed}
 
 
@@ -1103,7 +1108,14 @@ def delete_me(body: DeleteMe, user: SaasUser = Depends(current_user)):
     if body.confirm.strip() != expected:
         raise EngineError(400, "invalid_input",
                           f"확인 문구가 다릅니다 — '{expected}' 를 그대로 입력하세요.")
+    from .team import dissolve, is_owner
+    if not is_owner(user):
+        # 팀원의 '내 자료 지우기'가 팀 전체 자료를 지우면 안 된다
+        raise EngineError(409, "invalid_state",
+                          "팀 워크스페이스는 소유자만 삭제할 수 있어요 — "
+                          "먼저 팀에서 나간 뒤 내 워크스페이스를 삭제하세요.")
     store = get_saas_store()
+    dissolve(user.workspace_id)
     n = store.delete_workspace(user.workspace_id)
     # 업로드한 원본 자료도 지운다 — 문서만 지우면 IR덱이 스토리지에 남는다
     files = 0

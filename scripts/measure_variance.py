@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """분산 계측 러너 (FORMALIZATION.md L0) — 스킬을 m회 실행해 run-to-run 분산을 잰다.
 
-    python scripts/measure_variance.py --skill represent --m 5 --input examples/divein.json
+    python scripts/measure_variance.py --skill represent --m 5 --input examples/samplehotel.json
     python scripts/measure_variance.py --skill judge --m 5 --input examples/judge.json
 
 --input은 해당 스킬의 요청 스키마(RepresentRequest/JudgeRequest 등)를 담은 JSON 파일.

@@ -12,7 +12,7 @@
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 의존성 (버전 고정)
-cp .env.example .env   # FRIENDLI_TOKEN·FRIENDLI_ENDPOINT_ID 입력 (필수 — 없으면 실패)
+cp .env.example .env   # ANTHROPIC_API_KEY 입력 (필수 — 없으면 실패)
 .venv/bin/uvicorn app.main:app --port 8423   # → http://localhost:8423 (웹 UI)
 ```
 
@@ -55,7 +55,7 @@ cat >/tmp/a2a-smoke.json <<'JSON'
               "assets": [
                 {
                   "type": "text",
-                  "content": "이름: 다이브인그룹\n국가: 한국\n산업: hospitality\n설명: 노후 호텔 전환\n문제: 노후 객실 매출 정체\n솔루션: 저자본 예술 전환\n타겟: 중소 호텔 오너\n판매가치: 매출"
+                  "content": "이름: 샘플호텔그룹\n국가: 한국\n산업: hospitality\n설명: 노후 호텔 전환\n문제: 노후 객실 매출 정체\n솔루션: 저자본 예술 전환\n타겟: 중소 호텔 오너\n판매가치: 매출"
                 }
               ]
             }
@@ -99,21 +99,23 @@ exec .venv/bin/uvicorn app.main:app --port ${PORT:-8423}
   env var를 나중에 추가했는데 pool이 계속 6개로 나왔던 원인). 값을 바꾼 뒤엔
   `lsof -t -i :8423 | xargs kill` 후 새 프로세스로 직접 띄워서 확인할 것.
 
-### LLM 프로바이더 (`LLM_PROVIDER`) — 고정 선택, 모델 개입 없음
+### LLM — Claude 하나 (2026-10 통일)
 
-| 값 | 모델 | 용도 |
+외부 모델 API는 Claude(Anthropic)만 쓴다. 텍스트 추출·판정, 비교 채점(API 같이 채점),
+IR덱 근거 위치(bbox 비전), 협상 준비 인터뷰(`interview_agent/`, 리서치는 Claude 웹 검색)까지
+모두 `ANTHROPIC_API_KEY` 하나로 켜진다. 예전 공급자(K-EXAONE/Friendli·OpenAI·로컬 Ollama·
+Gemini)는 지웠다 — 예전 `.env`에 `LLM_PROVIDER=openai|friendli|local`이 남아 있으면 조용히
+바꾸지 않고 이유를 말하며 실패한다.
+
+| 환경변수 | 기본값 | 용도 |
 |---|---|---|
-| `friendli` (기본) | K-EXAONE-236B (Friendli dedicated) | 소버린 트랙 |
-| `local` | 로컬 OpenAI 호환 모델 (Ollama·llama.cpp) | **완전 오프라인** — 외부 API 없음 |
-| `anthropic` | Claude | 대안 |
+| `ANTHROPIC_MODEL` | `claude-opus-5-5` | 기본 모델(사고 항상 켜짐, effort로 조절) |
+| `ANTHROPIC_MODEL_FAST` | (비면 기본) | 판정이 아닌 좁은 추출·비교 채점 |
+| `ANTHROPIC_VISION_MODEL` | (비면 기본) | IR덱 근거 위치(bbox) |
+| `ANTHROPIC_EFFORT` / `_DEEP` | `medium` / `high` | 일반 / 다층 독해·판정 |
 
-**오프라인/저사양 실행** — 인터넷 없이 로컬 모델로 돌리려면:
-```bash
-ollama run exaone3.5:7.8b        # 저사양 EXAONE (또는 qwen2.5, llama3.1 등)
-# .env: LLM_PROVIDER=local  (LOCAL_LLM_MODEL/BASE_URL 기본값이 Ollama에 맞춰짐)
-```
-약한 모델도 견디도록 **프롬프트 강제 + 코드 정화 이중 방어**가 들어있다:
-`deep` 경로의 추론↔구조화 2단계 분리, JSON 파싱 재시도, 그리고 아래 3가지 보정.
+자체 학습 스코어러(파인튜닝 모델, `A2A_SCORER_URL`)와 학습 데이터 증강용 자체 vLLM은 외부
+API가 아니라 우리 모델이라 그대로다.
 
 ### 웹사이트 크롤링 (ING-01·08·09)
 
@@ -139,20 +141,18 @@ ollama run exaone3.5:7.8b        # 저사양 EXAONE (또는 qwen2.5, llama3.1 �
 | 회사명 오추출 (레퍼런스를 주체로) | `EXTRACT_SYSTEM` "주체 고정" 규칙 + 자료 대조 검증 로그 |
 | 한자·깨진 글자 혼입 | `HARD_RULES` "순수 한국어" + `sanitize()` 코드 정화 |
 
-## LLM 켜기 — K-EXAONE (소버린 트랙, 현재 연결됨)
+## LLM 켜기 — Claude
 
 ```bash
-cp .env.example .env    # FRIENDLI_TOKEN + FRIENDLI_ENDPOINT_ID 설정 (K-EXAONE, 최우선)
-                        # 또는 ANTHROPIC_API_KEY (대안 어댑터)
+cp .env.example .env    # ANTHROPIC_API_KEY 설정 (웹 상단 'Claude' 배지에서 입력해도 된다)
                         # 인스타그램 수집은 APIFY_TOKEN 추가
 ```
 
-- **K-EXAONE-236B** (Friendli dedicated, OpenAI 호환): controllable reasoning 특성에 맞춰
-  **"깊게 추론(thinking ON) → 구조화(thinking OFF + json_schema)" 2단계** 패턴 사용.
-  Represent·Judge는 deep 경로(품질 우선, 호출당 4~5분), Compose·합성은 단일 호출.
+- **Claude Opus 5.5**: 사고는 항상 켜져 있고(adaptive) effort로 조절한다. Represent·Judge의
+  deep 경로는 effort high, 나머지는 medium. 구조화 출력(json_schema)으로 스키마를 강제한다.
 - 키가 없으면 **즉시 실패**한다 (config_error). 조용한 규칙 대체(mock)는 2026-07 제거 —
   가짜 결과가 진짜처럼 보이는 통로였다. 실 API로만 검증한다.
-- 실측: 다이브인→리비 하노이 판단이 CoT #01 전문가 결론(조건부·PMS 선결·소규모 PoC)과 수렴 확인.
+- 실측: 샘플호텔→리비 하노이 판단이 CoT #01 전문가 결론(조건부·PMS 선결·소규모 PoC)과 수렴 확인.
 
 설계·요구사항: [docs/PHASE2_수집추출_설계.md](docs/PHASE2_수집추출_설계.md)
 ⚠ `.env`는 절대 커밋 금지 — 키 노출 시 즉시 재발급.
@@ -185,9 +185,8 @@ cp .env.example .env    # FRIENDLI_TOKEN + FRIENDLI_ENDPOINT_ID 설정 (K-EXAONE
 # 웹 UI → ① 자료 입력 → 프로필 분석 → "②+ AI 컨설턴트 인터뷰" 섹션 → "인터뷰 시작"
 ```
 
-- **실제 LLM 경로** (`friendli`/`local`/`anthropic`): 매 턴 회사의 상(像)에서 새로 도출한
-  질문+4~6지선다(힌트 포함)를 생성. `.env`에 `FRIENDLI_TOKEN`+`FRIENDLI_ENDPOINT_ID`를 넣거나
-  (상단 "오프라인/저사양 실행" 참고) 로컬 모델을 띄운 뒤 같은 UI 흐름으로 확인.
+- **실제 LLM 경로** (Claude): 매 턴 회사의 상(像)에서 새로 도출한 질문+4~6지선다(힌트 포함)를
+  생성. `.env`에 `ANTHROPIC_API_KEY`를 넣은 뒤 같은 UI 흐름으로 확인.
 - **API 직접 호출**: `POST /product/consult {company_id, history:[{question,answer}]}` →
   비동기 job, `GET /product/jobs/{id}`로 폴링. 10슬롯이 다 차면 `done:true`+`hypothesis` 반환.
 - **테스트**: `.venv/bin/python -m pytest tests/test_consultant.py -v`
@@ -250,25 +249,26 @@ Simsa(cts_screening 검토 SaaS)의 box_2d 패턴을 재사용한 선택 기능.
 으로 못 넘어간다** (강제 응답, 409 `unclear_evidence_unresolved`).
 
 ```bash
-cp .env.example .env    # GEMINI_API_KEY 입력 (텍스트 추출 LLM_PROVIDER와 완전히 독립)
+cp .env.example .env    # ANTHROPIC_API_KEY 입력 (텍스트와 같은 키)
 .venv/bin/uvicorn app.main:app --port 8423
 # 웹 UI → ① IR덱 PDF 자산으로 온보딩 → "②++ 근거 시각화" 섹션 자동 표시
 ```
 
-- 키가 없으면 기능 자체가 조용히 꺼진다 (다른 온보딩 흐름엔 영향 없음) — `GEMINI_API_KEY`만
-  넣으면 켜진다.
-- 텍스트 추출(K-EXAONE 등)과 **완전히 독립된 비전(vision) 경로**다 — [engine/vision.py](app/engine/vision.py)
-  `GeminiBBoxExtractor`가 PDF 페이지를 PNG로 렌더링([ingest/pdf_render.py](app/ingest/pdf_render.py),
-  PyMuPDF)한 뒤 Gemini에 넘겨 `box_2d`([ymin,xmin,ymax,xmax], 0~1000 정규화) + 근거 인용문 +
-  `unclear`(불확실) 플래그를 직접 받는다.
+- 키가 없으면 기능 자체가 꺼진다 (다른 온보딩 흐름엔 영향 없음). 텍스트와 같은
+  `ANTHROPIC_API_KEY`로 켜지므로 IR덱 온보딩마다 비전 호출 비용이 붙는다(`VISION_TOKEN_BUDGET` 상한).
+- 텍스트 추출과 분리된 **비전(vision) 경로**다 — [engine/vision.py](app/engine/vision.py)
+  `ClaudeBBoxExtractor`가 PDF 페이지를 PNG로 렌더링([ingest/pdf_render.py](app/ingest/pdf_render.py),
+  PyMuPDF)한 뒤 Claude에 넘겨 `box_2d`([ymin,xmin,ymax,xmax], 0~1000 정규화) + 근거 인용문 +
+  `unclear`(불확실) 플래그를 구조화 출력으로 받는다. 임계값은 Gemini 시절에 맞춘 값이라 Claude
+  박스 정밀도는 아직 실측 전이다.
 - 프롬프트는 [engine/prompts.py](app/engine/prompts.py) `BBOX_SYSTEM`에 중앙화 — 이 페이지에
   실제로 없는 내용은 절대 채우지 말라는 사실 고정 규칙 + "애매하면 무조건 unclear로 표시" 규칙.
 - **댓글 스레드**: `unclear=true` 근거마다 AI가 첫 댓글로 질문을 남기고 스레드가 `open`으로
   생성된다. `POST /product/companies/{id}/threads/{id}/reply`로 사람이 답하면 `resolved`로
   닫히고, 그제서야 매칭이 풀린다 (시트 댓글처럼 스레드가 쌓이는 구조 — `app/schemas.py`
   `CommentThread`/`ThreadComment`).
-- **테스트**: `.venv/bin/python -m pytest tests/test_vision.py -v` (5건, Fake 비전 추출기로
-  오프라인 — 실제 Gemini 호출 없이 강제 응답 게이트·좌표 보존·페이지 이미지 서빙 전부 검증)
+- **테스트**: `.venv/bin/python -m pytest tests/test_vision.py -v` (Fake 비전 추출기로
+  오프라인 — 실제 Claude 호출 없이 강제 응답 게이트·좌표 보존·페이지 이미지 서빙 전부 검증)
 
 ## 엔드포인트 (API_계약서 v1.0)
 
@@ -327,11 +327,11 @@ cp .env.example .env    # GEMINI_API_KEY 입력 (텍스트 추출 LLM_PROVIDER�
     종료 + 최종 아웃리치 가설 산출
   - `POST /product/consult` (비동기 job) · UI ②+ 섹션(선택지 칩·복수선택·자유입력·
     가설→의도 반영) · 인터뷰 전 과정 감사 로그 축적(대표 인터뷰 = CoT 데이터 자산)
-- [x] **근거 시각화 (bbox)** — Simsa 검토 SaaS 패턴 재사용, Gemini vision 선택 기능
+- [x] **근거 시각화 (bbox)** — Simsa 검토 SaaS 패턴 재사용, Claude 비전
   - IR덱 페이지 이미지 위 근거 위치를 빨간 박스로 표시([engine/vision.py](app/engine/vision.py),
     [ingest/pdf_render.py](app/ingest/pdf_render.py)) · 불확실 근거는 점선 + 댓글 스레드로
     사람에게 되묻고, 답하기 전엔 매칭 진행 불가(강제 응답, `app/schemas.py` `CommentThread`)
-  - `GEMINI_API_KEY`만 있으면 켜짐 — 텍스트 추출(`LLM_PROVIDER`)과 완전히 독립
+  - `ANTHROPIC_API_KEY`가 있으면 켜짐(텍스트와 같은 키)
 - [x] **Phase 4 — CoT 데이터 파이프라인** (DAT-01~05): [app/dataset.py](app/dataset.py)
   - 감사 로그(audit/*.jsonl) 위에 검증·커버리지·분할·봉인. 순수 데이터 엔지니어링(LLM·네트워크 없음)
   - `validate_records`(kind별 필수 필드, 불량 라인 격리) · `coverage_matrix`(kind×차원 분포로
@@ -375,7 +375,7 @@ cp .env.example .env    # GEMINI_API_KEY 입력 (텍스트 추출 LLM_PROVIDER�
 > [docs/FORMALIZATION.md](docs/FORMALIZATION.md)의 실행 로드맵을 데이터로 뒷받침한다.
 > 재현: [`scripts/calibrate_retrieve.py`](scripts/calibrate_retrieve.py) (synth 덤프 → 오프라인 재분석).
 
-**Retrieve — 앵커 혼합(R4)의 분산 감쇠** (실 synth 8회, 다이브인 프로필)
+**Retrieve — 앵커 혼합(R4)의 분산 감쇠** (실 synth 8회, 샘플호텔 프로필)
 
 | 후보 | synth 단독 점수 범위 | 앵커 혼합 점수 범위 | 분산 감쇠 | τ=0.12 통과 |
 |---|---|---|---|---|

@@ -14,7 +14,7 @@ from app.schemas import (BasicInfo, Intent, PoolKind, Profile, ProvField,
                          Provenance, RetrieveDirection, RetrieveRequest,
                          ValueProp)
 
-SOURCE = ("다이브인그룹은 노후 호텔 객실의 매출 정체 문제를 저자본 예술 전환으로 "
+SOURCE = ("샘플호텔그룹은 노후 호텔 객실의 매출 정체 문제를 저자본 예술 전환으로 "
           "해결한다. 타겟은 중소 호텔 오너다.")
 
 
@@ -24,7 +24,7 @@ def _prof(problem="노후 호텔 객실의 매출 정체", prov="stated",
         pp = Provenance(p)
         return ProvField(value=v, provenance=pp,
                          confidence=0.9 if pp == Provenance.inferred else None)
-    return Profile(basic=BasicInfo(name="다이브인그룹", country=country, industry=industry),
+    return Profile(basic=BasicInfo(name="샘플호텔그룹", country=country, industry=industry),
                    description="d", problem_solved=f(problem),
                    solution=f("저자본 예술 전환"), target_customer=f("중소 호텔 오너"),
                    sell_value_props=[ValueProp.revenue_growth])
@@ -90,7 +90,7 @@ class TestR2EvidenceContract:
                 pf = {"value": "노후 호텔 객실의 매출 정체", "provenance": "stated",
                       "confidence": None,
                       "evidence_chunk_ids": ["a0:text#0", "a9:ir_deck#7"]}  # 뒤는 환각
-                return {"basic": {"name": "다이브인그룹", "country": "한국",
+                return {"basic": {"name": "샘플호텔그룹", "country": "한국",
                                   "city": None, "founded_year": None,
                                   "industry": "hospitality"},
                         "description": "d",
@@ -106,7 +106,7 @@ class TestR2EvidenceContract:
         profile, _, evidence = extract_profile(chunks, FakeExtractor())
         assert evidence["problem_solved"] == ["a0:text#0"]   # 실존만 생존
         assert "solution" not in evidence                     # 전부 환각 → 필드 자체 제거
-        assert profile.basic.name == "다이브인그룹"
+        assert profile.basic.name == "샘플호텔그룹"
 
 
 def _cand(cid, pain, industry="hotel", country="베트남"):
@@ -241,7 +241,7 @@ class TestMockPortrait:
 
     def test_full_profile_gets_honest_portrait(self):
         p = self._profile(
-            "이름: 다이브인그룹\n국가: 한국\n산업: hospitality\n"
+            "이름: 샘플호텔그룹\n국가: 한국\n산업: hospitality\n"
             "설명: 노후 호텔 객실을 예술 경험형 상품으로 전환하는 스타트업\n"
             "문제: 노후 객실 매출 정체\n솔루션: 저자본 예술 객실 전환\n"
             "타겟: 중소 호텔 오너\n판매가치: 매출\n레퍼런스: Poco Hotel\n"

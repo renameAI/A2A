@@ -15,6 +15,9 @@ export default {
   async rewrites() {
     return [
       { source: "/api/saas/:path*", destination: `${ENGINE}/saas/:path*` },
+      // 메시징 플랫폼 — 인증은 엔진이 SaaS 인증으로 판정한다(공개 경로 아님)
+      { source: "/api/chat/:path*", destination: `${ENGINE}/chat/:path*` },
+      { source: "/api/platform/:path*", destination: `${ENGINE}/platform/:path*` },
     ];
   },
 };

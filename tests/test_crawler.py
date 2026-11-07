@@ -13,7 +13,7 @@ client = TestClient(app)
 
 ROOT_HTML = """<html><body>
 <nav><a href="/about">회사소개</a><a href="/product">제품</a></nav>
-<main><h1>다이브인그룹</h1>
+<main><h1>샘플호텔그룹</h1>
 <p>노후 호텔 객실을 예술 경험형 상품으로 전환하는 스타트업입니다. 호텔 오너의 선투자
 부담 없이 시공하고 전환 객실의 매출을 쉐어합니다. 성수동 Poco Hotel 전환을 완료했고
 부티크 호텔 업셀링 실측 데이터를 확보했습니다.</p></main>
@@ -24,7 +24,7 @@ ROOT_HTML = """<html><body>
 </body></html>"""
 
 ABOUT_HTML = """<html><body><main><h1>회사소개</h1>
-<p>다이브인그룹은 2021년 설립된 공간 전환 스타트업으로, 객실마다 다른 아티스트의
+<p>샘플호텔그룹은 2021년 설립된 공간 전환 스타트업으로, 객실마다 다른 아티스트의
 컨셉을 입혀 객실 자체를 체험 상품으로 만듭니다. 철거 없이 시공하며 시공 인력을
 직접 운용합니다.</p></main></body></html>"""
 
@@ -63,7 +63,7 @@ class TestCrawler:
         hits: list[str] = []
         http = httpx.Client(transport=_site_transport(hits))
         settings = _settings(tmp_path, monkeypatch)
-        text = crawl_website("https://divein.example.com", settings, client=http)
+        text = crawl_website("https://samplehotel.example.com", settings, client=http)
 
         assert "노후 호텔 객실" in text                 # 루트
         assert "2021년 설립" in text                    # /about 하위 페이지
@@ -78,11 +78,11 @@ class TestCrawler:
         hits: list[str] = []
         settings = _settings(tmp_path, monkeypatch)
         http = httpx.Client(transport=_site_transport(hits))
-        crawl_website("https://divein.example.com", settings, client=http)
+        crawl_website("https://samplehotel.example.com", settings, client=http)
         first_count = len(hits)
 
         http2 = httpx.Client(transport=_site_transport(hits))
-        text = crawl_website("https://divein.example.com", settings, client=http2)
+        text = crawl_website("https://samplehotel.example.com", settings, client=http2)
         assert len(hits) == first_count                 # 추가 요청 0
         assert "노후 호텔 객실" in text
 
@@ -123,14 +123,14 @@ class TestAuditLog:
 class TestProfileUpdate:
     def test_reanalyze_updates_same_company(self):
         """REP-09: company_id 재분석은 새 회사를 만들지 않고 갱신한다."""
-        from tests.test_product import DIVEIN_TEXT, _run_job
+        from tests.test_product import SAMPLEHOTEL_TEXT, _run_job
         job = _run_job("/product/onboard", {
-            "assets": [{"type": "text", "content": DIVEIN_TEXT}]})
+            "assets": [{"type": "text", "content": SAMPLEHOTEL_TEXT}]})
         company_id = job["result"]["company_id"]
         before = len(client.get("/product/companies").json())
 
         job = _run_job("/product/onboard", {
-            "assets": [{"type": "text", "content": DIVEIN_TEXT}],
+            "assets": [{"type": "text", "content": SAMPLEHOTEL_TEXT}],
             "dialogue": [{"q": "구매의향", "a": "중간"}],
             "company_id": company_id})
         assert job["result"]["company_id"] == company_id   # 같은 회사

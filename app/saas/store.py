@@ -29,6 +29,16 @@ def _now() -> float:
     return time.time()
 
 
+def _like_prefix(prefix: str) -> str:
+    """LIKE 접두어 — %와 _를 글자 그대로 취급한다.
+
+    _는 LIKE의 한 글자 와일드카드다. 스레드 키는 특수문자를 _로 바꾸므로
+    'cand:a_b::' 조회가 'cand:aXb::'의 글까지 끌어오고, 같은 함정이
+    delete_prefix에서는 남의 문서를 지운다. ESCAPE '\\'와 함께 쓴다."""
+    esc = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return esc + "%"
+
+
 class LocalSaasStore:
     """sqlite 백엔드 — (kind, workspace_id, doc_id) → JSON 문서."""
 
@@ -85,6 +95,22 @@ class LocalSaasStore:
             rows = con.execute(sql, args).fetchall()
         return [json.loads(r[0]) for r in rows]
 
+    def list_prefix(self, kind: str, ws: str, prefix: str,
+                    limit: "int | None" = None) -> "list[dict]":
+        """doc_id가 prefix로 시작하는 문서를 doc_id **내림차순**으로.
+
+        채팅 메시지처럼 키에 시각을 박아 둔 문서용이다 — updated 순서는 수정
+        한 번에 바뀌지만 doc_id 순서는 작성 순서 그대로 고정된다."""
+        sql = ("SELECT body FROM docs WHERE kind=? AND ws=? AND doc_id LIKE ? "
+               "ESCAPE '\\' ORDER BY doc_id DESC")
+        args: tuple = (kind, ws, _like_prefix(prefix))
+        if limit is not None:
+            sql += " LIMIT ?"
+            args = (*args, limit)
+        with self._connect() as con:
+            rows = con.execute(sql, args).fetchall()
+        return [json.loads(r[0]) for r in rows]
+
     def delete(self, kind: str, ws: str, doc_id: str) -> bool:
         with self._connect() as con:
             cur = con.execute(
@@ -97,9 +123,17 @@ class LocalSaasStore:
         (company_ontology의 f"{rid}::{cid}" 같은 합성 키)."""
         with self._connect() as con:
             cur = con.execute(
-                "DELETE FROM docs WHERE kind=? AND ws=? AND doc_id LIKE ?",
-                (kind, ws, prefix + "%"))
+                "DELETE FROM docs WHERE kind=? AND ws=? AND doc_id LIKE ? "
+                "ESCAPE '\\'", (kind, ws, _like_prefix(prefix)))
         return cur.rowcount
+
+    def dump_workspace(self, ws: str):
+        """워크스페이스의 모든 문서 (kind, doc_id, body) — 워크스페이스 이전용."""
+        with self._connect() as con:
+            rows = con.execute("SELECT kind, doc_id, body FROM docs WHERE ws=? "
+                               "ORDER BY kind, doc_id", (ws,)).fetchall()
+        for k, d, b in rows:
+            yield k, d, json.loads(b)
 
     def delete_workspace(self, ws: str) -> int:
         """워크스페이스 전체 파기 — '내 자료 지워주세요'에 응할 수 있는 경로."""
@@ -181,6 +215,16 @@ class FirestoreSaasStore:
             q = q.limit(limit)
         return [d.to_dict() for d in q.stream()]
 
+    def list_prefix(self, kind: str, ws: str, prefix: str,
+                    limit: "int | None" = None) -> "list[dict]":
+        col = self._db.collection("saas").document(ws).collection(kind)
+        q = (col.where("__name__", ">=", prefix)
+                .where("__name__", "<", prefix + "\uf8ff")
+                .order_by("__name__", direction=self._fs.Query.DESCENDING))
+        if limit is not None:
+            q = q.limit(limit)
+        return [d.to_dict() for d in q.stream()]
+
     def delete(self, kind: str, ws: str, doc_id: str) -> bool:
         ref = self._doc(kind, ws, doc_id)
         if not ref.get().exists:
@@ -198,6 +242,13 @@ class FirestoreSaasStore:
             d.reference.delete()
             n += 1
         return n
+
+    def dump_workspace(self, ws: str):
+        for col in self._db.collection("saas").document(ws).collections():
+            for d in col.stream():
+                body = d.to_dict()
+                body.pop("_updated", None)
+                yield col.id, d.id, body
 
     def delete_workspace(self, ws: str) -> int:
         n = 0
@@ -353,6 +404,16 @@ class SupabaseSaasStore:
         rows = self._req("GET", url)
         return [r["body"] for r in (rows or [])]
 
+    def list_prefix(self, kind: str, ws: str, prefix: str,
+                    limit: "int | None" = None) -> "list[dict]":
+        url = (f"/{self.TABLE}?select=body&kind=eq.{_q(kind)}"
+               f"&workspace_id=eq.{_q(ws)}&doc_id=like.{_q(_pgrst_prefix(prefix))}"
+               f"&order=doc_id.desc")
+        if limit is not None:
+            url += f"&limit={int(limit)}"
+        rows = self._req("GET", url)
+        return [r["body"] for r in (rows or [])]
+
     # PostgREST는 삭제 건수를 기본 반환하지 않는다. 예전엔 -1을 돌려줬는데,
     # 그 -1이 삭제 API 응답에 그대로 실려 나갔다(실측: 유령 요청 정리 때
     # "파생물 정리 -1건"). Prefer: return=representation을 붙이면 지운 행이
@@ -372,9 +433,22 @@ class SupabaseSaasStore:
         rows = self._req(
             "DELETE",
             f"/{self.TABLE}?select=doc_id&kind=eq.{_q(kind)}"
-            f"&workspace_id=eq.{_q(ws)}&doc_id=like.{_q(prefix + '*')}",
+            f"&workspace_id=eq.{_q(ws)}&doc_id=like.{_q(_pgrst_prefix(prefix))}",
             extra_headers=self._DEL_COUNT)
         return len(rows or [])
+
+    def dump_workspace(self, ws: str):
+        # 1천 행씩 — 한 번에 받으면 큰 워크스페이스에서 응답이 커진다
+        off = 0
+        while True:
+            rows = self._req("GET", f"/{self.TABLE}?select=kind,doc_id,body"
+                                    f"&workspace_id=eq.{_q(ws)}&order=kind,doc_id"
+                                    f"&limit=1000&offset={off}") or []
+            for r in rows:
+                yield r["kind"], r["doc_id"], r["body"]
+            if len(rows) < 1000:
+                return
+            off += 1000
 
     def delete_workspace(self, ws: str) -> int:
         rows = self._req(
@@ -395,6 +469,13 @@ class SupabaseSaasStore:
             "p_month_key": time.strftime("%Y-%m"), "p_add": add_usd,
             "p_req_cap": min(req_cap, 1e12),      # inf는 JSON에 못 담는다
             "p_month_cap": min(month_cap, 1e12)})
+
+
+def _pgrst_prefix(prefix: str) -> str:
+    """PostgREST like 값 — *가 %로 바뀌어 Postgres LIKE로 간다. _와 %는
+    Postgres 기본 이스케이프(\\)로 글자 그대로 만든다(_like_prefix와 같은 이유)."""
+    esc = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return esc + "*"
 
 
 def _q(v: str) -> str:

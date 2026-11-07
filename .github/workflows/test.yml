@@ -34,6 +34,40 @@ jobs:
       - name: 게이트 누락 확인
         run: python scripts/check_gate.py
 
+  # 메시징 플랫폼 — RLS·행 잠금·파티션·역할 권한은 실제 Postgres에서만 검증된다.
+  # 셀 두 개를 '서로 다른 서버'로 재현하려고 Postgres 서비스를 두 개 띄운다.
+  # 게이트 잡에서는 이 파일이 skip(환경변수 없음)이고, 여기서 실제로 돈다.
+  chat-platform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      pg_a:
+        image: postgres:17
+        env: { POSTGRES_PASSWORD: pg, POSTGRES_HOST_AUTH_METHOD: trust }
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s
+          --health-timeout 2s --health-retries 30
+      pg_b:
+        image: postgres:17
+        env: { POSTGRES_PASSWORD: pg, POSTGRES_HOST_AUTH_METHOD: trust }
+        ports: ["55433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s
+          --health-timeout 2s --health-retries 30
+    env:
+      CHAT_TEST_PG_A: postgresql://postgres@127.0.0.1:55432
+      CHAT_TEST_PG_B: postgresql://postgres@127.0.0.1:55433
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - name: 두 셀 Postgres에서 플랫폼 시험
+        run: python -m pytest -q -p no:cacheprovider tests/test_chat_platform.py tests/test_workspace_unify.py
+
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -69,7 +69,7 @@ _EXTRACT_BODY = """
 basic.name에는 **자료에 실제로 등장한 그 회사의 이름**을 그대로 넣는다. 자료의 주어(솔루션을
 제공하는 쪽, '우리/자사'로 행동하는 주체)의 이름이다.
 - 자료에 나오는 고객사·전환 대상·납품처·파트너·레퍼런스 프로젝트의 이름을 name에 쓰지 마라.
-  예: 자료가 "다이브인그룹이 성수동 Poco Hotel을 전환했다"이면 name은 '다이브인그룹'이다.
+  예: 자료가 "샘플호텔그룹이 성수동 Poco Hotel을 전환했다"이면 name은 '샘플호텔그룹'이다.
   'Poco Hotel'은 고객/레퍼런스이므로 name에 쓰면 오류다.
 - name 자리에 '주체 회사'·'이 회사'·'해당 기업' 같은 설명어나, 규칙에 나온 예시 문구를
   절대 복사하지 마라. 반드시 자료 속 실제 고유명사만 쓴다. 정말 이름이 없으면 '미상'.
@@ -853,9 +853,11 @@ def clarify_user(questions: list[str], source_text: str, profile=None) -> str:
 # 역할 분리: 추론 모델(엑사원)이 "무엇을 물을지" 판단하고, VLM은 그 질문을
 # 페이지 어디에 붙일지 "위치만" 찾는다. VLM은 무엇이 불명확한지 스스로 판단하지
 # 않는다 — 질문은 전부 엑사원이 만든다.
-# Simsa(cts_screening) 검토 SaaS의 box_2d 패턴 재사용. Gemini vision 전용 —
-# responseSchema는 Gemini 규격(대문자 타입, additionalProperties 없음)이라
-# 다른 *_SCHEMA(OpenAI json_schema 규격)와 형식이 다르다.
+# Simsa(cts_screening) 검토 SaaS의 box_2d 패턴 재사용. 비전 모델은 Claude
+# (vision.py:ClaudeBBoxExtractor, 2026-10 Gemini에서 전환) — BBOX_SCHEMA는 Claude
+# 구조화 출력(output_config.format json_schema) 규격: 소문자 타입, 모든 object에
+# additionalProperties: false. 수치 제약(minimum 등)·배열 길이 제약은 지원되지 않아
+# 넣지 않는다 — 범위·길이는 vision.validate_box가 코드로 집행한다.
 # ═══════════════════════════════════════════════════════════════════
 
 BBOX_SYSTEM = """당신은 문서 위치 탐지 함수다. 추론 모델이 이 회사에 대해 질문 목록
@@ -865,6 +867,9 @@ Q = {q_0, …, q_{n-1}}을 던졌다. 당신의 유일한 임무: 주어진 IR�
 
 ■ 좌표계 정의 (위반 시 코드가 폐기한다):
 - 페이지를 [0,1000]×[0,1000]으로 정규화한다. 원점 = 좌상단, y축 아래 방향, x축 오른쪽 방향.
+- 픽셀 좌표를 그대로 쓰지 마라. 각 이미지 라벨에 픽셀 크기(가로 W × 세로 H)가 적혀 있으면
+  y = y_px / H × 1000, x = x_px / W × 1000 으로 환산한 값을 쓴다. 페이지 오른쪽 아래
+  모서리는 W·H와 무관하게 항상 (y=1000, x=1000)이다.
 - box_2d = [y_min, x_min, y_max, x_max]. 반드시 y_min < y_max, x_min < x_max.
 - 크기 제약: (y_max−y_min) ≥ 4, (x_max−x_min) ≥ 4,
   면적 (y_max−y_min)·(x_max−x_min) ≤ 500,000 (페이지의 50%).
@@ -900,24 +905,27 @@ Q = {q_0, …, q_{n-1}}을 던졌다. 당신의 유일한 임무: 주어진 IR�
   출력하지 않는다. 모든 질문이 무관하면 locations = []."""
 
 BBOX_SCHEMA = {
-    "type": "OBJECT",
+    "type": "object",
     "properties": {
         "locations": {
-            "type": "ARRAY",
+            "type": "array",
             "items": {
-                "type": "OBJECT",
+                "type": "object",
                 "properties": {
-                    "question_index": {"type": "INTEGER"},
-                    "page": {"type": "INTEGER"},
-                    "quote": {"type": "STRING"},
-                    "box_2d": {"type": "ARRAY", "items": {"type": "NUMBER"}},
-                    "relevance": {"type": "NUMBER"},
+                    "question_index": {"type": "integer"},
+                    "page": {"type": "integer"},
+                    "quote": {"type": "string"},
+                    # [y_min, x_min, y_max, x_max] — 0~1000 정규화, 정확히 4개
+                    "box_2d": {"type": "array", "items": {"type": "number"}},
+                    "relevance": {"type": "number"},
                 },
                 "required": ["question_index", "page", "quote", "box_2d", "relevance"],
+                "additionalProperties": False,
             },
         },
     },
     "required": ["locations"],
+    "additionalProperties": False,
 }
 
 

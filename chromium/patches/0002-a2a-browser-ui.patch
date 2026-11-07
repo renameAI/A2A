@@ -1,0 +1,146 @@
+diff --git a/chrome/browser/ui/tabs/tab_strip_prefs.cc b/chrome/browser/ui/tabs/tab_strip_prefs.cc
+index 9a855747c2..d9837b9478 100644
+--- a/chrome/browser/ui/tabs/tab_strip_prefs.cc
++++ b/chrome/browser/ui/tabs/tab_strip_prefs.cc
+@@ -25,7 +25,8 @@ void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
+   registry->RegisterBooleanPref(prefs::kOrganizerPanelPinnedToTabstrip, true);
+   registry->RegisterBooleanPref(prefs::kEverythingMenuPinnedToTabstrip, true);
+   registry->RegisterBooleanPref(prefs::kTabScrollButtonsPinnedToTabstrip, true);
+-  registry->RegisterBooleanPref(prefs::kVerticalTabsEnabled, false);
++  // A2A Browser: tabs live in a vertical strip by default (A2A/browser shell).
++  registry->RegisterBooleanPref(prefs::kVerticalTabsEnabled, true);
+   registry->RegisterBooleanPref(prefs::kVerticalTabsExpandOnHoverEnabled, true);
+   registry->RegisterBooleanPref(prefs::kVerticalTabsEnabledFirstTime, false);
+   registry->RegisterBooleanPref(prefs::kVerticalTabsCollapsedState, false);
+diff --git a/chrome/browser/ui/toolbar/toolbar_actions_model.cc b/chrome/browser/ui/toolbar/toolbar_actions_model.cc
+index f35b42be33..24565af4bb 100644
+--- a/chrome/browser/ui/toolbar/toolbar_actions_model.cc
++++ b/chrome/browser/ui/toolbar/toolbar_actions_model.cc
+@@ -43,6 +43,7 @@
+ #include "extensions/browser/pref_names.h"
+ #include "extensions/browser/uninstall_reason.h"
+ #include "extensions/browser/unloaded_extension_reason.h"
++#include "extensions/common/constants.h"
+ #include "extensions/common/extension_set.h"
+ #include "extensions/common/manifest.h"
+ #include "extensions/common/manifest_constants.h"
+@@ -483,6 +484,11 @@ bool ToolbarActionsModel::IsActionPinned(const ActionId& action_id) const {
+ }
+ 
+ bool ToolbarActionsModel::IsActionForcePinned(const ActionId& action_id) const {
++  // A2A Browser: the built-in A2A button (side panel) is part of the browser,
++  // so it is always on the toolbar like a policy force-pin.
++  if (action_id == extension_misc::kA2AExtensionId) {
++    return true;
++  }
+   auto* management =
+       extensions::ExtensionManagementFactory::GetForBrowserContext(profile_);
+   return management->GetForcePinnedList().contains(action_id);
+@@ -756,6 +762,9 @@ ToolbarActionsModel::GetFilteredPinnedActionIds() const {
+                        [&pinned](const std::string& id) {
+                          return !std::ranges::contains(pinned, id);
+                        });
++  if (!std::ranges::contains(pinned, extension_misc::kA2AExtensionId)) {
++    pinned.push_back(extension_misc::kA2AExtensionId);
++  }
+ 
+   // TODO(pbos): Make sure that the pinned IDs are pruned from ExtensionPrefs on
+   // startup so that we don't keep saving stale IDs.
+diff --git a/chrome/browser/ui/ui_features.cc b/chrome/browser/ui/ui_features.cc
+index 32126e78db..e88b06df29 100644
+--- a/chrome/browser/ui/ui_features.cc
++++ b/chrome/browser/ui/ui_features.cc
+@@ -305,6 +305,8 @@ BASE_FEATURE(kCollapseTabGroupDuringDrag, base::FEATURE_ENABLED_BY_DEFAULT);
+ BASE_FEATURE(kNewTabButtonContextMenu, base::FEATURE_ENABLED_BY_DEFAULT);
+ #endif  // !BUILDFLAG(IS_ANDROID)
+ 
++BASE_FEATURE(kA2ACardContents, base::FEATURE_ENABLED_BY_DEFAULT);
++
+ // Enables preview images in tab-hover cards.
+ // https://crbug.com/41439486
+ BASE_FEATURE(kTabHoverCardImages,
+diff --git a/chrome/browser/ui/ui_features.h b/chrome/browser/ui/ui_features.h
+index d8f8b3dd87..27429eb13e 100644
+--- a/chrome/browser/ui/ui_features.h
++++ b/chrome/browser/ui/ui_features.h
+@@ -234,6 +234,10 @@ BASE_DECLARE_FEATURE(kNewTabButtonContextMenu);
+ 
+ BASE_DECLARE_FEATURE(kTabHoverCardImages);
+ 
++// A2A Browser: the web page sits as an inset, rounded card on the browser
++// background even outside split view (the A2A/browser shell's card layout).
++BASE_DECLARE_FEATURE(kA2ACardContents);
++
+ // These parameters control how long the hover card system waits before
+ // requesting a preview image from a tab where no preview image is available.
+ // Values are in ms.
+diff --git a/chrome/browser/ui/views/frame/contents_container_view.cc b/chrome/browser/ui/views/frame/contents_container_view.cc
+index 413b2f626d..12a78e714a 100644
+--- a/chrome/browser/ui/views/frame/contents_container_view.cc
++++ b/chrome/browser/ui/views/frame/contents_container_view.cc
+@@ -55,6 +55,8 @@
+ 
+ namespace {
+ constexpr int kSplitViewContentPadding = 4;
++// A2A card layout: gap between the page card and the browser background.
++constexpr int kA2ACardPadding = 8;
+ constexpr int kNewTabFooterSeparatorHeight = 1;
+ constexpr int kNewTabFooterHeight = 56;
+ }  // namespace
+@@ -200,8 +202,15 @@ void ContentsContainerView::UpdateBorderAndOverlay(bool is_in_split,
+   is_in_split_ = is_in_split;
+ 
+   if (!is_in_split) {
++    // A2A card layout: keep the split-view inset around a single page too.
++    const bool card = base::FeatureList::IsEnabled(features::kA2ACardContents);
++    if (card && !GetBorder()) {
++      SetBorder(views::CreateEmptyBorder(gfx::Insets(kA2ACardPadding)));
++      UpdateBorderRoundedCorners();
++    }
+     if (split_changed) {
+-      SetBorder(nullptr);
++      SetBorder(card ? views::CreateEmptyBorder(gfx::Insets(kA2ACardPadding))
++                     : nullptr);
+       UpdateBorderRoundedCorners();
+ 
+       mini_toolbar_->SetVisible(false);
+diff --git a/chrome/browser/ui/views/frame/multi_contents_view.cc b/chrome/browser/ui/views/frame/multi_contents_view.cc
+index a756f076ff..932449ca5a 100644
+--- a/chrome/browser/ui/views/frame/multi_contents_view.cc
++++ b/chrome/browser/ui/views/frame/multi_contents_view.cc
+@@ -19,6 +19,7 @@
+ #include "chrome/browser/ui/tabs/tab_strip_model.h"
+ #include "chrome/browser/ui/view_ids.h"
+ #include "chrome/browser/ui/views/frame/browser_view.h"
++#include "chrome/browser/ui/ui_features.h"
+ #include "chrome/browser/ui/views/frame/contents_container_view.h"
+ #include "chrome/browser/ui/views/frame/contents_separator.h"
+ #include "chrome/browser/ui/views/frame/contents_web_view.h"
+@@ -228,7 +229,10 @@ void MultiContentsView::SetBackgroundRadii(const gfx::RoundedCornersF& radii) {
+   background_view_->SetRoundedCorners(radii);
+ 
+   if (!IsInSplitView()) {
+-    GetActiveContentsContainerView()->SetRoundedCorners(radii);
++    GetActiveContentsContainerView()->SetRoundedCorners(
++        base::FeatureList::IsEnabled(features::kA2ACardContents)
++            ? kSplitViewContentRoundedCorners
++            : radii);
+     GetInactiveContentsContainerView()->SetRoundedCorners(
+         gfx::RoundedCornersF());
+   }
+@@ -799,10 +803,12 @@ void MultiContentsView::UpdateContentsBorderAndOverlay() {
+   for (auto& contents_container_view : contents_container_views_) {
+     const bool is_active =
+         contents_container_view->contents_view() == GetActiveContentsView();
++    const bool card = base::FeatureList::IsEnabled(features::kA2ACardContents);
+     contents_container_view->SetRoundedCorners(
+-        is_in_split
+-            ? kSplitViewContentRoundedCorners
+-            : (is_active ? GetBackgroundRadii() : gfx::RoundedCornersF()));
++        is_in_split ? kSplitViewContentRoundedCorners
++        : !is_active ? gfx::RoundedCornersF()
++        : card       ? kSplitViewContentRoundedCorners
++                     : GetBackgroundRadii());
+     contents_container_view->UpdateBorderAndOverlay(
+         is_in_split, is_active, is_active && active_contents_view_highlighted_);
+   }

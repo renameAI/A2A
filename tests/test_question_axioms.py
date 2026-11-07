@@ -85,7 +85,7 @@ class TestPipelineIntegration:
         from app.main import app
         from tests.test_product import _run_job
         # problem/solution/target/vp는 채우되 의향만 비움 → 의향 질문 1개만 남아야
-        text = ("이름: 다이브인그룹\n국가: 한국\n산업: x\n설명: d\n문제: 매출 정체\n"
+        text = ("이름: 샘플호텔그룹\n국가: 한국\n산업: x\n설명: d\n문제: 매출 정체\n"
                 "솔루션: 예술 전환\n타겟: 호텔 오너\n판매가치: 매출")
         job = _run_job("/product/onboard",
                        {"assets": [{"type": "text", "content": text}]})

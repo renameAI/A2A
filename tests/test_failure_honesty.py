@@ -79,25 +79,6 @@ class TestEmptyResultsNotCached:
         assert ws._cache_get("찬 쿼리") is not None
 
 
-class TestLlmBackoff:
-    def test_retry_after_header_respected(self):
-        from app.engine.llm import _OpenAICompatExtractor as E
-        assert E._backoff_seconds(FakeResp(429, {"Retry-After": "7"}), 1) == 7.0
-
-    def test_retry_after_capped(self):
-        """서버가 터무니없이 긴 값을 주더라도 job 예산 안에 머문다."""
-        from app.engine.llm import _OpenAICompatExtractor as E
-        assert E._backoff_seconds(FakeResp(429, {"Retry-After": "99999"}), 1) == 30.0
-
-    def test_exponential_growth_with_jitter(self):
-        from app.engine.llm import _OpenAICompatExtractor as E
-        r = FakeResp(429)
-        waits = [E._backoff_seconds(r, a) for a in (1, 2, 3, 4)]
-        assert all(w > 0 for w in waits)
-        # 지터가 있으므로 단조 증가를 강제하지 않는다 — 상한만 본다
-        assert max(waits) <= 16.0 * 1.5
-
-
 class TestPromptInjectionHardening:
     """웹 스니펫은 우리가 통제하지 않는 텍스트다 — 그것이 지시로 읽히면
     공격자가 지정한 연락처가 '확인' 배지와 함께 사용자에게 표시된다."""

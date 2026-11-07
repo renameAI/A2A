@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parent.parent
 # 게이트 밖 — 이유가 없으면 여기 들어올 수 없다 (태스크 #41 스위트 위생)
 EXCLUDE = {
     "tests/test_bench": "벤치 스위트 — 실 LLM 호출",
+    "tests/test_supabase_live.py": "로컬 Supabase 스택(Realtime·Storage, Docker) 필요 — "
+                                   "supabase start 후 수동 실행(docs/MESSAGING_PLATFORM.md)",
     "tests/test_judge": "judge 스위트 — 실 LLM 호출",
     # 아래는 지금 빨간불이다(실측 2026-08). 게이트에 넣으면 상수 빨간불이
     # 되어 그물 구실을 못 하므로 이유를 적고 뺀다 — 태스크 #41에서 하나씩

@@ -7,14 +7,20 @@
  * 복원한다 (saas.html의 메모리 상태 소실 문제 해소).
  */
 import { memo, useEffect, useRef, useState } from "react";
-import { authHeaders, DEV_USER, emailLoginEnabled, isConfigured,
+import { authHeaders, DEV_USER, devUser, emailLoginEnabled, isConfigured,
   isMisconfigured, supabase } from "./supabase";
+import { TeamPanel, useTeam } from "./team";
+import { avaColor, candRootId, capi, ChannelMembers, hhmm, isLead, leadName, MessageRow,
+  NewChannelModal, PeoplePanel, SearchPanel, ThreadPane, useFeed, useRealtime,
+  useWorkspace, LeadDataBanner, LeadDataCard } from "./chat";
+import type { Ch, Msg as ChatMsg } from "./chat";
 
 // kind: "candidates" — 후보 캐러셀이 붙는 자리. jsx로 박아 넣지 않는 이유는
 // 스냅샷이 되어 👍/저장/판독 갱신이 반영되지 않기 때문이다. 자리만 표시하고
 // 렌더는 현재 상태로 한다.
+// at — 팀 채팅(서버 원본)과 한 타임라인에 섞기 위한 작성 시각(초).
 type Msg = { who: "agent" | "user" | "stamp"; text: string;
-  jsx?: React.ReactNode; kind?: "candidates" };
+  jsx?: React.ReactNode; kind?: "candidates"; at?: number };
 type Cand = { company_id: string; name: string; name_ko?: string;
   what?: string; signal?: string; source_url: string;
   pain_signal: string; retrieval_score: number; match?: number; weak: boolean;
@@ -137,8 +143,8 @@ type ReqSummary = { request_id: string; title: string; status: string;
   purpose: string };
 type ClarifyQ = { id: string; question: string; axis: string; why: string;
   options: { label: string; company_ids: string[] }[] };
-type Llm = { provider: "local" | "openai"; label: string; model: string;
-  ready: { local: boolean; openai: boolean } };
+// 외부 모델 API는 Claude 하나(2026-10 통일) — 공급자 토글은 없앴다
+type Llm = { provider: "anthropic"; label: string; model: string; ready: boolean };
 
 
 /** body 유무로 메서드를 추측하지 않는다 — /run·/search처럼 본문 없는 POST가
@@ -300,6 +306,9 @@ export default function Gate() {
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [who, setWho] = useState("");
+  // dev 사용자(?as=)는 마운트 후에 읽는다 — supabase.ts devUser 주석 참조.
+  const [devWho, setDevWho] = useState(DEV_USER);
+  useEffect(() => { if (!isConfigured) setDevWho(devUser()); }, []);
 
   useEffect(() => {
     if (!supabase) return;
@@ -341,7 +350,7 @@ export default function Gate() {
   if (isMisconfigured) return (
     <div className="login">
       <div className="login-box">
-        <div className="login-brand">rename<em>.</em></div>
+        <div className="login-brand">TEST</div>
         <p className="login-msg">
           인증 설정이 빠진 채 배포됐어요.<br />
           <b>NEXT_PUBLIC_SUPABASE_URL</b>과 <b>NEXT_PUBLIC_SUPABASE_ANON_KEY</b>를
@@ -353,12 +362,12 @@ export default function Gate() {
       </div>
     </div>
   );
-  if (ready) return <Workspace who={who || (isConfigured ? "" : DEV_USER)} />;
+  if (ready) return <Workspace who={who || (isConfigured ? "" : devWho)} />;
 
   return (
     <div className="login">
       <div className="login-box">
-        <div className="login-brand">rename<em>.</em></div>
+        <div className="login-brand">TEST</div>
         <div className="login-sub">Lead 발굴 워크스페이스</div>
 
         {stage === "password" ? (
@@ -613,7 +622,69 @@ function Workspace({ who }: { who: string }) {
   // 패널(대시보드·보드·발신자 정보) 중 하나라도 열려 있으면 채팅은 숨긴다.
   // 실측 지적: 대시보드를 열어도 채팅 목록(온보딩 인사말)이 아래 그대로
   // 남아, 대시보드 밑에 나올 이유 없는 대화가 보였다.
-  const panelOpen = identOpen || trackOpen || pipeOpen;
+  // 사람·기록 패널(워크스페이스 멤버·초대·감사) / 검색 패널
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const panelOpen = identOpen || trackOpen || pipeOpen || teamOpen || searchOpen;
+  const closePanels = () => {
+    setIdentOpen(false); setTrackOpen(false); setPipeOpen(false); setTeamOpen(false);
+    setSearchOpen(false);
+  };
+  // 리드 데이터 공유(기존 SaaS 워크스페이스 팀) — 메시징 테넌트와는 다른 멤버십이다.
+  // 둘을 합치려면 기존 사용자의 리드 데이터를 옮겨야 해서 별도 결정으로 남겼다.
+  const { team, reload: reloadTeam } = useTeam(api);
+  // 메시징 플랫폼(/chat/v1) — 테넌트·채널·멤버·실시간
+  const ws = useWorkspace();
+  const rt = useRealtime(ws.slug);
+  // 지금 보는 곳 — 채널(사람끼리) 또는 AI 작업 화면(Lead Request). 작업 화면의 팀
+  // 대화는 그 요청에 딸린 채널(lead-<rid>)에 저장된다.
+  const [chan, setChan] = useState<{ kind: "channel"; id: number } | { kind: "work" }>(
+    { kind: "work" });
+  const leadCh: Ch | null = requestId
+    ? ws.channels.find((c) => c.name === leadName(requestId)) ?? null : null;
+  const activeCh: Ch | null = chan.kind === "channel"
+    ? ws.channels.find((c) => c.id === chan.id) ?? null : leadCh;
+  const feed = useFeed(ws.slug, activeCh?.id ?? null);
+  // 스레드 패널 — 메시지 답글 또는 후보 토론. 채널을 바꾸면 닫는다.
+  const [thread, setThread] = useState<{ cid: number; seq: number; title: string } | null>(null);
+  // 작성 대상 — 작업 화면에서 AI에게 말할지 팀에게 말할지. 채널에서는 항상 팀.
+  const [toTeam, setToTeam] = useState(false);
+  const [newChOpen, setNewChOpen] = useState(false);
+  const [chMembersOpen, setChMembersOpen] = useState(false);
+  const [platformAdmin, setPlatformAdmin] = useState(false);
+  useEffect(() => {
+    // 플랫폼 어드민이면 레일에 콘솔 진입점을 보인다(권한 판정은 서버가 한다)
+    (async () => {
+      try {
+        const r = await fetch("/api/platform/v1/me", { headers: await authHeaders() });
+        setPlatformAdmin(r.ok);
+      } catch { setPlatformAdmin(false); }
+    })();
+  }, []);
+  // 메시지 작성자 id와 비교하는 '나' — 서버가 아는 내 user_id가 원본이다
+  const meId = ws.me?.user_id ?? (who || DEV_USER);
+  const meName = ws.me?.display_name ?? (who || DEV_USER);
+  /** Lead Request에 딸린 팀 채널 — 없으면 만든다(이름으로 찾아 멱등). */
+  const leadChannel = (rid: string, title?: string) =>
+    ws.ensureChannel(leadName(rid), `Lead Request · ${title ?? rid}`);
+  /** 팀원이 봐야 할 작업 소식을 요청 채널에 남긴다. 실패해도 작업은 계속된다. */
+  const announce = (text: string, rid: string | null = requestId) => {
+    if (!rid || !ws.slug) return;
+    const slug = ws.slug;
+    void (async () => {
+      const ch = await leadChannel(rid);
+      if (ch) await capi(`/t/${slug}/channels/${ch.id}/messages`, { body: text, kind: "activity" });
+    })().catch(() => {});
+  };
+  // 보고 있는 채널은 읽은 것이다 — 마지막 seq까지 읽음 처리(되감기지 않는다)
+  const lastSeq = feed.msgs.reduce((m, x) => (x.pending || x.failed ? m : Math.max(m, x.seq)), 0);
+  useEffect(() => {
+    if (!activeCh || panelOpen) return;
+    const top = Math.max(lastSeq, activeCh.last_seq);
+    if (top > activeCh.last_read_seq || activeCh.mentions) void ws.markRead(activeCh.id, top);
+  }, [activeCh?.id, activeCh?.last_seq, activeCh?.last_read_seq, activeCh?.mentions, lastSeq,
+      panelOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setThread(null); }, [activeCh?.id]);
   const [likedC, setLikedC] = useState<Set<string>>(new Set());
   const [dislikedC, setDislikedC] = useState<Set<string>>(new Set());
   const [llm, setLlm] = useState<Llm | null>(null);
@@ -705,6 +776,14 @@ function Workspace({ who }: { who: string }) {
     return () => { alive = false; };
   }, []);
 
+  // 팀원이 만든 요청도 사이드바에 떠야 한다 — 새로고침을 기다리지 않는다.
+  useEffect(() => {
+    const id = setInterval(() => {
+      api("/lead-requests").then((l) => setReqs(l.requests ?? [])).catch(() => {});
+    }, 30000);
+    return () => clearInterval(id);
+  }, []);
+
   /** 저장된 요청을 화면으로 되살린다. 대화 기록 자체는 서버에 없으므로
    *  (메시지는 클라이언트 상태다) 무엇이 복원됐는지 정직하게 말한다. */
   async function openRequest(rid: string, opts: { silent?: boolean } = {}) {
@@ -712,7 +791,7 @@ function Workspace({ who }: { who: string }) {
     // 사이드바에서 다른 요청을 클릭해도 패널이 안 닫혀 그 요청의 채팅이
     // 아니라 여전히 발신자 정보 화면이 보였다. openRequest가 요청을 여는
     // 유일한 경로이므로 여기서 한 번만 닫으면 모든 진입점이 같이 고쳐진다.
-    setIdentOpen(false); setTrackOpen(false); setPipeOpen(false); setNavOpen(false);
+    closePanels(); setNavOpen(false); setChan({ kind: "work" });
     try {
       const doc = await api(`/lead-requests/${rid}`);
       setRequestId(rid);
@@ -743,7 +822,8 @@ function Workspace({ who }: { who: string }) {
       else if ((doc.candidates ?? []).length)
         push({ who: "agent", kind: "candidates",
           text: "이어서 후보에 반응을 남기거나, 메일 초안을 만들 수 있어요. "
-            + "지난 대화 내용은 저장되지 않아 후보 목록부터 다시 보여드려요." });
+            + "AI와의 지난 대화는 저장되지 않아 후보 목록부터 다시 보여드려요 "
+            + "(팀원과 나눈 메시지·스레드는 그대로 남아 있어요)." });
     } catch (e) {
       push({ who: "agent", text: `불러오지 못했어요 — ${(e as Error).message}` });
     }
@@ -771,7 +851,7 @@ function Workspace({ who }: { who: string }) {
   function newRequest() {
     // 같은 이유로 여기서도 닫는다 — 패널이 열린 채 '새 Lead Request'를
     // 눌러도 새 대화가 아니라 패널이 그대로 남아 있었다.
-    setIdentOpen(false); setTrackOpen(false); setPipeOpen(false); setNavOpen(false);
+    closePanels(); setNavOpen(false); setChan({ kind: "work" }); setToTeam(false);
     setRequestId(null); setVersionId(null); setSession(null); setCompanyName(null); setCompanyLatin(null);
     setAwaitingLatin(false);
     setCands([]); setCardIdx(0); setRecs([]); setQuestions([]);
@@ -784,40 +864,24 @@ function Workspace({ who }: { who: string }) {
       text: "새로 시작할게요. 회사 소개를 붙여넣으면 프로필부터 만들어요." }]);
   }
 
-  async function toggleLlm() {
-    if (!llm || busy) return;
-    if (llm.provider === "local" && !llm.ready.openai) {
-      setKeyOpen(true);   // 키가 없으면 전환 대신 입력창을 연다
-      return;
-    }
-    const next = llm.provider === "local" ? "openai" : "local";
-    try {
-      setLlm(await api("/settings/llm", { provider: next }));
-      push({ who: "stamp", text: `모델을 ${next === "openai" ? "GPT Luna" : "EXAONE 로컬"}로 전환했습니다` });
-    } catch (e) {
-      push({ who: "agent", text: (e as Error).message });
-    }
-  }
-
   async function saveKey() {
     const k = keyInput.trim();
     if (!k || keySaving) return;
     setKeySaving(true);
     try {
-      const res = await api("/settings/openai-key", { key: k });
+      const res = await api("/settings/anthropic-key", { key: k });
       setKeyInput("");
       setKeyOpen(false);
-      setLlm(res);   // 저장과 동시에 openai로 전환됨(백엔드 상태 반영)
       push({ who: "stamp",
-        text: `OpenAI 키를 등록했습니다 (${res.masked}, ${res.persisted ? ".env에 저장됨" : "이번 실행에만 적용"})` });
-      // 저장만으로는 provider가 안 바뀌므로 바로 전환까지 이어준다
-      setLlm(await api("/settings/llm", { provider: "openai" }));
+        text: `Claude API 키를 등록했습니다 (${res.masked}, ${res.persisted ? ".env에 저장됨" : "이번 실행에만 적용"})` });
+      setLlm(await api("/settings/llm"));
     } catch (e) {
       push({ who: "agent", text: (e as Error).message });
     } finally { setKeySaving(false); }
   }
 
-  const push = (m: Msg) => setMsgs((xs) => [...xs, m]);
+  const push = (m: Msg) =>
+    setMsgs((xs) => [...xs, { ...m, at: m.at ?? Date.now() / 1000 }]);
 
   /** 취소 가능한 job 대기. 진행 로그의 마지막 줄과 경과를 헤더에 흘린다 —
    *  사용자가 '무슨 일이 일어나는 중인지' 보이면 기다림이 견딜 만해진다. */
@@ -1047,6 +1111,7 @@ function Workspace({ who }: { who: string }) {
         profile_version_id: vid, intent,
       });
       setRequestId(doc.request_id);
+      announce(`새 Lead Request를 열었어요 — ${doc.title}`, doc.request_id);
       // 사이드바를 즉시 갱신 — 새로고침해도 돌아올 자리가 생긴다
       api("/lead-requests").then((l) => setReqs(l.requests ?? [])).catch(() => {});
       const u = new URL(location.href);
@@ -1161,6 +1226,8 @@ function Workspace({ who }: { who: string }) {
         bySeg.set(c.segment || "", (bySeg.get(c.segment || "") ?? 0) + 1);
       const brk = [...bySeg.entries()].filter(([k]) => k)
         .map(([k, n]) => `${k} ${n}곳`).join(" · ");
+      announce(`검색을 마쳤어요 — 후보 ${res.candidates.length}곳`
+        + (brk ? ` (${brk})` : ""), rid);
       if (res.candidates.length === 0) {
         // 0건은 실패가 아니라 결과다 — 다음에 뭘 하면 되는지 말해준다.
         push({ who: "agent",
@@ -1215,6 +1282,7 @@ function Workspace({ who }: { who: string }) {
       setCardIdx(0);          // 재정렬된 새 순위 — 캐러셀은 1번 카드부터
       if (res.final) {
         push({ who: "stamp", text: "후보를 확정했습니다" });
+        announce(`후보 ${res.candidates.length}곳을 확정했어요`, rid);
         void deepRead(rid);
         push({ who: "agent", kind: "candidates",
           text: `최종 ${res.candidates.length}곳이에요. 저장한 후보만 메일 초안으로 이어져요.` });
@@ -1241,6 +1309,8 @@ function Workspace({ who }: { who: string }) {
       const res = (await waitJob(c.job_id)) as
         { drafts: Draft[]; outreach?: OutreachKit; language?: string };
       const d = res.drafts[0];
+      const nm = cands.find((x) => x.company_id === cid)?.name ?? cid;
+      announce(`${nm} 메일 초안을 만들었어요`);
       setDerived((prev) => ({ ...prev, [cid]: { ...(prev[cid] ?? {}),
         draft: res, has_insight: true,
         outcome: { ...(prev[cid]?.outcome ?? { saved: false, replied: "" }),
@@ -1250,8 +1320,8 @@ function Workspace({ who }: { who: string }) {
         jsx: <MailDraft d={d} kit={res.outreach} lang={res.language}
           recipient={(res as { recipient?: Recipient }).recipient}
           rid={requestId} cid={cid} api={api}
-          onSent={(m) => push({ who: "agent", text: m })}
-          onNeedIdentity={() => { setIdentOpen(true); setPipeOpen(false); setTrackOpen(false); }} />,
+          onSent={(m) => { push({ who: "agent", text: m }); announce(m); }}
+          onNeedIdentity={() => { closePanels(); setIdentOpen(true); }} />,
       });
     } catch (e) { push({ who: "agent", text: (e as Error).message }); }
     finally { setBusy(false); }
@@ -1267,8 +1337,8 @@ function Workspace({ who }: { who: string }) {
            jsx: <MailDraft d={d} kit={stored?.outreach} lang={stored?.language}
              recipient={(stored as { recipient?: Recipient } | null | undefined)?.recipient}
              rid={requestId ?? undefined} cid={cid} api={api}
-             onSent={(m) => push({ who: "agent", text: m })}
-             onNeedIdentity={() => { setIdentOpen(true); setPipeOpen(false); setTrackOpen(false); }} /> });
+             onSent={(m) => { push({ who: "agent", text: m }); announce(m); }}
+             onNeedIdentity={() => { closePanels(); setIdentOpen(true); }} /> });
   }
 
   function send() {
@@ -1309,8 +1379,65 @@ function Workspace({ who }: { who: string }) {
     push({ who: "agent", text: "지금은 위 카드의 버튼으로 진행해 주세요 — 자유 대화 확장은 다음 이슈예요." });
   }
 
+  // 한 타임라인 — AI 작업 대화(브라우저 상태)와 팀 메시지(서버 원본)를 작성 시각으로
+  // 섞는다(서버 메시지끼리의 순서는 seq가 이미 정했다). 채널은 사람끼리만.
+  type Line = { k: "l"; m: Msg; i: number; at: number }
+    | { k: "t"; t: ChatMsg; at: number; prev: ChatMsg | null };
+  const lines: Line[] = (() => {
+    const xs: (Line & { ord: number })[] = [];
+    if (chan.kind === "work") msgs.forEach((m, i) =>
+      xs.push({ k: "l", m, i, at: m.at ?? 0, ord: xs.length }));
+    feed.msgs.forEach((t) =>
+      xs.push({ k: "t", t, at: Date.parse(t.created_at) / 1000, prev: null, ord: xs.length }));
+    xs.sort((a, b) => a.at - b.at || a.ord - b.ord);
+    let last: ChatMsg | null = null;
+    for (const x of xs) {
+      if (x.k === "t") { x.prev = last; last = x.t; } else last = null;
+    }
+    return xs;
+  })();
+  const hm = (sec: number) => hhmm(new Date(sec * 1000).toISOString());
+  const reqTitle = reqs.find((r) => r.request_id === requestId)?.title
+    || (requestId ? requestId : "새 Lead Request");
+  const chTitle = chan.kind === "channel"
+    ? (activeCh ? `${activeCh.visibility === "private" ? "🔒" : "#"} ${activeCh.name}` : "#")
+    : `# ${reqTitle}`;
+  const teamMode = chan.kind === "channel" || (toTeam && !!requestId);
+  async function sendTeam() {
+    const v = input.trim();
+    if (!v || !ws.slug) return;
+    setInput("");
+    try {
+      if (activeCh) { await feed.send(v); return; }
+      // 요청 채널이 아직 없다 — 만들고 보낸다(목록이 갱신되면 피드가 그 채널을 연다)
+      if (requestId) {
+        const ch = await leadChannel(requestId, reqTitle);
+        if (ch) await capi(`/t/${ws.slug}/channels/${ch.id}/messages`, { body: v });
+      }
+    } catch (e) {
+      setInput(v);
+      push({ who: "agent", text: `메시지를 보내지 못했어요 — ${(e as Error).message}` });
+    }
+  }
+  /** 후보 토론 스레드 — 루트는 client_msg_id가 고정된 활동 메시지라 몇 번을 열어도
+   *  같은 루트로 간다(서버 멱등). */
+  async function openCandThread(cid: string, name: string) {
+    if (!requestId || !ws.slug) return;
+    try {
+      const ch = leadCh ?? await leadChannel(requestId, reqTitle);
+      if (!ch) return;
+      const id = candRootId(cid);
+      let seq = feed.msgs.find((m) => m.client_msg_id === id)?.seq;
+      if (!seq) seq = (await capi(`/t/${ws.slug}/channels/${ch.id}/messages`,
+        { body: `후보 토론 · ${name}`, kind: "activity", client_msg_id: id })).seq as number;
+      setThread({ cid: ch.id, seq, title: name });
+    } catch (e) { push({ who: "agent", text: `스레드를 열지 못했어요 — ${(e as Error).message}` }); }
+  }
+  const submit = () => (teamMode ? void sendTeam() : send());
+
   return (
-    <div className={`app ${navOpen ? "nav-open" : ""}`}>
+    <div className={`app ${navOpen ? "nav-open" : ""} ${
+      thread && !panelOpen ? "has-thread" : ""}`}>
       {/* 모바일 전용 배경막 — 드로어 밖을 누르면 닫힌다. 데스크톱 폭에서는
           CSS가 이 요소를 렌더하지 않는다(.nav-scrim은 900px 이하에서만
           display:block). */}
@@ -1322,28 +1449,76 @@ function Workspace({ who }: { who: string }) {
           하나를 옮기면 안에 뭐가 몇 개든 폭 계산이 필요 없다. */}
       <div className="nav-drawer">
       <nav className="rail" aria-label="워크스페이스">
-        <div className="ws" title="rename">r.</div>
+        {/* 워크스페이스(테넌트) 전환 — 슬랙의 왼쪽 레일처럼 속한 곳마다 하나 */}
+        {(ws.tenants ?? []).map((t) => (
+          <button key={t.slug} className={`ws ${t.slug === ws.slug ? "on" : ""}`} title={t.name}
+            onClick={() => {
+              if (t.slug === ws.slug) return;
+              ws.setSlug(t.slug);
+              // 리드 요청·후보·초안도 테넌트 것이라 화면 전체를 그 테넌트로 다시 읽는다 —
+              // 채널만 바꾸면 왼쪽 리드 목록은 이전 테넌트 것으로 남는다.
+              window.location.reload();
+            }}>
+            {t.name[0]?.toUpperCase()}</button>))}
+        {ws.tenants?.length === 0 && <div className="ws" title="메시징 워크스페이스 없음">r.</div>}
+        <button className={`rail-btn ${teamOpen ? "on" : ""}`} title="사람·기록"
+          onClick={() => { const o = teamOpen; closePanels(); setTeamOpen(!o);
+                           setNavOpen(false); if (!o) { void reloadTeam(); void ws.reloadMembers(); } }}>
+          👥{team?.pending_invite && <span className="rail-dot" />}</button>
+        {ws.slug && (
+          <button className={`rail-btn ${searchOpen ? "on" : ""}`} title="메시지 검색"
+            onClick={() => { const o = searchOpen; closePanels(); setSearchOpen(!o); setNavOpen(false); }}>
+            🔎</button>)}
+        {platformAdmin && (
+          <a className="rail-btn" title="플랫폼 어드민 콘솔" href="/admin">⚙︎</a>)}
         <div className="spacer" />
-        <div className="me" title={who}>{(who || "?").trim()[0]?.toUpperCase()}</div>
+        <span className={`rt-dot ${rt}`} title={{ live: "실시간 연결됨", connecting: "연결 중",
+          retrying: "다시 연결하는 중", off: "실시간 꺼짐" }[rt]} />
+        <div className="me" title={who}
+          style={{ background: avaColor(meId) }}>{(meName || "?").trim()[0]?.toUpperCase()}</div>
       </nav>
 
       <aside className="side">
         <div className="side-head">
-          <div className="brand">rename<em>.</em>
+          <div className="brand">TEST
             <small>Lead 발굴 워크스페이스</small></div>
           <button className="btn-new" title="새 Lead Request"
             onClick={newRequest}>+</button>
         </div>
         <div className="side-scroll">
           <div className="sec">
-            <div className="sec-title"><span className="tri">▾</span> Request</div>
+            <div className="sec-title"><span className="tri">▾</span> 채널</div>
+            {!ws.slug && ws.tenants !== null && (
+              <div className="empty">메시징 워크스페이스가 아직 없어요 — 플랫폼 관리자에게
+                기업 워크스페이스 개설을 요청하세요.</div>)}
+            {ws.channels.filter((c) => !isLead(c.name)).map((c) => (
+              <div className="chan-row" key={c.id}>
+                <button className={`chan ${chan.kind === "channel" && chan.id === c.id && !panelOpen
+                    ? "active" : ""} ${c.unread && !(chan.kind === "channel" && chan.id === c.id)
+                    ? "unread" : ""}`}
+                  title={c.topic || c.name}
+                  onClick={() => { closePanels(); setChan({ kind: "channel", id: c.id }); setNavOpen(false); }}>
+                  <span className="hash">{c.visibility === "private" ? "🔒" : c.kind === "announcements" ? "📣" : "#"}</span>
+                  <span className="nm">{c.name}</span>
+                  {c.mentions > 0 && <span className="mbadge">{c.mentions}</span>}
+                </button>
+              </div>))}
+            {ws.me?.can["channel.create"] && (
+              <button className="chan add" onClick={() => setNewChOpen(true)}>
+                <span className="hash">＋</span><span className="nm">채널 추가</span></button>)}
+          </div>
+          <div className="sec">
+            <div className="sec-title"><span className="tri">▾</span> Lead Request</div>
             {reqs.length === 0 && !requestId && (
               <div className="empty">아직 없어요</div>)}
             {reqs.map((r) => (
               <div className={`chan-row ${r.request_id === requestId ? "on" : ""}`}
                 key={r.request_id}>
                 <button disabled={busy}
-                  className={`chan ${r.request_id === requestId ? "active" : ""}`}
+                  className={`chan ${r.request_id === requestId && chan.kind === "work"
+                    && !panelOpen ? "active" : ""} ${
+                    ws.channels.find((c) => c.name === leadName(r.request_id))?.unread
+                    && r.request_id !== requestId ? "unread" : ""}`}
                   title={r.request_id}
                   onClick={() => openRequest(r.request_id)}>
                   <span className="hash">#</span>
@@ -1352,9 +1527,12 @@ function Workspace({ who }: { who: string }) {
                       진한 원형 배지 모양이라 실측에서 "안읽으면 사라져야
                       하는 거 아니냐"는 오해를 샀다. 모양을 카운트 라벨로
                       바꾸고 무엇인지 hover로 밝힌다. */}
-                  {r.candidate_count > 0 &&
-                    <span className="badge" title={`후보 ${r.candidate_count}곳`}>
-                      {r.candidate_count}</span>}
+                  {(ws.channels.find((c) => c.name === leadName(r.request_id))?.mentions ?? 0) > 0
+                    ? <span className="mbadge" title="나를 부른 메시지">
+                        {ws.channels.find((c) => c.name === leadName(r.request_id))!.mentions}</span>
+                    : r.candidate_count > 0 &&
+                      <span className="badge" title={`후보 ${r.candidate_count}곳`}>
+                        {r.candidate_count}</span>}
                 </button>
                 <button className="chan-del" disabled={busy} title="이 요청 삭제"
                   onClick={() => removeRequest(r)}>×</button>
@@ -1371,7 +1549,7 @@ function Workspace({ who }: { who: string }) {
             <button className={`chan ${pipeOpen ? "active" : ""}`}
               onClick={async () => {
                 if (pipeOpen) { setPipeOpen(false); return; }
-                setTrackOpen(false); setIdentOpen(false); setNavOpen(false);
+                closePanels(); setNavOpen(false);
                 try { setPipe(await api("/pipeline")); setPipeOpen(true); }
                 catch (e) { push({ who: "agent", text: (e as Error).message }); }
               }}>
@@ -1380,7 +1558,7 @@ function Workspace({ who }: { who: string }) {
             <button className={`chan ${trackOpen ? "active" : ""}`}
               onClick={async () => {
                 if (trackOpen) { setTrackOpen(false); return; }
-                setPipeOpen(false); setIdentOpen(false); setNavOpen(false);
+                closePanels(); setNavOpen(false);
                 try { setTrack(await api("/outreach/tracker")); setTrackOpen(true); }
                 catch (e) { push({ who: "agent", text: (e as Error).message }); }
               }}>
@@ -1389,15 +1567,35 @@ function Workspace({ who }: { who: string }) {
             <button className={`chan ${identOpen ? "active" : ""}`}
               onClick={() => {
                 if (identOpen) { setIdentOpen(false); return; }
-                setPipeOpen(false); setTrackOpen(false); setIdentOpen(true); setNavOpen(false);
+                closePanels(); setIdentOpen(true); setNavOpen(false);
               }}>
               <span className="hash">⚖</span>
               <span className="nm">발신자 정보</span></button>
           </div>
+          {ws.slug && (
+          <div className="sec">
+            <div className="sec-title"><span className="tri">▾</span> 멤버</div>
+            {ws.members.slice(0, 12).map((m) => (
+              <button className="chan" key={m.user_id} title={`${m.email} · ${m.role} — 눌러서 @호출`}
+                onClick={() => { setInput((v) => `${v}@${m.display_name} `);
+                                 if (requestId || chan.kind === "channel") setToTeam(true);
+                                 setNavOpen(false); }}>
+                <span className="ava xs" style={{ background: avaColor(m.user_id) }}>
+                  {m.display_name[0]?.toUpperCase()}</span>
+                <span className="nm">{m.display_name}
+                  {m.user_id === meId && <span className="you"> (나)</span>}
+                  {m.role === "guest" && <span className="you"> · 게스트</span>}</span>
+              </button>))}
+            {ws.me?.can["member.invite"] && (
+              <button className="chan add" onClick={() => {
+                const o = teamOpen; closePanels(); setTeamOpen(!o); setNavOpen(false);
+              }}>
+                <span className="hash">＋</span><span className="nm">멤버 추가</span></button>)}
+          </div>)}
         </div>
         <div className="side-foot">
           <span className="dot-live" />
-          rename 에이전트 온라인 · {llm?.label ?? "…"}
+          에이전트 온라인 · {llm?.label ?? "…"}
           {usage && (
             <span className="usage" title={
               `이번 달 ${usage.month} · 워크스페이스 $${usage.workspace_usd} / `
@@ -1435,10 +1633,11 @@ function Workspace({ who }: { who: string }) {
       </div>
 
       <main className="main">
+        {ws.slug && <LeadDataBanner slug={ws.slug} onOpen={() => { closePanels(); setTeamOpen(true); }} />}
         <header className="chat-head">
           <button className="menu-btn" aria-label="메뉴 열기"
             onClick={() => setNavOpen((v) => !v)}>☰</button>
-          <h1><span className="hash">#</span> lead-discovery</h1>
+          <h1>{chTitle}</h1>
           {busy && (
             <span className="pill run">
               {tick ? `${humanTick(tick.msg)} · ${tick.sec}s` : "작업 중"}
@@ -1449,19 +1648,40 @@ function Workspace({ who }: { who: string }) {
               onClick={() => abortRef.current?.abort()}>취소</button>
           )}
           <span className="topic">
-            {versionId ? "프로필 승인됨 · 조건에 맞는 리드를 찾습니다"
+            {chan.kind === "channel" ? (activeCh?.topic || "@이름으로 팀원을 불러요")
+              : versionId ? "프로필 승인됨 · 조건에 맞는 리드를 찾습니다"
               : "회사 소개를 붙여넣으면 프로필부터 만들어요"}
           </span>
           <div className="right">
+            {activeCh?.visibility === "private"
+              && (activeCh.channel_role === "channel_admin" || ws.me?.can["member.update"]) && (
+              <button className="faces" title="이 비공개 채널에 사람 추가"
+                onClick={() => setChMembersOpen(true)}>＋ 멤버</button>)}
+            {chan.kind === "channel" && activeCh && ws.me?.can["export.run"] && (
+              <a className="faces" title="채널 내보내기(아카이브 포함, NDJSON)"
+                href="#" onClick={async (e) => {
+                  e.preventDefault();
+                  const r = await fetch(`/api/chat/v1/t/${ws.slug}/channels/${activeCh.id}/export`,
+                    { headers: await authHeaders() });
+                  const url = URL.createObjectURL(await r.blob());
+                  const a = document.createElement("a");
+                  a.href = url; a.download = `${activeCh.name}.ndjson`; a.click();
+                  URL.revokeObjectURL(url);
+                }}>⤓</a>)}
+            {ws.members.length > 0 && (
+              <button className="faces" title="멤버 보기"
+                onClick={() => { const o = teamOpen; closePanels(); setTeamOpen(!o); }}>
+                {ws.members.slice(0, 3).map((m) => (
+                  <span key={m.user_id} className="face"
+                    style={{ background: avaColor(m.user_id) }}>
+                    {m.display_name[0]?.toUpperCase()}</span>))}
+                <span className="faces-n">{ws.members.length}</span>
+              </button>)}
             {llm && (
-              <button className="llm-toggle" onClick={toggleLlm} disabled={busy}
-                title={llm.ready.openai
-                  ? "클릭해서 모델 전환"
-                  : "클릭하면 OpenAI 키를 입력할 수 있어요"}>
-                <span className={`opt ${llm.provider === "local" ? "on" : ""}`}>
-                  EXAONE 로컬</span>
-                <span className={`opt ${llm.provider === "openai" ? "on" : ""}`}>
-                  GPT Luna{!llm.ready.openai && " 🔒"}</span>
+              <button className="llm-toggle" onClick={() => setKeyOpen(true)} disabled={busy}
+                title={llm.ready ? `${llm.model} — 클릭하면 API 키를 바꿀 수 있어요`
+                                 : "Claude API 키가 없어요 — 클릭해서 입력"}>
+                <span className="opt on">Claude{!llm.ready && " 🔒"}</span>
               </button>
             )}
           </div>
@@ -1475,6 +1695,14 @@ function Workspace({ who }: { who: string }) {
             push({ who: "agent", text: "발신자 정보를 저장했어요. 이제 발송할 수 있습니다." });
           }} />}
         {trackOpen && track && <MailTracker t={track} />}
+        {teamOpen && (ws.slug
+          ? <PeoplePanel slug={ws.slug} me={ws.me} members={ws.members}
+              onChanged={() => void ws.reloadMembers()}
+              extra={<LeadDataCard slug={ws.slug} />} />
+          : <TeamPanel api={api} team={team} onChanged={reloadTeam} />)}
+        {searchOpen && ws.slug && (
+          <SearchPanel slug={ws.slug} channels={ws.channels} members={ws.members}
+            onOpen={(cid) => { closePanels(); setChan({ kind: "channel", id: cid }); }} />)}
         {pipeOpen && pipe && (
           <PipelineBoard pipe={pipe}
             onOpen={(rid) => { setPipeOpen(false); openRequest(rid); }}
@@ -1487,16 +1715,47 @@ function Workspace({ who }: { who: string }) {
             }} />
         )}
         <div className="msgs" hidden={panelOpen}>
+          {feed.hasMore && (
+            <div className="older"><button className="btn ghost" onClick={() => void feed.loadOlder()}>
+              이전 메시지 더 보기</button></div>)}
+          {chan.kind === "channel" && activeCh && !feed.hasMore && !feed.loading && (
+            <div className="chan-intro">
+              <h2>{chTitle}</h2>
+              <p>{activeCh.topic && <>{activeCh.topic}<br /></>}
+                {activeCh.visibility === "private"
+                  ? "비공개 채널이에요 — 초대받은 사람만 보고, 검색에도 멤버에게만 나옵니다. "
+                  : activeCh.kind === "announcements"
+                    ? "관리자와 플랫폼 공지가 올라오는 채널이에요. "
+                    : "워크스페이스 전체가 보는 채널이에요. "}
+                <b>@이름</b>으로 팀원을 부르고, 메시지에 마우스를 올려 💬로 스레드를 열 수 있어요.</p>
+            </div>)}
+          {feed.err && <div className="panel-hint">{feed.err}</div>}
           <div className="day"><span>오늘</span></div>
-          {msgs.map((m, i) => m.who === "stamp" ? (
-            <div className="stamp" key={i}><b>보람</b>님이 {m.text}</div>
+          {lines.map((ln) => ln.k === "t" ? (
+            <MessageRow key={ln.t.pending || ln.t.failed ? `c${ln.t.client_msg_id}` : `s${ln.t.seq}`}
+              m={ln.t} prev={ln.prev} me={ws.me} members={ws.members}
+              onReply={activeCh ? () => setThread({ cid: activeCh.id, seq: ln.t.seq,
+                title: chTitle }) : undefined}
+              onEdit={(b) => void feed.edit(ln.t.seq, b).catch((e) =>
+                push({ who: "agent", text: (e as Error).message }))}
+              onDelete={() => void feed.remove(ln.t.seq).catch((e) =>
+                push({ who: "agent", text: (e as Error).message }))}
+              onReact={(e, on) => void feed.react(ln.t.seq, e, on).catch(() => {})}
+              onRetry={() => void feed.retry(ln.t)} />
+          ) : ((m: Msg, i: number) => m.who === "stamp" ? (
+            <div className="stamp" key={`l${i}`}><b>{meName}</b>님이 {m.text}</div>
           ) : (
-            <div className={`msg ${m.who === "user" ? "me" : "them"}`} key={i}>
-              <div className={`ava ${m.who}`}>r.</div>
+            <div className={`msg ${m.who === "user" ? "me" : "them"}`} key={`l${i}`}>
+              <div className={`ava ${m.who}`}
+                style={m.who === "user" ? { background: avaColor(meId) } : undefined}>
+                {m.who === "user" ? meName[0]?.toUpperCase() : "r."}</div>
               <div className="body">
-                {m.who === "agent" && (
-                  <div className="who">rename 에이전트<span className="tag">앱</span></div>
-                )}
+                <div className="who">
+                  {m.who === "agent"
+                    ? <>에이전트<span className="tag">앱</span></>
+                    : meName}
+                  {m.at && <span className="t">{hm(m.at)}</span>}
+                </div>
                 {m.text && (
                   <div className="bubble">
                     {m.text}
@@ -1651,6 +1910,15 @@ function Workspace({ who }: { who: string }) {
                       })}>👋 아니에요</button>
                   </div>
                   <div className="cand-acts">
+                    {requestId && (() => {
+                      const n = feed.msgs.find((m) =>
+                        m.client_msg_id === candRootId(c.company_id))?.reply_count ?? 0;
+                      return (
+                        <button className={`mini thread-btn ${n ? "has" : ""}`}
+                          title="이 후보에 대해 팀과 이야기하기" disabled={!ws.slug}
+                          onClick={() => void openCandThread(c.company_id, c.name_ko || c.name)}>
+                          💬 {n ? `스레드 ${n}` : "스레드"}</button>);
+                    })()}
                     <a className="mini" href={c.source_url} target="_blank"
                       rel="noreferrer">원문</a>
                     {c.deep_read && (
@@ -1747,7 +2015,7 @@ function Workspace({ who }: { who: string }) {
                 )}
               </div>
             </div>
-          ))}
+          ))(ln.m, ln.i))}
           <div ref={bottom} />
         </div>
         {panelOpen && (
@@ -1758,39 +2026,70 @@ function Workspace({ who }: { who: string }) {
         <div className="composer" hidden={panelOpen}>
           <div className="comp-box">
             <textarea rows={1} value={input}
-              placeholder={versionId
-                ? "#lead-discovery 에 메시지 보내기"
+              placeholder={chan.kind === "channel" ? `${chTitle} 에 메시지 보내기`
+                : teamMode ? `#${reqTitle} 팀원에게 메시지 보내기`
+                : versionId ? "에이전트에게 요청하기"
                 : "회사 소개를 붙여넣거나, 질문에 답해주세요"}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+                // 한글 조합 중 Enter는 글자 확정이다 — 보내면 마지막 글자가
+                // 잘리거나 두 번 간다.
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault(); submit();
+                }
               }} />
             <div className="comp-bar">
               <div className="left">
                 <input ref={fileRef} type="file" accept=".pdf,.docx" multiple hidden
                   onChange={onPickFiles} />
-                <button className="icon-btn" title="자료 올리기 (PDF·Word)"
-                  onClick={() => fileRef.current?.click()}>＋</button>
+                {!teamMode && (
+                  <button className="icon-btn" title="자료 올리기 (PDF·Word)"
+                    onClick={() => fileRef.current?.click()}>＋</button>)}
+                {chan.kind === "work" && requestId && ws.slug && (
+                  <div className="target" role="group" aria-label="보낼 대상">
+                    <button className={!toTeam ? "on" : ""}
+                      onClick={() => setToTeam(false)}>AI에게</button>
+                    <button className={toTeam ? "on" : ""}
+                      onClick={() => setToTeam(true)}>팀에게</button>
+                  </div>)}
               </div>
-              <button className="send" onClick={send} disabled={!input.trim() || busy}
+              <button className="send" onClick={submit}
+                disabled={!input.trim() || (busy && !teamMode)}
                 title="보내기">➤</button>
             </div>
           </div>
           <div className="comp-hint">
-            Enter 전송 · Shift+Enter 줄바꿈 · 메일은 초안까지만 — 발송은 항상 사람이 결정해요
+            {teamMode
+              ? "Enter 전송 · Shift+Enter 줄바꿈 · @이름으로 팀원 호출 · 팀원 모두에게 보여요"
+              : "Enter 전송 · Shift+Enter 줄바꿈 · 메일은 초안까지만 — 발송은 항상 사람이 결정해요"}
           </div>
         </div>
       </main>
 
+      {thread && !panelOpen && ws.slug && (
+        <ThreadPane key={`${thread.cid}/${thread.seq}`} slug={ws.slug} cid={thread.cid}
+          rootSeq={thread.seq} title={thread.title} me={ws.me} members={ws.members}
+          onClose={() => setThread(null)} />)}
+
+      {newChOpen && ws.slug && (
+        <NewChannelModal slug={ws.slug} me={ws.me} onClose={() => setNewChOpen(false)}
+          onCreated={(c) => {
+            setNewChOpen(false);
+            void ws.refresh().then(() => setChan({ kind: "channel", id: c.id }));
+          }} />)}
+      {chMembersOpen && ws.slug && activeCh && (
+        <ChannelMembers slug={ws.slug} ch={activeCh} members={ws.members}
+          onClose={() => setChMembersOpen(false)} />)}
+
       {keyOpen && (
         <div className="modal-backdrop" onClick={() => setKeyOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>OpenAI API 키 입력</h2>
+            <h2>Claude API 키 입력</h2>
             <p className="modal-sub">여기 붙여넣은 키는 채팅에 남지 않고 엔진으로만 전달돼요.</p>
             <input
               type="password"
               autoFocus
-              placeholder="sk-..."
+              placeholder="sk-ant-..."
               value={keyInput}
               onChange={(e) => setKeyInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") saveKey(); }}

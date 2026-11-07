@@ -44,7 +44,7 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
   mid-century modern design and authentic local artist collaborations, we
   highly respect The Pearl Hotel's status as a defining local destination.
 
-  We are the DIVE IN team, an art-tech specialist from South Korea that
+  We are the SAMPLE HOTEL team, an art-tech specialist from South Korea that
   transforms standard hotel rooms into immersive, premium art stays through
   exclusive global IP collaborations.
 
@@ -53,12 +53,12 @@ COMPOSE_LEAD_SYSTEM = HARD_RULES + """
   directly through your website remains a crucial objective to maximize
   overall profitability amidst San Diego's competitive boutique landscape.
 
-  What if The Pearl's classic Californian vibe met DIVE IN's fully funded
+  What if The Pearl's classic Californian vibe met SAMPLE HOTEL's fully funded
   exclusive room conversion solution? When your spaces are elevated with
   limited-edition global IPs, it creates an absolute reason for your target
   audience to book directly with you.
 
-  Accordingly, the DIVE IN team proposes an exclusive Art Stay Conversion
+  Accordingly, the SAMPLE HOTEL team proposes an exclusive Art Stay Conversion
   partnership designed to eliminate your initial financial burden: …
 
   Best regards,

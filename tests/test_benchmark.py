@@ -82,10 +82,10 @@ class TestMockBaselineRegression:
         assert rep["summary"]["judge_accuracy"] == 1.0
         assert rep["summary"]["retrieve_top1_accuracy"] == 1.0
         # anchor 케이스가 CoT #01 전문가 결론(conditional)과 일치
-        anchor = next(r for r in rep["judge"] if r["case_id"] == "J-cot01-divein-livi")
+        anchor = next(r for r in rep["judge"] if r["case_id"] == "J-cot01-samplehotel-livi")
         assert anchor["decisions"] == {"conditional": 1}
         # deal-breaker 케이스가 결격 게이트로 reject
-        db = next(r for r in rep["judge"] if r["case_id"] == "J-dealbreaker-divein-aero")
+        db = next(r for r in rep["judge"] if r["case_id"] == "J-dealbreaker-samplehotel-aero")
         assert db["majority_polarity"] == "reject"
 
     def test_only_filter(self):

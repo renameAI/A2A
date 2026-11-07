@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """평가 벤치마크 실행 (Phase 5 EVL) — 골든셋으로 엔진 정확도·안정성 채점.
 
-    LLM_PROVIDER=mock python scripts/run_benchmark.py            # 규칙 베이스라인
-    LLM_PROVIDER=friendli python scripts/run_benchmark.py --k 3  # 실추론 + 안정성
+    python scripts/run_benchmark.py --k 3  # 실추론 + 안정성
 
 Mock은 결정적이라 k=1로 충분. LLM은 k>1로 정확도와 재현성을 함께 본다.
 무료 API 주의: 실 LLM에서 케이스 수 × k만큼 호출된다. 작은 k부터.
@@ -26,7 +25,7 @@ def main():
     ap.add_argument("--json", action="store_true", help="원 리포트 JSON 출력")
     args = ap.parse_args()
 
-    provider = os.environ.get("LLM_PROVIDER", "mock")
+    provider = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5-5")   # Claude 하나(2026-10)
     rep = run_benchmark(k=args.k, only=args.only)
 
     if args.json:

@@ -22,7 +22,7 @@ def _profile(with_portrait=True):
         gaps="현지 운영 파트너와 해외 유통 채널 부재",
         risk_signals="특이 신호 없음") if with_portrait else None
     return Profile(
-        basic=BasicInfo(name="다이브인그룹", country="한국", industry="hospitality_renovation"),
+        basic=BasicInfo(name="샘플호텔그룹", country="한국", industry="hospitality_renovation"),
         description="노후 호텔 객실을 예술 경험형 상품으로 전환",
         problem_solved=f("노후 호텔 객실의 매출 정체와 리뉴얼 자본 부담"),
         solution=f("저자본 무철거 예술 전환, 매출 쉐어"),
@@ -194,10 +194,10 @@ class TestScoutEndToEnd:
         from unittest.mock import patch
         from fastapi.testclient import TestClient
         from app.main import app
-        from tests.test_product import DIVEIN_TEXT, _run_job
+        from tests.test_product import SAMPLEHOTEL_TEXT, _run_job
         client = TestClient(app)
         onboard = _run_job("/product/onboard", {
-            "assets": [{"type": "text", "content": DIVEIN_TEXT}]})
+            "assets": [{"type": "text", "content": SAMPLEHOTEL_TEXT}]})
         cid = onboard["result"]["company_id"]
         with patch.object(scout_mod, "scout", wraps=scout_mod.scout) as _:
             with patch("app.ingest.websearch.web_search",

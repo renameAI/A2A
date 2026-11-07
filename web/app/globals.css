@@ -849,3 +849,220 @@ a.ct-v{color:var(--blue)}
   min-width:120px}
 .track-req{color:var(--txt-3);font-size:11px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
+
+
+/* ═══════════ 슬랙형 채팅 앱 ═══════════ */
+/* 기준 수치는 실제 Slack 웹 클라이언트에서 레이아웃만 측정한 값이다
+   (채널 행 28px·모서리 6px·좌측 들여쓰기, 채널 헤더 49px, 본문 15/22,
+   아바타 36px·모서리 8px). 대화 내용은 보지 않았다.
+   말풍선(좌우 분리)을 걷고 한 줄 나열로 돌아간다 — 팀원이 여럿 말하는
+   채널에서는 '나/상대' 두 위치로는 누가 말했는지 구분되지 않는다. */
+.app.has-thread{grid-template-columns:44px 256px minmax(0,1fr) 380px}
+
+/* 레일 */
+.rail-btn{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
+  font-size:15px;position:relative;color:#C7CCDA;opacity:.75}
+.rail-btn:hover,.rail-btn.on{background:rgba(255,255,255,.1);opacity:1}
+.rail-dot{position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;
+  background:var(--coral);border:2px solid var(--ink-3)}
+
+/* 사이드바 — 채널 행 */
+.chan{min-height:28px;padding:0 10px}
+.chan.unread{color:#fff;font-weight:700}
+.chan.unread .hash{opacity:.9}
+.chan .mbadge{margin-left:auto;flex:none;background:var(--coral);color:#fff;
+  font-size:11px;font-weight:800;min-width:18px;height:18px;padding:0 5px;
+  border-radius:9px;display:grid;place-items:center}
+.chan.add{color:#7C8499}
+.chan .you{color:#7C8499;font-weight:400}
+.presence{width:9px;height:9px;border-radius:50%;flex:none;
+  border:1.5px solid #7C8499;background:transparent}
+.presence.on{background:#2BAC76;border-color:#2BAC76}
+
+/* 헤더 — 팀원 얼굴 */
+.chat-head{min-height:49px}
+.faces{display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;
+  padding:3px 8px 3px 5px;gap:0}
+.faces:hover{background:var(--line-soft)}
+.face{width:20px;height:20px;border-radius:5px;color:#fff;font-size:10.5px;font-weight:800;
+  display:grid;place-items:center;border:2px solid var(--white);margin-left:-5px}
+.face:first-child{margin-left:0}
+.faces-n{font-size:12px;font-weight:700;color:var(--txt-2);margin-left:6px}
+
+/* 메시지 — 한 줄 나열 */
+.msgs .msg{align-items:flex-start;padding:6px 20px;gap:10px}
+.msgs .msg.me{flex-direction:row}
+.msgs .msg.me .ava{display:grid}
+.msgs .msg .body{flex:1 1 auto;max-width:none;min-width:0}
+.msgs .msg.me .body{display:block}
+.msgs .msg .who{display:block;font-weight:800;font-size:14.5px;color:var(--txt);
+  margin-bottom:1px}
+.msgs .msg .who .t,.trow .t{font-weight:500;font-size:11.5px;color:var(--txt-3);
+  margin-left:8px}
+.msgs .msg > .body > .bubble{display:block;padding:0;border:none;background:none;
+  border-radius:0;color:var(--txt);font-size:15px;line-height:22px}
+.msgs .msg.me .attach{align-self:auto}
+.stamp{padding:4px 20px 4px 66px;font-size:12.5px;color:var(--txt-3)}
+
+/* 팀 메시지 */
+.trow{display:flex;gap:10px;padding:6px 20px;position:relative}
+.trow:hover{background:var(--line-soft)}
+.trow.cont{padding-top:1px;padding-bottom:1px}
+.trow .ava{width:36px;height:36px;border-radius:8px;flex:none;display:grid;
+  place-items:center;font-weight:800;font-size:14px;color:#fff;margin-top:2px}
+.trow .gutter{width:36px;flex:none;margin:3px 0 0;text-align:right;font-size:10px;
+  visibility:hidden}
+.trow.cont:hover .gutter{visibility:visible}
+.trow .tbody{min-width:0;flex:1}
+.trow .who{font-weight:800;font-size:14.5px}
+.trow .ttext{font-size:15px;line-height:22px;white-space:pre-wrap;word-break:break-word}
+.trow .gone{color:var(--txt-3);font-size:13px}
+.trow.has-mention{background:rgba(233,162,59,.08);box-shadow:inset 3px 0 var(--amber)}
+.mention{background:var(--blue-soft);color:var(--blue);border-radius:4px;padding:0 2px;
+  font-weight:600}
+.mention.me{background:var(--amber-soft);color:var(--amber)}
+.trow:hover .hover-bar{display:flex}
+.reply-link{margin-top:4px;font-size:12.5px;font-weight:700;color:var(--blue);
+  padding:2px 6px 2px 0;border-radius:6px}
+.reply-link:hover{text-decoration:underline}
+.trow.act{align-items:center;gap:8px;padding:3px 20px 3px 33px;font-size:12.5px;
+  color:var(--txt-2)}
+.trow.act .act-dot{width:6px;height:6px;border-radius:50%;background:var(--blue);flex:none}
+.trow.act .act-txt b{color:var(--txt)}
+
+.chan-intro{padding:18px 20px 6px}
+.chan-intro h2{font-size:22px;font-weight:800;margin-bottom:6px}
+.chan-intro p{color:var(--txt-2);font-size:13.5px;max-width:640px}
+
+/* 컴포저 — 보낼 대상 */
+.target{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;
+  margin-left:6px}
+.target button{font-size:12px;font-weight:700;padding:4px 10px;color:var(--txt-3)}
+.target button.on{background:var(--raise);color:var(--txt)}
+.thread-btn.has{color:var(--blue);border-color:var(--blue)}
+
+/* 스레드 패널 */
+.thread-pane{border-left:1px solid var(--line);background:var(--white);display:flex;
+  flex-direction:column;min-width:0;min-height:0}
+.tp-head{display:flex;align-items:center;justify-content:space-between;
+  padding:0 12px 0 16px;min-height:49px;border-bottom:1px solid var(--line)}
+.tp-head b{font-size:16px;font-weight:800}
+.tp-sub{font-size:12.5px;color:var(--txt-3);margin-left:8px}
+.tp-body{flex:1 1 0;min-height:0;overflow-y:auto;padding:8px 0}
+.tp-root{border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:6px}
+.tp-count{font-size:12px;color:var(--txt-3);padding:6px 20px}
+.tp-comp{padding:8px 14px 14px;flex:none}
+.tp-err{font-size:12px;color:var(--coral);margin-top:6px}
+.cand-root{padding:8px 20px}
+.cand-root b{font-size:15px}
+.cand-root p{font-size:13.5px;color:var(--txt-2);margin:4px 0}
+.cand-root a{font-size:12.5px;color:var(--blue)}
+
+/* 팀 패널 */
+.team-panel{flex:1 1 0;min-height:0;overflow-y:auto;padding:24px 28px;max-width:720px}
+.team-panel h2{font-size:20px;font-weight:800}
+.team-panel h3{font-size:12px;font-weight:800;color:var(--txt-3);text-transform:uppercase;
+  letter-spacing:.4px;margin:22px 0 8px}
+.team-sub{color:var(--txt-2);font-size:13.5px;margin-top:4px}
+.members{display:grid;gap:2px}
+.member{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px}
+.member:hover{background:var(--line-soft)}
+.member.pending{opacity:.75}
+.ava.sm{width:30px;height:30px;border-radius:7px;color:#fff;font-weight:800;font-size:13px;
+  display:grid;place-items:center;position:relative;flex:none}
+.ava.sm .presence{position:absolute;right:-3px;bottom:-3px;border:2px solid var(--white);
+  width:11px;height:11px}
+.m-name{font-weight:700;font-size:14px;flex:1;min-width:0}
+.m-mail{display:block;font-weight:400;font-size:12px;color:var(--txt-3);
+  overflow:hidden;text-overflow:ellipsis}
+.m-role{font-size:11.5px;color:var(--txt-3);flex:none}
+.invite-row{display:flex;gap:8px}
+.invite-row input{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 12px;
+  background:var(--paper);color:var(--txt);font:inherit;outline:none}
+.invite-row input:focus{border-color:var(--coral)}
+.invite-card{margin-top:16px}
+.row-btns{display:flex;gap:8px;margin-top:10px}
+.team-note{margin-top:14px;font-size:13px;color:var(--txt-2);
+  border-left:3px solid var(--blue);padding:6px 10px;background:var(--blue-soft);
+  border-radius:0 6px 6px 0}
+.leave{margin-top:22px}
+
+@media (max-width:1280px){.app.has-thread{grid-template-columns:44px 232px minmax(0,1fr) 340px}}
+@media (max-width:1080px){.app.has-thread{grid-template-columns:44px 220px minmax(0,1fr) 300px}}
+/* 좁은 화면 — 스레드는 화면 전체를 덮는 시트다. 네 번째 트랙을 남기면
+   유령 트랙이 main을 굶긴다(위 반응형 주석의 실측과 같은 함정). */
+@media (max-width:900px){
+  .app.has-thread{grid-template-columns:1fr}
+  .thread-pane{position:fixed;inset:0;z-index:70}
+  .team-panel{padding:18px 16px}
+  .stamp{padding-left:20px}
+}
+/* 실측(REA, 375px): 헤더에 팀원 얼굴을 더했더니 모델 토글이 화면 밖으로
+   밀려 'GPT L'에서 잘렸다. 좁은 화면에선 레일의 👥가 같은 일을 한다. */
+@media (max-width:900px){.faces{display:none}}
+
+
+/* ═══════════ 메시징 플랫폼 (chat.tsx) ═══════════ */
+.rail .ws{cursor:pointer;opacity:.55;border:2px solid transparent}
+.rail .ws.on{opacity:1;border-color:#fff}
+.rail .ws:hover{opacity:.9}
+.rail a.rail-btn{text-decoration:none}
+.rt-dot{width:8px;height:8px;border-radius:50%;background:#555;margin-bottom:4px}
+.rt-dot.live{background:#2BAC76}
+.rt-dot.connecting,.rt-dot.retrying{background:var(--amber);animation:pulse 1.2s infinite}
+.ava.xs{width:18px;height:18px;border-radius:5px;color:#fff;font-size:10px;font-weight:800;
+  display:grid;place-items:center;flex:none}
+.older{text-align:center;padding:8px 0}
+.trow.pending{opacity:.6}
+.trow.failed .ttext{color:var(--txt-2)}
+.trow.act.sys{color:var(--txt);background:var(--blue-soft)}
+.trow .arch{font-size:10.5px;font-weight:700;color:var(--amber);border:1px solid var(--amber);
+  border-radius:4px;padding:0 5px;margin-left:8px}
+.ttext .edited{font-size:11.5px;color:var(--txt-3)}
+.sending{font-size:11.5px;color:var(--txt-3)}
+.send-fail{font-size:12px;color:var(--coral);margin-top:3px;display:flex;gap:8px;align-items:center}
+.send-fail button{color:var(--blue);font-weight:700;font-size:12px}
+.edit-box textarea{width:100%;border:1.5px solid var(--coral);border-radius:8px;background:var(--paper);
+  color:var(--txt);font:inherit;font-size:14px;padding:8px 10px;outline:none;resize:vertical;min-height:56px}
+.edit-hint{font-size:11px;color:var(--txt-3);margin-top:2px}
+.rx{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.rx-chip{border:1px solid var(--line);background:var(--raise);border-radius:12px;padding:1px 8px;
+  font-size:12.5px;color:var(--txt-2)}
+.rx-chip.on{border-color:var(--blue);background:var(--blue-soft);color:var(--blue)}
+.seg-tabs{display:flex;gap:4px;margin:14px 0 4px;border-bottom:1px solid var(--line)}
+.seg-tabs button{padding:7px 12px;font-size:13px;font-weight:700;color:var(--txt-3);
+  border-bottom:2px solid transparent;margin-bottom:-1px}
+.seg-tabs button.on{color:var(--txt);border-color:var(--coral)}
+.seg-tabs.sm button{font-size:12px;padding:5px 10px}
+.invite-grid{display:grid;grid-template-columns:1fr 1.3fr auto auto;gap:8px}
+.invite-grid input,.invite-grid select,.role-sel{border:1px solid var(--line);border-radius:8px;
+  padding:7px 10px;background:var(--paper);color:var(--txt);font:inherit;font-size:13px}
+.role-sel.wide{width:100%;margin-top:6px}
+.log-list{display:grid;gap:2px;margin-top:8px;max-height:60vh;overflow-y:auto}
+.log-row{display:grid;grid-template-columns:150px 170px 110px 1fr;gap:10px;font-size:12.5px;
+  padding:6px 8px;border-radius:6px}
+.log-row:nth-child(odd){background:var(--line-soft)}
+.lr-at{color:var(--txt-3);font-family:var(--mono);font-size:11.5px}
+.lr-act{font-weight:700}
+.lr-who{color:var(--txt-2)}
+.lr-tgt{color:var(--txt-2);overflow-wrap:anywhere}
+.search-hit{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;text-align:left;width:100%;
+  padding:9px 10px;border-radius:8px;border:1px solid var(--line-soft);margin-top:6px}
+.search-hit:hover{background:var(--line-soft)}
+.sh-ch{font-weight:800;font-size:12.5px;color:var(--blue)}
+.sh-who{font-size:11.5px;color:var(--txt-3);text-align:right}
+.sh-body{grid-column:1/-1;font-size:13.5px;white-space:pre-wrap;overflow-wrap:anywhere}
+.chk{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--txt-2);margin-top:12px}
+.legacy-team{margin-top:22px;border-top:1px solid var(--line);padding-top:10px}
+.legacy-team summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--txt-3)}
+.legacy-team .team-panel{padding:10px 0;max-width:none}
+@media (max-width:900px){
+  .invite-grid{grid-template-columns:1fr}
+  .log-row{grid-template-columns:1fr;gap:2px}
+}
+/* 리드 데이터 워크스페이스 — 이전 안내 */
+.lead-banner{display:flex;align-items:center;gap:10px;padding:8px 16px;font-size:13px;
+  background:var(--amber-soft);color:var(--txt);border-bottom:1px solid var(--line)}
+.lead-banner .mini{margin-left:auto}
+.lead-card{margin-top:22px;border-top:1px solid var(--line);padding-top:10px}
+.lead-card .btn{margin-top:6px}

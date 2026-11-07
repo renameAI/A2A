@@ -1,0 +1,17 @@
+{
+  "_comment": "업무 이벤트 수집 설정 — docs/EVENTS.md '제외와 마스킹'. exclude_domains는 그 도메인과 하위 도메인 전체(웹 본문·선택·에이전트가 읽은 내용·도구 입력 속 주소). 바꾸면 앱을 다시 켠다. A2A_COLLECT=0이면 수집을 끈다.",
+  "enabled": true,
+  "capture": { "web": true, "agent": true, "approval": true, "chat": true },
+  "exclude_domains": [
+    "mail.google.com", "accounts.google.com", "mail.naver.com", "nid.naver.com", "mail.daum.net", "logins.daum.net",
+    "outlook.live.com", "mail.yahoo.com", "icloud.com", "mail.proton.me",
+    "kbstar.com", "shinhan.com", "wooribank.com", "kebhana.com", "hanabank.com", "ibk.co.kr", "nonghyup.com",
+    "banking.nonghyup.com", "kakaobank.com", "toss.im", "tossbank.com", "citibank.co.kr", "standardchartered.co.kr",
+    "kfcc.co.kr", "epostbank.go.kr", "busanbank.co.kr", "dgb.co.kr", "kjbank.com", "jbbank.co.kr",
+    "hometax.go.kr", "gov.kr", "nhis.or.kr", "nps.or.kr", "hira.or.kr",
+    "paypal.com", "pay.naver.com", "kakaopay.com"
+  ],
+  "exclude_channels": [],
+  "settle_ms": 1500,
+  "max_text_chars": 200000
+}

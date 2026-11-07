@@ -2,9 +2,9 @@
 
 기존 `interview_agent.py` 계열을 import하지 않는 별도 테스트 프로그램이다. v5는 온톨로지의 모든 빈칸을 묻지 않고 실제 진출 전략을 결정하는 10개 핵심 질문과 최종 확인을 사용한다. 보통 11문항으로 끝나며, 불충분한 답변 재확인이 생기면 늘어날 수 있다. 15문항부터 피로도를 안내하고 비정상적인 무한 반복만 40문항에서 차단한다.
 
-Google Grounding 결과는 답이나 선택지를 대신 만들지 않는다. 문서 원문으로 역검증된 사실을 시장·기존 고객/협업·제안 작동 방식·실적 질문의 배경으로만 한 개씩 사용한다. 목표, 예산, 검토 부서, 진입 경로, 첫 행동과 후속 전환에는 검색 사실을 붙이지 않는다.
+Claude 웹 검색(web_search) 리서치 결과는 답이나 선택지를 대신 만들지 않는다. 문서 원문으로 역검증된 사실을 시장·기존 고객/협업·제안 작동 방식·실적 질문의 배경으로만 한 개씩 사용한다. 목표, 예산, 검토 부서, 진입 경로, 첫 행동과 후속 전환에는 검색 사실을 붙이지 않는다.
 
-답변 검증은 하이브리드 방식이다. EXAONE이 질문별 의미 계약에 따라 답변 역할,
+답변 검증은 하이브리드 방식이다. Claude가 질문별 의미 계약에 따라 답변 역할,
 질문 적합성, 충분성, 이동할 필드와 확신도를 JSON으로 판정한다. 로컬 규칙은
 `구매부서`처럼 오분류 가능성이 매우 낮은 단답과 API 기술 실패의 안전망으로만
 사용하며, 구매 이유·차별점처럼 맥락 판단이 필요한 답을 임의 확정하지 않는다.
@@ -48,11 +48,15 @@ COMPANY_HINTS = "동명이인 구분 등에 필요한 선택적 검색 힌트"
 `.env.example`을 `.env`라는 이름으로 복사하고 실제 키를 입력한다.
 
 ```dotenv
-FRIENDLI_TOKEN=flp_...
-FRIENDLI_BASE_URL=https://api.friendli.ai/dedicated/v1
-EXAONE_ENDPOINT_ID=...
-GOOGLE_API_KEY=...
+ANTHROPIC_API_KEY=sk-ant-...
+# 선택: 모델 변경(기본 claude-opus-5-5)
+ANTHROPIC_MODEL=claude-opus-5-5
 ```
+
+답변 구조화·가상 대표·사전 리서치가 모두 Claude 한 곳으로 간다. 리서치는 Claude 서버 측
+`web_search` 도구를 쓰므로 별도 검색 키가 필요 없다(조직 Console에서 웹 검색이 허용돼 있어야 한다).
+선택 환경변수: `INTERVIEW_EFFORT`(기본 `low`, 짧은 JSON 호출), `INTERVIEW_RESEARCH_EFFORT`
+(기본 `medium`), `INTERVIEW_REFUSAL_FALLBACK=0`(거절 시 서버 측 폴백 끄기).
 
 `.env`는 테스트 패키지나 Git 저장소에 포함하지 않는다.
 
@@ -82,7 +86,7 @@ python .\interview_test.py
 
 ## 테스트
 
-테스트는 실제 Friendli 또는 Google API를 호출하지 않는다.
+테스트는 실제 Claude API를 호출하지 않는다(가짜 클라이언트로 대체).
 
 ```bash
 python -m unittest discover -s tests_strategy -v

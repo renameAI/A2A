@@ -46,30 +46,17 @@ def _load_dotenv() -> None:
 class Settings:
     def __init__(self):
         _load_dotenv()
-        # LLM 프로바이더 고정 — 기본은 friendli(K-EXAONE 소버린 트랙, 기획서 13.2).
-        # 다른 어댑터는 LLM_PROVIDER를 명시적으로 바꿀 때만 사용된다.
-        self.llm_provider = os.environ.get("LLM_PROVIDER", "friendli").lower()
-        # K-EXAONE (Friendli dedicated)
-        self.friendli_token = os.environ.get("FRIENDLI_TOKEN", "")
-        self.friendli_endpoint_id = os.environ.get("FRIENDLI_ENDPOINT_ID", "")
-        # 로컬/저사양 OpenAI 호환 모델 (Ollama 등) — LLM_PROVIDER=local, 오프라인 실행
-        self.local_base_url = os.environ.get(
-            "LOCAL_LLM_BASE_URL", "http://localhost:11434/v1/chat/completions")
-        self.local_model = os.environ.get("LOCAL_LLM_MODEL", "exaone3.5:7.8b")
-        self.local_token = os.environ.get("LOCAL_LLM_TOKEN", "")  # Ollama는 불필요
-        # Anthropic — LLM_PROVIDER=anthropic일 때만 사용
+        # 외부 모델 API는 Claude 하나(2026-10 통일). LLM_PROVIDER는 남겨 두되 anthropic만
+        # 받는다 — 예전 .env에 friendli/openai/local이 남아 있으면 조용히 무시하지 않고
+        # get_extractor가 이유를 말하며 실패한다.
+        self.llm_provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
         self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        self.anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
-        # OpenAI — LLM_PROVIDER=openai (SaaS 서빙, 이슈 #6). local 슬롯과 같은
-        # OpenAI 호환 규격이지만 이름을 분리한다 — 'local'에 원격 URL을 꽂는
-        # 우회는 동작해도 설정 파일을 읽는 사람을 속인다.
-        self.openai_api_key = os.environ.get("OPENAI_API_KEY", "")
-        self.openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
-        # 가벼운 티어 — 정리·추출처럼 '판정이 아닌' 작업용. 비면 기본 모델을
-        # 쓰므로 설정하지 않아도 동작이 바뀌지 않는다(조용한 성능 저하 없음).
-        self.openai_model_fast = os.environ.get("OPENAI_MODEL_FAST", "")
-        self.openai_base_url = os.environ.get(
-            "OPENAI_BASE_URL", "https://api.openai.com/v1/chat/completions")
+        self.anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5-5")
+        # 판정이 아닌 좁은 추출(tier="fast")용 — 비면 기본 모델을 그대로 쓴다
+        self.anthropic_model_fast = os.environ.get("ANTHROPIC_MODEL_FAST", "")
+        # Opus 5.5는 사고를 끌 수 없고 effort로만 조절한다(기본 medium). deep 경로는 high.
+        self.anthropic_effort = os.environ.get("ANTHROPIC_EFFORT", "medium")
+        self.anthropic_effort_deep = os.environ.get("ANTHROPIC_EFFORT_DEEP", "high")
         # SaaS 접근 허용 목록 (이슈 #6) — 비면 전원 거부(fail closed).
         # auth가 os.environ을 직접 읽으면 _load_dotenv 이전에 평가돼 항상 빈
         # 목록이 된다(실측: 허용 사용자도 403). 설정은 여기 한 곳에서만 읽는다.
@@ -85,10 +72,9 @@ class Settings:
         # retrieve의 '랭킹 순서'만 담당하고 τ 게이트는 휴리스틱에 남는다 (RET-06 보존).
         self.scorer_url = os.environ.get("A2A_SCORER_URL", "")
         self.scorer_timeout = float(os.environ.get("A2A_SCORER_TIMEOUT", "60"))
-        # 근거 시각화 (bbox) — IR덱 PDF 페이지에서 근거 위치를 찾는 비전 모델.
-        # 텍스트 추출(LLM_PROVIDER)과는 독립 — 키만 넣으면 켜진다.
-        self.gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
-        self.gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        # 근거 시각화 (bbox) — IR덱 PDF 페이지에서 근거 위치를 찾는 Claude 비전.
+        # 텍스트와 같은 ANTHROPIC_API_KEY로 켜진다. 비면 ANTHROPIC_MODEL을 쓴다.
+        self.anthropic_vision_model = os.environ.get("ANTHROPIC_VISION_MODEL", "")
         # judge 결정 자기일관성 투표 (FORMALIZATION.md L2) — k-표본 다수결.
         # 기본 1 = off(비용·지연 3배 방지). k>1이면 범주형 결정에 다수결 + 일치율 계측.
         self.judge_samples = max(1, int(os.environ.get("JUDGE_SAMPLES", "1")))
@@ -104,19 +90,12 @@ class Settings:
 
     @property
     def llm_enabled(self) -> bool:
-        if self.llm_provider == "friendli":
-            return bool(self.friendli_token and self.friendli_endpoint_id)
-        if self.llm_provider == "local":
-            return bool(self.local_base_url and self.local_model)
-        if self.llm_provider == "anthropic":
-            return bool(self.anthropic_api_key)
-        if self.llm_provider == "openai":
-            return bool(self.openai_api_key)
-        return False
+        return self.llm_provider == "anthropic" and bool(self.anthropic_api_key)
 
     @property
     def vision_enabled(self) -> bool:
-        return bool(self.gemini_api_key)
+        # 근거 위치(bbox)도 Claude 비전 — 텍스트와 같은 키
+        return bool(self.anthropic_api_key)
 
 
 def get_settings() -> Settings:

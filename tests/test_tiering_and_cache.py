@@ -27,13 +27,13 @@ def _co(name="A"):
 
 class TestTiering:
     def _env(self, monkeypatch, fast=None):
-        monkeypatch.setenv("LLM_PROVIDER", "openai")
-        monkeypatch.setenv("OPENAI_API_KEY", "k")
-        monkeypatch.setenv("OPENAI_MODEL", "big")
+        monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-k")
+        monkeypatch.setenv("ANTHROPIC_MODEL", "big")
         if fast is None:
-            monkeypatch.delenv("OPENAI_MODEL_FAST", raising=False)
+            monkeypatch.delenv("ANTHROPIC_MODEL_FAST", raising=False)
         else:
-            monkeypatch.setenv("OPENAI_MODEL_FAST", fast)
+            monkeypatch.setenv("ANTHROPIC_MODEL_FAST", fast)
         return Settings()
 
     def _model(self, ex):

@@ -44,14 +44,39 @@ export const supabase: SupabaseClient | null = isConfigured
 export const emailLoginEnabled =
   (process.env.NEXT_PUBLIC_AUTH_EMAIL ?? "on").trim().toLowerCase() !== "off";
 
-/** 로컬 dev 폴백 사용자 — Supabase 미설정일 때만 쓰인다. */
+/** 로컬 dev 폴백 사용자 — Supabase 미설정일 때만 쓰인다.
+ *
+ *  ?as=<uid> 로 탭마다 다른 사용자가 될 수 있다(sessionStorage라 탭 단위).
+ *  팀 채팅은 두 사람이 있어야 확인되는 기능이라 로컬에 이 손잡이가 필요하다.
+ *  Supabase가 설정되면 이 경로는 아예 쓰이지 않고, 서버는 dev 모드에서도
+ *  허용 목록(SAAS_ALLOWED_USERS)을 거친다 — 아무 uid나 되는 뒷문이 아니다. */
 export const DEV_USER = "boram";
+
+/** 지금 탭의 dev 사용자. **렌더 중에 부르지 않는다** — 서버 렌더는 window가
+ *  없어 항상 DEV_USER라, 렌더에서 읽으면 hydration이 어긋난다(실측: ?as=alice
+ *  탭에서 레일 아바타가 서버 'B' / 클라 'A'로 갈렸다). 요청 헤더와 마운트 후
+ *  effect에서만 읽는다. */
+export function devUser(): string {
+  if (isConfigured || typeof window === "undefined") return DEV_USER;
+  try {
+    const q = new URLSearchParams(window.location.search).get("as");
+    if (q && /^[A-Za-z0-9_-]{1,32}$/.test(q))
+      window.sessionStorage.setItem("a2a:dev-user", q);
+    return window.sessionStorage.getItem("a2a:dev-user") || DEV_USER;
+  } catch { return DEV_USER; }
+}
 
 /** 요청 헤더. 토큰이 필요하나 없으면 던진다 — 인증 없이 조용히 나가면
  *  서버가 401을 주고 사용자는 이유를 모른다. */
 export async function authHeaders(): Promise<Record<string, string>> {
-  const base = { "Content-Type": "application/json" };
-  if (!supabase) return { ...base, "X-Dev-User": DEV_USER };
+  const base: Record<string, string> = { "Content-Type": "application/json" };
+  // 리드 데이터가 어느 테넌트 것인지 — 서버는 내가 속한 테넌트일 때만 따른다
+  // (app/saas/workspace.py). 레일에서 고른 워크스페이스와 같은 값을 쓴다.
+  try {
+    const t = typeof window !== "undefined" ? window.localStorage.getItem("a2a:tenant") : null;
+    if (t) base["X-Tenant"] = t;
+  } catch { /* 사생활 모드 — 서버가 첫 테넌트를 고른다 */ }
+  if (!supabase) return { ...base, "X-Dev-User": devUser() };
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error("로그인이 필요해요");

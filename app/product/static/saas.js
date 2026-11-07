@@ -68,7 +68,7 @@ function agentMsg(html, { id } = {}) {
   el.className = "msg";
   if (id) el.id = id;
   el.innerHTML = `<div class="ava agent">r.</div><div class="body">
-    <div class="who">rename 에이전트<span class="tag">앱</span>
+    <div class="who">에이전트<span class="tag">앱</span>
       <span class="t">${now()}</span></div>
     <div class="content">${html}</div></div>`;
   msgs.appendChild(el);

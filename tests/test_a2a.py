@@ -13,7 +13,7 @@ from app.main import app
 client = TestClient(app)
 
 # 최소 프로필 4필드가 다 찬 자료 — represent가 게이트를 통과해 completed까지 간다
-DECK_TEXT = ("이름: 다이브인그룹\n국가: 한국\n산업: hospitality\n설명: 노후 호텔 전환\n"
+DECK_TEXT = ("이름: 샘플호텔그룹\n국가: 한국\n산업: hospitality\n설명: 노후 호텔 전환\n"
              "문제: 노후 객실 매출 정체\n솔루션: 저자본 예술 전환\n"
              "타겟: 중소 호텔 오너\n판매가치: 매출")
 
@@ -85,7 +85,7 @@ class TestTaskLifecycle:
         assert final["status"]["state"] == "completed"
         assert final["artifacts"][0]["artifactId"] == "art-represent"
         profile = final["artifacts"][0]["parts"][0]["data"]["profile"]
-        assert profile["basic"]["name"] == "다이브인그룹"
+        assert profile["basic"]["name"] == "샘플호텔그룹"
 
     def test_get_unknown_task_minus_32001(self):
         assert _rpc("tasks/get", {"id": "없는id"}).json()["error"]["code"] == -32001

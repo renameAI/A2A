@@ -549,7 +549,7 @@ function pushRow(side, innerHtml, rowCls = "") {
   row.className = `crow crow-${side}${first ? " cfirst" : ""} ${rowCls}`;
   if (side === "bot") {
     row.innerHTML = `<span class="cavatar">${first ? AGENT_MARK : ""}</span>
-      <div class="cbody">${first ? `<div class="cname">리네임 에이전트 <time>${_tstamp()}</time></div>` : ""}${innerHtml}</div>`;
+      <div class="cbody">${first ? `<div class="cname">에이전트 <time>${_tstamp()}</time></div>` : ""}${innerHtml}</div>`;
   } else if (side === "user") {
     row.innerHTML = `<div class="cbody">${first ? `<div class="cname"><time>${_tstamp()}</time></div>` : ""}${innerHtml}</div>`;
   } else {
@@ -1015,7 +1015,7 @@ async function chatLoadList() {
   }
 }
 
-/* 이름 추출 — "리네임이야", "아 다이브인그룹이야" 같은 구어를 회사명으로 정리 */
+/* 이름 추출 — "리네임이야", "아 샘플호텔그룹이야" 같은 구어를 회사명으로 정리 */
 function _cleanName(v) {
   return v.replace(/^(아+|어+|음+|그)[ ,.!]*/, "")
           .replace(/(이야|이에요|예요|에요|입니다|이다|라고 해|야|임)[.!~]*$/, "")
@@ -1123,7 +1123,7 @@ function chatInit() {
     }
     e.target.value = "";
   };
-  botMsg("안녕하세요! 저는 파트너를 찾아드리는 <b>리네임 에이전트</b>예요.<br>" +
+  botMsg("안녕하세요! 저는 파트너를 찾아드리는 <b>에이전트</b>예요.<br>" +
     "아래 항목을 채워가면서 회사의 상(像)을 세울게요. 먼저 <b>회사 이름</b>부터요.");
   chatSlots();               // 처음부터 '무엇을 채워야 하는지' 전체를 보여준다
   chipRow([

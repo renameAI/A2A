@@ -386,10 +386,10 @@ def retrieve(req: RetrieveRequest,
                                       r.profile.basic.country, r.profile.description))
             for r, _ in window]
         learned, e9_ms = score_batch_timed(pairs)
-        # 비교 모드: API(K-EXAONE-236B)로도 같은 창을 채점 (순서엔 안 씀, 표시만)
+        # 비교 모드: API(Claude)로도 같은 창을 채점 (순서엔 안 씀, 표시만)
         api_scores, api_ms = (None, None)
         if req.compare_api:
-            progress.log("검색", "API 비교 모드 — K-EXAONE-236B로 동일 후보 재채점(느림)")
+            progress.log("검색", "API 비교 모드 — Claude로 동일 후보 재채점(느림)")
             api_scores, api_ms = api_score_batch(pairs)
         api_by_cid = {}
         if api_scores is not None:

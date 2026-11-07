@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """독립 실행형 Strategy-first 글로벌 B2B 인터뷰 에이전트.
 
-이 파일은 기존 interview_agent.py 계열을 import하지 않는다. Google Grounding으로
-사전 리서치 문서를 만들고, Friendli의 EXAONE으로 답변을 구조화하며, 실제 대표에게
+이 파일은 기존 interview_agent.py 계열을 import하지 않는다. Claude web_search로
+사전 리서치 문서를 만들고, Claude로 답변을 구조화하며, 실제 대표에게
 10개 핵심 의사결정 질문과 최종 확인을 진행한다. 불충분한 답변은 재확인할 수 있고
 40문항은 비정상적인 반복만 막는 안전 상한이다. 핵심 결과는 최대 두 개의 실행 트랙으로 저장한다.
 
 필요 패키지:
-    pip install python-dotenv openai google-genai jsonschema
+    pip install python-dotenv anthropic jsonschema
 
 공유 폴더에 함께 둘 파일:
     .env
@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dotenv import load_dotenv
-from openai import OpenAI
+import anthropic
 
 
 # ============================================================================
@@ -36,21 +36,20 @@ from openai import OpenAI
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 
-# Friendli Dedicated Endpoint 설정은 .env에서만 읽는다.
-FRIENDLI_TOKEN = os.getenv("FRIENDLI_TOKEN", "")
-FRIENDLI_BASE_URL = os.getenv("FRIENDLI_BASE_URL", "")
-EXAONE_ENDPOINT_ID = os.getenv("EXAONE_ENDPOINT_ID", "")
+# Claude(Anthropic) 설정이다. 키는 .env 또는 환경변수 ANTHROPIC_API_KEY에서 SDK가 직접 읽는다.
+# (OpenAI 호환 Friendli K-EXAONE + Gemini Google Grounding 구성에서 Claude 단일 공급자로 전환)
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-5-5")
 
-# Gemini Google Grounding 설정이다. 검색 실패를 EXAONE 내부지식으로 대체하지 않는다.
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-SEARCH_PROVIDER = "google"  # "google" 또는 "none"
-GEMINI_RESEARCH_MODEL = "gemini-3.1-flash-lite"
+# 리서치는 Claude 서버 측 web_search 도구로 한다. 검색 실패를 모델 내부지식으로 대체하지 않는다.
+SEARCH_PROVIDER = "web"  # "web" 또는 "none" (이전 값 "google"도 web으로 취급)
+RESEARCH_MAX_SEARCHES = 8  # 한 번의 통합 리서치에서 허용하는 검색 횟수 상한(비용·지연 상한)
+RESEARCH_MAX_CONTINUATIONS = 5  # pause_turn 재개 상한(무한 루프 방지)
 
 # 실제 사용 시 여기에서 회사명과 선택적 검색 힌트를 바꾼다.
-TARGET_COMPANY = "다이브인"
+TARGET_COMPANY = "샘플호텔"
 COMPANY_HINTS = ""
 
-# human은 콘솔 입력, ai는 EXAONE이 가상 대표를 연기한다.
+# human은 콘솔 입력, ai는 Claude가 가상 대표를 연기한다.
 CEO_MODE = "human"
 
 # 이미 대표에게 직접 확인한 값을 점 경로로 넣을 수 있다.
@@ -67,9 +66,18 @@ MAX_SEMANTIC_ATTEMPTS = 2
 MAX_TECHNICAL_RETRIES = 1
 
 # API 및 출력 설정이다.
-ENABLE_THINKING = False
-PARSE_REASONING = True
-CEO_TEMP = 0.7
+# EXAONE용 ENABLE_THINKING·PARSE_REASONING·CEO_TEMP는 제거했다. Claude Opus 5.5는 사고를 끌 수 없고
+# (adaptive 고정, 깊이는 effort로만 조절) temperature 같은 샘플링 파라미터를 400으로 거부한다.
+# 짧은 JSON 추출·가상 대표 답변은 "low", 웹 리서치 문서는 "medium"으로 둔다.
+CHAT_EFFORT = os.getenv("INTERVIEW_EFFORT", "low")
+RESEARCH_EFFORT = os.getenv("INTERVIEW_RESEARCH_EFFORT", "medium")
+# 사고 토큰도 max_tokens에 포함되므로, 호출부가 정한 본문 길이에 이만큼 여유를 더해 요청한다.
+# (여유가 없으면 사고만 하다 본문이 비는 max_tokens 종료가 난다)
+THINKING_HEADROOM_TOKENS = 8000
+# 안전 분류기가 요청을 거절(stop_reason=refusal)하면 서버가 권장 모델로 재실행하게 한다.
+# 해당 베타를 지원하지 않는 환경(Bedrock 등)에서는 INTERVIEW_REFUSAL_FALLBACK=0으로 끈다.
+REFUSAL_FALLBACK = os.getenv("INTERVIEW_REFUSAL_FALLBACK", "1").strip().lower() not in {"0", "false", "no", "off"}
+REFUSAL_FALLBACK_BETA = "server-side-fallback-2026-07-01"
 AGENT_VERSION = "strategy_first_v5"
 
 SCHEMA_PATH = BASE_DIR / "schema_strategy" / "11_strategy_interview_ontology.schema.json"
@@ -208,50 +216,95 @@ NON_ANSWER_FEEDBACK_RE = re.compile(
 
 
 # ============================================================================
-# EXAONE 호출 및 JSON 파싱
+# Claude 호출 및 JSON 파싱
 # ============================================================================
 
-def make_client() -> OpenAI:
-    """환경변수로 Friendli OpenAI 호환 클라이언트를 만든다."""
-    if not FRIENDLI_TOKEN or not FRIENDLI_BASE_URL or not EXAONE_ENDPOINT_ID:
+def make_client() -> anthropic.Anthropic:
+    """환경변수(ANTHROPIC_API_KEY 등)로 Anthropic 클라이언트를 만든다."""
+    try:
+        return anthropic.Anthropic()
+    except Exception as exc:  # 자격 증명을 전혀 찾지 못한 경우
         raise SystemExit(
-            "[설정 필요] .env에 FRIENDLI_TOKEN, FRIENDLI_BASE_URL, "
-            "EXAONE_ENDPOINT_ID를 설정하세요."
+            f"[설정 필요] .env 또는 환경변수에 ANTHROPIC_API_KEY를 설정하세요. ({exc})"
         )
-    return OpenAI(api_key=FRIENDLI_TOKEN, base_url=FRIENDLI_BASE_URL)
+
+
+def _create_message(client: Any, **params: Any) -> Any:
+    """비스트리밍 Messages 호출. 거절 폴백이 켜져 있으면 베타 엔드포인트로 보낸다."""
+    if REFUSAL_FALLBACK:
+        return client.beta.messages.create(
+            betas=[REFUSAL_FALLBACK_BETA], fallbacks="default", **params
+        )
+    return client.messages.create(**params)
+
+
+def _stream_message(client: Any, **params: Any) -> Any:
+    """긴 출력(리서치)용 스트리밍 컨텍스트 매니저. 타임아웃을 피하려고 사용한다."""
+    if REFUSAL_FALLBACK:
+        return client.beta.messages.stream(
+            betas=[REFUSAL_FALLBACK_BETA], fallbacks="default", **params
+        )
+    return client.messages.stream(**params)
+
+
+def _response_text(response: Any) -> str:
+    """text 블록만 모은다. thinking·도구 블록이 앞에 올 수 있으므로 content[0]을 가정하지 않는다."""
+    return "".join(
+        getattr(block, "text", "") or ""
+        for block in (getattr(response, "content", None) or [])
+        if getattr(block, "type", None) == "text"
+    ).strip()
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """네트워크·과부하·서버 오류만 재시도한다. 400·401·403·404는 재시도해도 같은 결과다."""
+    if isinstance(exc, (anthropic.APIConnectionError, anthropic.RateLimitError)):
+        return True
+    if isinstance(exc, anthropic.APIStatusError):
+        return exc.status_code >= 500
+    return False
 
 
 def chat(
-    client: OpenAI,
+    client: Any,
     system: str,
     messages: List[Dict[str, str]],
     *,
-    temperature: float = 0.3,
     max_tokens: int = 1800,
-    enable_thinking: Optional[bool] = None,
+    effort: Optional[str] = None,
 ) -> str:
-    """Friendli chat/completions를 호출하고 기술 오류만 최대 세 번 재시도한다."""
-    thinking = ENABLE_THINKING if enable_thinking is None else enable_thinking
-    extra_body = {
-        "chat_template_kwargs": {"enable_thinking": thinking},
-        "parse_reasoning": PARSE_REASONING,
-    }
+    """Claude Messages API를 호출하고 기술 오류만 최대 세 번 재시도한다.
+
+    EXAONE 시절의 enable_thinking/parse_reasoning(추론 토글)과 temperature(저온 반복 고착 회피·
+    JSON 결정성)는 Claude에서 의미가 없거나 거부되므로 뺐다. JSON 안정성은 각 프롬프트의 계약과
+    parse_json_object·호출부 검증/재시도 루프가 계속 담당한다.
+    """
     last_error: Optional[Exception] = None
     for attempt in range(3):
         try:
-            response = client.chat.completions.create(
-                model=EXAONE_ENDPOINT_ID,
-                messages=[{"role": "system", "content": system}] + messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                extra_body=extra_body,
+            response = _create_message(
+                client,
+                model=ANTHROPIC_MODEL,
+                max_tokens=max_tokens + THINKING_HEADROOM_TOKENS,
+                system=system,
+                messages=messages,
+                thinking={"type": "adaptive"},
+                output_config={"effort": effort or CHAT_EFFORT},
             )
-            return (response.choices[0].message.content or "").strip()
-        except Exception as exc:  # API 네트워크·서버 오류만 재시도한다.
+        except Exception as exc:
+            if not _is_retryable(exc):
+                raise RuntimeError(f"Claude 호출 실패: {exc}") from exc
             last_error = exc
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
-    raise RuntimeError(f"K-EXAONE 호출 실패: {last_error}")
+            continue
+        if response.stop_reason == "refusal":
+            raise RuntimeError("Claude 응답 거절(refusal)")
+        text = _response_text(response)
+        if not text and response.stop_reason == "max_tokens":
+            raise RuntimeError("Claude 응답이 출력 상한에서 잘려 본문이 비었습니다.")
+        return text
+    raise RuntimeError(f"Claude 호출 실패: {last_error}")
 
 
 def parse_json_object(text: str) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -1153,9 +1206,7 @@ def generate_segment_examples(client: Any, state: Dict[str, Any], track_id: str)
             client,
             SEGMENT_EXAMPLE_SYS,
             [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-            temperature=0.0,
             max_tokens=400,
-            enable_thinking=False,
         )
         parsed, status = parse_json_object(raw)
         if status == "parsed" and isinstance(parsed.get("examples"), list):
@@ -2044,9 +2095,7 @@ def extract_answer_with_api(
                 client,
                 ANSWER_EXTRACT_SYS,
                 [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-                temperature=0.0,
                 max_tokens=1300,
-                enable_thinking=False,
             )
         except Exception:
             last_status = "model_failed"
@@ -2721,14 +2770,14 @@ def apply_final_review(
 
 
 # ============================================================================
-# Google Grounding 리서치와 비확정 prefill
+# 웹 검색 리서치와 비확정 prefill
 # ============================================================================
-
-RESEARCH_DOC_GEMINI_SYS = """\
-너는 글로벌 B2B 진출 사전 리서처다. Google 검색 근거가 있는 사실만 사용한다.
+RESEARCH_DOC_SYS = """\
+너는 글로벌 B2B 진출 사전 리서처다. web_search 도구로 확인한 근거가 있는 사실만 사용한다.
 한 번의 통합 리서치로 회사의 제품·서비스, 실제 사업 단계, 해외 활동, 고객·협업,
 검증 자료, 진입 경로 후보를 조사한다. 확인되지 않은 수치와 전략을 만들지 않는다.
 출처 URL과 확인 여부를 포함한 한국어 Markdown 문서를 작성한다.
+검색 과정 설명이나 인사말 없이 최종 문서 본문만 출력한다.
 """
 
 RESEARCH_FACT_SYS = """\
@@ -2769,9 +2818,7 @@ def extract_research_facts(client: Any, research_doc: str) -> List[Dict[str, str
             client,
             RESEARCH_FACT_SYS,
             [{"role": "user", "content": research_doc[:24000]}],
-            temperature=0.0,
             max_tokens=1600,
-            enable_thinking=False,
         )
     except Exception:
         return []
@@ -2828,63 +2875,99 @@ RESEARCH_PREFILL_PATHS = [
 ]
 
 
-def google_research(company: str, hints: str) -> str:
-    """Gemini 내장 Google 검색 한 번으로 근거가 포함된 리서치 문서를 만든다."""
-    from google import genai
-    from google.genai import types
+def _collect_research_blocks(
+    content: Sequence[Any], texts: List[str], queries: List[str], sources: List[str],
+) -> int:
+    """응답 블록에서 본문·검색 질의·출처 URL을 모으고 성공한 검색 결과 블록 수를 반환한다."""
+    ok_results = 0
+    for block in content:
+        kind = getattr(block, "type", None)
+        if kind == "text":
+            texts.append(getattr(block, "text", "") or "")
+            for citation in getattr(block, "citations", None) or []:
+                url = getattr(citation, "url", None)
+                if url and url not in sources:
+                    sources.append(url)
+        elif kind == "server_tool_use" and getattr(block, "name", None) == "web_search":
+            query = (getattr(block, "input", None) or {}).get("query")
+            if query:
+                queries.append(str(query))
+        elif kind == "web_search_tool_result":
+            # 성공이면 content가 결과 리스트, 실패면 error_code를 가진 단일 객체다(예외로 오지 않는다).
+            results = getattr(block, "content", None)
+            if isinstance(results, list) and results:
+                ok_results += 1
+                for item in results:
+                    url = getattr(item, "url", None)
+                    if url and url not in sources:
+                        sources.append(url)
+    return ok_results
 
-    if not GOOGLE_API_KEY:
-        raise SystemExit("[설정 필요] SEARCH_PROVIDER='google'이면 GOOGLE_API_KEY가 필요합니다.")
-    google_client = genai.Client(api_key=GOOGLE_API_KEY)
-    config = types.GenerateContentConfig(
-        system_instruction=RESEARCH_DOC_GEMINI_SYS,
-        tools=[types.Tool(google_search=types.GoogleSearch())],
-        temperature=0.3,
-        max_output_tokens=8000,
+
+def web_research(client: Any, company: str, hints: str) -> str:
+    """Claude 서버 측 web_search로 근거가 포함된 리서치 문서를 만든다.
+
+    Gemini Google Grounding을 대체한다. 서버 측 검색 루프가 반복 상한에 걸리면
+    stop_reason=pause_turn으로 멈추므로, 지금까지의 assistant 블록을 그대로 돌려보내 재개한다
+    ("계속" 같은 사용자 메시지는 덧붙이지 않는다).
+    """
+    prompt = (
+        f"대상 기업: {company}\n검색 힌트: {hints}\n\n"
+        "제품·서비스, 거래 단계, 시장 활동, 고객·파트너, 검증 자료와 실행 제약을 "
+        "한 번의 통합 웹 검색 리서치로 조사해 주세요."
     )
-    contents = [types.Content(role="user", parts=[types.Part.from_text(
-        text=(
-            f"대상 기업: {company}\n검색 힌트: {hints}\n\n"
-            "제품·서비스, 거래 단계, 시장 활동, 고객·파트너, 검증 자료와 실행 제약을 "
-            "한 번의 통합 Google 검색으로 조사해 주세요."
-        )
-    )])]
+    tools = [{
+        "type": "web_search_20260209",
+        "name": "web_search",
+        "max_uses": RESEARCH_MAX_SEARCHES,
+    }]
     last_error: Optional[Exception] = None
     for attempt in range(3):
         try:
-            response = google_client.models.generate_content(
-                model=GEMINI_RESEARCH_MODEL,
-                contents=contents,
-                config=config,
-            )
-            text = (getattr(response, "text", None) or "").strip()
-            if not text:
-                parts: List[str] = []
-                for candidate in getattr(response, "candidates", None) or []:
-                    content = getattr(candidate, "content", None)
-                    for part in getattr(content, "parts", None) or []:
-                        if getattr(part, "text", None):
-                            parts.append(part.text)
-                text = "\n".join(parts).strip()
+            assistant_blocks: List[Any] = []
+            texts: List[str] = []
             queries: List[str] = []
-            chunks: List[Any] = []
-            for candidate in getattr(response, "candidates", None) or []:
-                metadata = getattr(candidate, "grounding_metadata", None)
-                if metadata:
-                    queries.extend(getattr(metadata, "web_search_queries", None) or [])
-                    chunks.extend(getattr(metadata, "grounding_chunks", None) or [])
+            sources: List[str] = []
+            ok_results = 0
+            for _ in range(RESEARCH_MAX_CONTINUATIONS + 1):
+                messages: List[Dict[str, Any]] = [{"role": "user", "content": prompt}]
+                if assistant_blocks:
+                    messages.append({"role": "assistant", "content": assistant_blocks})
+                with _stream_message(
+                    client,
+                    model=ANTHROPIC_MODEL,
+                    max_tokens=32000,
+                    system=RESEARCH_DOC_SYS,
+                    messages=messages,
+                    tools=tools,
+                    thinking={"type": "adaptive"},
+                    output_config={"effort": RESEARCH_EFFORT},
+                ) as stream:
+                    response = stream.get_final_message()
+                ok_results += _collect_research_blocks(response.content, texts, queries, sources)
+                if response.stop_reason != "pause_turn":
+                    break
+                assistant_blocks = assistant_blocks + list(response.content)
+            if response.stop_reason == "refusal":
+                raise RuntimeError("Claude가 리서치 요청을 거절했습니다(refusal).")
+            # 인용이 붙으면 문장이 여러 text 블록으로 쪼개지므로 구분자 없이 잇는다.
+            text = "".join(texts).strip()
             if not text:
-                raise RuntimeError("Gemini 응답 본문이 비어 있습니다.")
-            if not queries or not chunks:
-                raise RuntimeError("응답에 Google 검색 근거가 없습니다.")
-            print(f"  Google 검색 질의 {len(queries)}개, 출처 {len(chunks)}개 확인")
-            return text
+                raise RuntimeError("리서치 응답 본문이 비어 있습니다.")
+            if not ok_results or not sources:
+                raise RuntimeError("응답에 웹 검색 근거가 없습니다.")
+            print(f"  웹 검색 질의 {len(queries)}개, 출처 {len(sources)}개 확인")
+            # Gemini grounding_chunks를 대신해 확인된 출처 URL을 문서 끝에 남긴다.
+            source_lines = "\n".join(f"- {url}" for url in sources[:20])
+            return f"{text}\n\n## 검색 출처\n\n{source_lines}\n"
         except Exception as exc:
+            if isinstance(exc, anthropic.APIError) and not _is_retryable(exc):
+                raise RuntimeError(f"Claude 웹 리서치 실패: {exc}") from exc
             last_error = exc
-            print(f"  [Gemini 리서치 재시도 {attempt + 1}/3] {exc}")
+            print(f"  [웹 리서치 재시도 {attempt + 1}/3] {exc}")
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
-    raise RuntimeError(f"Gemini Google Grounding 리서치 실패: {last_error}")
+    raise RuntimeError(f"Claude 웹 리서치 실패: {last_error}")
 
 
 def extract_research_prefill(client: Any, research_doc: str) -> Dict[str, Any]:
@@ -2898,9 +2981,7 @@ def extract_research_prefill(client: Any, research_doc: str) -> Dict[str, Any]:
             client,
             RESEARCH_PREFILL_SYS,
             [{"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
-            temperature=0.0,
             max_tokens=2200,
-            enable_thinking=False,
         )
     except Exception:
         return {}
@@ -2941,9 +3022,9 @@ def strategy_schema_error(state: Dict[str, Any]) -> Optional[str]:
 def phase_research(client: Any) -> Dict[str, Any]:
     """사전 리서치 문서, 비확정 초안, 질문용 검증 사실을 만든다."""
     print("\n=== [1] 리서치 단계 ===")
-    if SEARCH_PROVIDER.lower() == "google":
-        print("  Google Grounding 통합 리서치 중...")
-        research_doc = google_research(TARGET_COMPANY, COMPANY_HINTS)
+    if SEARCH_PROVIDER.lower() in {"web", "google"}:
+        print("  웹 검색 통합 리서치 중(Claude web_search)...")
+        research_doc = web_research(client, TARGET_COMPANY, COMPANY_HINTS)
     else:
         print("  [경고] 검색 비활성화 — 빈 리서치 문서로 인터뷰를 진행합니다.")
         research_doc = "(검색 비활성화)"
@@ -3160,9 +3241,7 @@ def phase_interview(
                 client,
                 ceo_system,
                 ceo_history,
-                temperature=CEO_TEMP,
                 max_tokens=600,
-                enable_thinking=False,
             )
             ceo_history.append({"role": "assistant", "content": answer})
             speaker = "가상 대표"
@@ -3263,9 +3342,7 @@ def phase_interview(
             client,
             ceo_system,
             [{"role": "user", "content": question}],
-            temperature=CEO_TEMP,
             max_tokens=600,
-            enable_thinking=False,
         )
         if not END_RE.fullmatch(answer.strip()):
             print(f"[{'대표(사람)' if CEO_MODE == 'human' else '가상 대표'}]\n  {answer}")

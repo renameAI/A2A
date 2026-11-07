@@ -14,7 +14,7 @@ from app.schemas import (BasicInfo, Intent, PoolKind, Profile, ProvField,
                          ValueProp)
 
 
-def _prof(name="다이브인그룹"):
+def _prof(name="샘플호텔그룹"):
     def f(v):
         return ProvField(value=v, provenance=Provenance.stated, confidence=None)
     return Profile(basic=BasicInfo(name=name, country="한국", industry="hospitality"),
@@ -290,3 +290,38 @@ class TestListwiseTieGate:
         monkeypatch.setattr(R, "_TIE_SPREAD", 1.1)   # 무엇이든 동점
         R.retrieve(_req())
         assert len(calls) == 1                       # listwise는 1회 호출이 계약
+
+
+class TestClaudeComparison:
+    """비교 채점·listwise 재랭킹도 Claude(2026-10 통일) — 구조화 출력 + effort low, 네트워크 없음."""
+
+    class _Ex:
+        def __init__(self, out): self.out, self.calls = out, []
+        def extract_json(self, system, user, schema, deep=False, effort=None):
+            self.calls.append({"schema": schema, "effort": effort})
+            return self.out(len(self.calls)) if callable(self.out) else self.out
+
+    def _on(self, monkeypatch, ex):
+        monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        monkeypatch.setattr(SC, "_claude", lambda: ex)
+
+    def test_listwise_uses_structured_order_with_honesty_rules(self, monkeypatch):
+        ex = self._Ex({"order": [2, 2, 9, 1]})     # 중복·범위 밖·누락이 섞인 응답
+        self._on(monkeypatch, ex)
+        order, ms = SC.api_rank_listwise("이상적 상대", ["a", "b", "c"])
+        assert order == [1, 0, 2] and ms is not None   # 누락(3번)은 뒤에 원래 순서로
+        assert ex.calls[0]["effort"] == "low" and "order" in ex.calls[0]["schema"]["properties"]
+
+    def test_pairwise_scores_clamped(self, monkeypatch):
+        ex = self._Ex(lambda n: {"score": [7, 14][n - 1], "reason": "r"})
+        self._on(monkeypatch, ex)
+        scores, _ = SC.api_score_batch([("a", "b"), ("c", "d")])
+        assert scores == [7.0, 10.0]
+
+    def test_no_key_means_no_call(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+        monkeypatch.setattr(SC, "_claude", lambda: (_ for _ in ()).throw(AssertionError("호출됨")))
+        assert SC.api_score_batch([("a", "b")]) == (None, None)
+        assert SC.api_rank_listwise("q", ["a"]) == (None, None)

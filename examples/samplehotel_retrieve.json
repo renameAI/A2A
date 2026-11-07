@@ -1,6 +1,6 @@
 {
   "requester_profile": {
-    "basic": {"name": "다이브인그룹", "country": "한국", "industry": "hospitality_renovation"},
+    "basic": {"name": "샘플호텔그룹", "country": "한국", "industry": "hospitality_renovation"},
     "description": "노후 호텔 객실을 예술 경험형 상품으로 전환하는 스타트업. 저자본·무철거, 매출 쉐어 구조.",
     "problem_solved": {"value": "노후 호텔 객실의 매출 정체와 리뉴얼 자본 부담", "provenance": "stated"},
     "solution": {"value": "저자본·무철거 예술 경험형 객실 전환, 매출 쉐어", "provenance": "stated"},

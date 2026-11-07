@@ -21,7 +21,10 @@ from fastapi import Header, HTTPException
 class SaasUser:
     uid: str
     email: str
-    workspace_id: str   # MVP: uid 1개 = workspace 1개 (조직 권한은 Out of Scope)
+    workspace_id: str   # 테넌트에 속하면 t-<tenant_id>, 아니면 ws-{uid}·예전 팀 워크스페이스
+                        # (workspace.resolve — 저장소 키는 그대로 공유된다)
+    tenant_slug: str = ""          # 리드 데이터가 속한(또는 옮겨 갈) 테넌트
+    migration_pending: bool = False
 
 
 def _mode() -> str:
@@ -101,8 +104,19 @@ def _verify_firebase(token: str) -> "tuple[str, str]":
     return decoded["uid"], decoded.get("email", "")
 
 
+def _user(uid: str, email: str, tenant_hint: str) -> SaasUser:
+    """인증이 끝난 뒤에만 부른다 — 허용 목록 밖 사용자가 색인 조회 비용을
+    만들지 못하게. 테넌트 선택(X-Tenant)은 내가 속한 테넌트일 때만 받아들인다."""
+    from .workspace import resolve
+    r = resolve(uid, tenant_hint)
+    return SaasUser(uid=uid, email=email, workspace_id=r.workspace_id,
+                    tenant_slug=(r.tenant or {}).get("slug", ""),
+                    migration_pending=r.pending)
+
+
 def current_user(authorization: str = Header(default=""),
-                 x_dev_user: str = Header(default="")) -> SaasUser:
+                 x_dev_user: str = Header(default=""),
+                 x_tenant: str = Header(default="")) -> SaasUser:
     """FastAPI 의존성 — 라우터에서 Depends(current_user)로 사용."""
     mode = _mode()
     if mode == "supabase":
@@ -110,7 +124,7 @@ def current_user(authorization: str = Header(default=""),
             raise HTTPException(401, "Authorization: Bearer <Supabase 토큰> 필요")
         uid, email = _verify_supabase(authorization.removeprefix("Bearer ").strip())
         _authorize(uid, email)
-        return SaasUser(uid=uid, email=email, workspace_id=f"ws-{uid}")
+        return _user(uid, email, x_tenant)
     if mode == "firebase":
         if not authorization.startswith("Bearer "):
             raise HTTPException(401, "Authorization: Bearer <Firebase ID 토큰> 필요")
@@ -119,13 +133,12 @@ def current_user(authorization: str = Header(default=""),
         except Exception as e:                      # 만료·위조·미초기화 전부 401
             raise HTTPException(401, f"토큰 검증 실패: {type(e).__name__}") from e
         _authorize(uid, email)
-        return SaasUser(uid=uid, email=email, workspace_id=f"ws-{uid}")
+        return _user(uid, email, x_tenant)
     if mode == "dev":
         if not x_dev_user:
             raise HTTPException(401, "dev 모드 — X-Dev-User 헤더 필요")
         email = f"{x_dev_user}@dev.local"
         _authorize(x_dev_user, email)   # dev 모드도 허용 목록을 거친다
-        return SaasUser(uid=x_dev_user, email=email,
-                        workspace_id=f"ws-{x_dev_user}")
+        return _user(x_dev_user, email, x_tenant)
     raise HTTPException(500, f"SAAS_AUTH={mode} — supabase|firebase|dev만 지원 "
                              "(조용한 대체 없음)")

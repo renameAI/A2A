@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ app/
 COPY docs/LEAD_DISCOVERY_SAAS_PLAN.md docs/
+# 로컬 compose의 시드 작업이 같은 이미지를 쓴다(운영 서빙에는 영향 없음)
+COPY scripts/chat_dev_seed.py scripts/
 
 # Cloud Run이 PORT를 주입한다 (기본 8080). SQLite와 업로드는 /tmp —
 # 인스턴스 소멸과 함께 사라지는 것이 계약이다 (조용히 영속인 척하지 않는다).

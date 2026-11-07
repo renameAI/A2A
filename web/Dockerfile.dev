@@ -1,0 +1,10 @@
+# 로컬 compose용 웹 — next dev. 운영 빌드(next build)는 Supabase 설정이 없으면 의도적으로
+# 로그인 불가 화면을 띄우므로(supabase.ts isMisconfigured), dev 인증 스택에는 dev 서버를 쓴다.
+FROM node:20.18-alpine
+WORKDIR /web
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+EXPOSE 3200
+CMD ["npx", "next", "dev", "-p", "3200", "-H", "0.0.0.0"]

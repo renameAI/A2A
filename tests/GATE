@@ -29,7 +29,6 @@ tests/test_llm_empty_response.py
 tests/test_mine.py
 tests/test_ontology_lib.py
 tests/test_ontology_retrieve.py
-tests/test_openai_provider.py
 tests/test_sanitize_foreign.py
 tests/test_scorer.py
 tests/test_scorer_client.py
@@ -44,3 +43,9 @@ tests/test_job_dedupe.py
 tests/test_outreach_send.py
 tests/test_compliance.py
 tests/test_tracker_dashboard.py
+tests/test_team_chat.py
+tests/test_chat_platform.py
+tests/test_claude_provider.py
+tests/test_workspace_unify.py
+tests/test_ingest_ssrf.py
+tests/test_vision_claude.py

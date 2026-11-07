@@ -31,9 +31,9 @@ def response(role, fit, evidence, fields, *, missing=None, confidence=0.8):
     }, ensure_ascii=False)
 
 
-class DiveinRegressionTests(unittest.TestCase):
+class SamplehotelRegressionTests(unittest.TestCase):
     def setUp(self):
-        self.state = agent.init_state("다이브인")
+        self.state = agent.init_state("샘플호텔")
 
     def apply(self, kind, answer, raw):
         with patch.object(agent, "chat", return_value=raw):

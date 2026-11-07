@@ -14,7 +14,7 @@ from app.schemas import (BasicInfo, DecisionType, Profile, ProvField,
                          Provenance, ValueProp)
 from tests.test_judge_consistency import _mk_result, _settings
 
-ENGLISH_SOURCE = ("DiveIn Group converts aging hotel rooms into art-experience "
+ENGLISH_SOURCE = ("SampleHotel Group converts aging hotel rooms into art-experience "
                   "products. Revenue stagnation of old rooms is the core problem. "
                   "Target customers are small hotel owners.")
 
@@ -31,7 +31,7 @@ def _prof(**kw):
         p = Provenance(prov)
         return ProvField(value=v, provenance=p,
                          confidence=0.9 if p == Provenance.inferred else None)
-    return Profile(basic=BasicInfo(name="다이브인그룹", country="한국",
+    return Profile(basic=BasicInfo(name="샘플호텔그룹", country="한국",
                                    industry="hospitality"),
                    description="d",
                    problem_solved=f("노후 호텔 객실 매출 정체"),
@@ -74,7 +74,7 @@ class TestH2CrossLanguageGrounding:
         prof = _prof()
         prof.problem_solved = ProvField(value="제주도 리조트 부지 확보 지연",
                                         provenance=Provenance.stated)
-        tally = ground_profile(prof, "다이브인그룹은 노후 호텔 객실의 매출 정체 문제를 "
+        tally = ground_profile(prof, "샘플호텔그룹은 노후 호텔 객실의 매출 정체 문제를 "
                                      "저자본 예술 전환으로 해결한다. 타겟은 중소 호텔 오너다.")
         assert tally["demoted"] == 1          # 환각 문제 필드만 — 나머지 2필드는 유지
 
@@ -204,7 +204,7 @@ class TestA2AFixes:
                         "skill": "represent",
                         "input": {"client_request_id": "crid-멱등-1",
                                   "assets": [{"type": "text",
-                                              "content": "이름: 다이브인그룹\n국가: 한국\n"
+                                              "content": "이름: 샘플호텔그룹\n국가: 한국\n"
                                                          "산업: h\n설명: d\n문제: p\n솔루션: s\n"
                                                          "타겟: t\n판매가치: 매출"}]}}}]}}}
         id1 = client.post("/a2a", json=body).json()["result"]["id"]

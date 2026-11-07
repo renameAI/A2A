@@ -167,7 +167,7 @@ class TestBlockBeforeCommitting:
         import pathlib
         src = pathlib.Path("web/app/page.tsx").read_text(encoding="utf-8")
         assert "onNeedIdentity?.()" in src
-        assert "onNeedIdentity={() => { setIdentOpen(true)" in src
+        assert "onNeedIdentity={() => { closePanels(); setIdentOpen(true)" in src
 
     def test_lookup_failure_does_not_block(self):
         """조회 실패로 발송을 막으면 서버가 허용할 것도 화면이 막는다."""
