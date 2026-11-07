@@ -1,0 +1,37 @@
+[package]
+name = "a2a-chat"
+version = "0.1.0"
+edition = "2021"
+description = "A2A 메시징 데이터 플레인 — app/chat의 HTTP 표면을 그대로 Rust로 (단일 소스: 쓰기 규칙은 SQL, 판정·팬아웃은 여기)"
+
+[dependencies]
+axum = "0.8"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["server", "server-auto", "tokio"] }
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1", features = ["full"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
+deadpool-postgres = "0.14"
+redis = { version = "0.27", features = ["tokio-comp"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dashmap = "6"
+regex = "1"
+sha2 = "0.10"
+hex = "0.4"
+rand = "0.8"
+jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+flate2 = "1"
+futures = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
+async-stream = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+bytes = "1"
+http = "1"
+once_cell = "1"
+
+[profile.release]
+lto = "thin"

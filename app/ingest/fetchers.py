@@ -11,6 +11,7 @@ import httpx
 
 from ..config import Settings
 from ..errors import EngineError
+from . import netguard
 
 _APIFY_INSTAGRAM_ACTOR = "apify~instagram-profile-scraper"
 
@@ -26,11 +27,12 @@ def fetch_url(url: str, settings: Settings,
     """웹사이트/기사 URL → 본문 텍스트."""
     try:
         own = client is None
-        client = client or httpx.Client(
-            timeout=settings.fetch_timeout, follow_redirects=True,
+        # 사용자가 준 URL — 연결 시점 SSRF 검사(netguard)를 거친다
+        client = client or netguard.make_client(
+            settings.fetch_timeout,
             headers={"User-Agent": "Mozilla/5.0 (Macintosh) A2A-Engine/0.1"})
         try:
-            resp = client.get(url)
+            resp = netguard.get(client, url, total_timeout=settings.fetch_timeout * 2)
             resp.raise_for_status()
         finally:
             if own:
@@ -51,10 +53,10 @@ def fetch_pdf_bytes(url: str, settings: Settings,
     if url.startswith(("http://", "https://")):
         try:
             own = client is None
-            client = client or httpx.Client(timeout=settings.fetch_timeout,
-                                            follow_redirects=True)
+            client = client or netguard.make_client(settings.fetch_timeout)
             try:
-                resp = client.get(url)
+                resp = netguard.get(client, url, total_timeout=settings.fetch_timeout * 2,
+                                    max_bytes=50 * 1024 * 1024)
                 resp.raise_for_status()
                 return resp.content
             finally:

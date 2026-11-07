@@ -1,7 +1,8 @@
-"""질문 위치 탐지(bbox) 테스트 — GEMINI_API_KEY 없이도 전부 오프라인.
+"""질문 위치 탐지(bbox) 테스트 — 비전 호출은 전부 오프라인.
 
-역할 분리: 엑사원(추론)이 질문을 만들고, VLM은 위치만 찾는다. 실제 Gemini
-호출은 FakeVisionExtractor로 대체하되, 엑사원 질문(open_questions)은 실제
+역할 분리: 엑사원(추론)이 질문을 만들고, VLM은 위치만 찾는다. 실제 Claude 비전
+호출은 FakeVisionExtractor로 대체하되(.env에 ANTHROPIC_API_KEY가 있어도 비전은
+실호출하지 않는다 — Fake를 주지 않는 테스트는 _no_vision으로 끈다), 엑사원 질문(open_questions)은 실제
 represent 파이프라인이 만든 것을 그대로 받는다. render_pdf_pages/이미지 저장/
 계약 검증기(기하·인용 그라운딩·관련도 임계)/스레드 강제 응답 게이트는 전부
 실제 코드 경로를 탄다 — 테스트 PDF에 텍스트 레이어를 실제로 넣어서
@@ -11,14 +12,15 @@ import fitz
 import pytest
 from fastapi.testclient import TestClient
 
+import app.engine.vision as vision_module
 import app.product.router as router_module
 from app.main import app
-from tests.test_product import DIVEIN_TEXT, _run_job
+from tests.test_product import SAMPLEHOTEL_TEXT, _run_job
 
 client = TestClient(app)
 
 # 테스트 PDF 텍스트 레이어 — quote 그라운딩 검증의 대조 원본
-PDF_LINES = ["DiveIn Group IR Deck", "매출 쉐어 구조로 협력합니다"]
+PDF_LINES = ["SampleHotel Group IR Deck", "매출 쉐어 구조로 협력합니다"]
 
 
 def _make_pdf(tmp_path) -> str:
@@ -42,7 +44,7 @@ class FakeVisionExtractor:
         self.responses = responses
         self.batch_calls: list[list[int]] = []
         self.seen_questions: list[str] = []
-        # 라우터가 비용 로그에 읽는 계측 필드 (실물 GeminiBBoxExtractor와 동일 계약)
+        # 라우터가 비용 로그에 읽는 계측 필드 (실물 ClaudeBBoxExtractor와 동일 계약)
         self.calls = 0
         self.tokens_used = 0
         self.token_budget = 300_000
@@ -60,21 +62,34 @@ class FakeVisionExtractor:
         return out
 
 
+def _no_vision(monkeypatch):
+    """실제 get_vision_extractor를 '키 없음' 설정으로 태운다 — .env의 ANTHROPIC_API_KEY가
+    텍스트 LLM용으로 들어 있어도 비전은 실호출하지 않는다."""
+    real = vision_module.get_vision_extractor
+
+    def _without_key(settings):
+        settings.anthropic_api_key = ""
+        return real(settings)
+    monkeypatch.setattr(router_module, "get_vision_extractor", _without_key)
+
+
 def _onboard_with_deck(tmp_path, fake=None, monkeypatch=None):
     if fake is not None:
         monkeypatch.setattr(router_module, "get_vision_extractor", lambda settings: fake)
+    elif monkeypatch is not None:
+        _no_vision(monkeypatch)
     pdf_path = _make_pdf(tmp_path)
     job = _run_job("/product/onboard", {
         "assets": [{"type": "ir_deck", "content": "", "url": pdf_path},
-                   {"type": "text", "content": DIVEIN_TEXT}]})
+                   {"type": "text", "content": SAMPLEHOTEL_TEXT}]})
     assert job["status"] == "done", job.get("error")
     return job["result"]
 
 
 class TestVisionDisabledByDefault:
-    def test_no_key_means_no_pins(self, tmp_path):
-        """GEMINI_API_KEY 없으면 아무 일도 안 하고 온보딩은 평소대로 성공한다."""
-        result = _onboard_with_deck(tmp_path)
+    def test_no_key_means_no_pins(self, tmp_path, monkeypatch):
+        """ANTHROPIC_API_KEY 없으면 비전은 아무 일도 안 하고 온보딩은 평소대로 성공한다."""
+        result = _onboard_with_deck(tmp_path, monkeypatch=monkeypatch)
         assert result["question_pin_count"] == 0
         assert result["open_thread_count"] == 0
 
@@ -82,7 +97,7 @@ class TestVisionDisabledByDefault:
 class TestQuestionPinning:
     def test_exaone_question_pinned_and_thread_created(self, tmp_path, monkeypatch):
         """엑사원 질문이 VLM에 전달되고, 찾은 위치마다 핀 + 열린 스레드가 생긴다.
-        DIVEIN은 의향 미기재라 open_question이 정확히 1개('협력 의향...')다."""
+        SAMPLEHOTEL은 의향 미기재라 open_question이 정확히 1개('협력 의향...')다."""
         fake = FakeVisionExtractor({1: [
             {"question_index": 0, "quote": "매출 쉐어 구조",
              "box_2d": [300, 100, 400, 500], "relevance": 0.9},
@@ -174,13 +189,13 @@ class TestQuestionPinning:
         reanalyzed = _run_job("/product/onboard", {
             "company_id": company_id,
             "assets": [{"type": "ir_deck", "content": "", "url": pdf_path},
-                       {"type": "text", "content": DIVEIN_TEXT}]})
+                       {"type": "text", "content": SAMPLEHOTEL_TEXT}]})
         assert reanalyzed["status"] == "done"
         # 의향 질문이 답변으로 채워져 open_questions에서 사라진다
         assert not any("의향" in q for q in reanalyzed["result"]["open_questions"])
 
-    def test_reply_unknown_thread_404(self, tmp_path):
-        result = _onboard_with_deck(tmp_path)
+    def test_reply_unknown_thread_404(self, tmp_path, monkeypatch):
+        result = _onboard_with_deck(tmp_path, monkeypatch=monkeypatch)
         res = client.post(
             f"/product/companies/{result['company_id']}/threads/th-없음/reply",
             json={"text": "답변"})
@@ -306,7 +321,7 @@ class TestTransportLayer:
         pdf_path = _make_pdf(tmp_path)
         res = client.post("/product/onboard", json={
             "assets": [{"type": "ir_deck", "content": "", "url": pdf_path},
-                       {"type": "text", "content": DIVEIN_TEXT}]})
+                       {"type": "text", "content": SAMPLEHOTEL_TEXT}]})
         job_id = res.json()["job_id"]
         for _ in range(50):
             job = client.get(f"/product/jobs/{job_id}").json()

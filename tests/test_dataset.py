@@ -8,10 +8,10 @@ from app import dataset
 
 # 정상 6 + 불량 3(필드누락·미지kind·파싱실패). 머쉬앤은 represent+judge 2궤적.
 LINES = [
-    '{"ts":"t","kind":"represent","name":"다이브인","engine_mode":"llm","assets":["ir_deck"],"open_questions":[]}',
+    '{"ts":"t","kind":"represent","name":"샘플호텔그룹","engine_mode":"llm","assets":["ir_deck"],"open_questions":[]}',
     '{"ts":"t","kind":"represent","name":"머쉬앤","engine_mode":"mock","assets":["text"],"open_questions":["q"]}',
     '{"ts":"t","kind":"judge","self":"머쉬앤","counterpart":"X","vantage":"seller","objective":"exploration_budget","decision":"proceed","verdicts":{},"trajectory":"..."}',
-    '{"ts":"t","kind":"negotiate","seller":"다이브인","buyer":"코봇","termination":"agreement","rounds_used":3,"rounds":[]}',
+    '{"ts":"t","kind":"negotiate","seller":"샘플호텔그룹","buyer":"코봇","termination":"agreement","rounds_used":3,"rounds":[]}',
     '{"ts":"t","kind":"consult","company":"에이엔폴리","turn":1,"history":[],"output":{}}',
     '{"ts":"t","kind":"judge","self":"코봇","counterpart":"Y","vantage":"buyer","objective":"exploration_budget","decision":"hold","verdicts":{},"trajectory":"..."}',
     '{"ts":"t","kind":"judge","self":"머쉬앤"}',            # 필드 누락
@@ -72,7 +72,8 @@ class TestSeal:
 
     def test_verify_catches_injected_leak(self, tmp_path):
         valid = dataset.validate_records(_audit(tmp_path)).valid
-        train, held = dataset.split_held_out(valid, 0.5)
+        # 분할은 회사 이름 해시로 정해진다 — 특정 이름이 어느 쪽에 떨어지는지에 기대지 않게 전부 봉인
+        train, held = dataset.split_held_out(valid, 1.0)
         sealed = dataset.seal(held)
         # held-out 레코드를 train에 억지로 섞으면 누수로 잡혀야 한다
         leaked = train + [held[0]]

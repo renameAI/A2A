@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """B2 접점·결정구조 벤치마크 — 프로덕션 경로(read_company) 그대로.
 
-    LLM_PROVIDER=openai python scripts/run_contact_bench.py [-v] [--k N]
+    python scripts/run_contact_bench.py [-v] [--k N]
 """
 import argparse, os, sys, time
 from pathlib import Path
@@ -59,7 +59,7 @@ def main():
     args = ap.parse_args()
     cases = load_cases()
     extractor = get_extractor(get_settings())
-    provider = os.environ.get("LLM_PROVIDER", "?")
+    provider = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5-5")   # Claude 하나(2026-10)
     for i in range(args.k):
         t0 = time.time()
         rows = run_once(cases, extractor, verbose=args.verbose and i == 0)

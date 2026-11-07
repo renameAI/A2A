@@ -5,8 +5,8 @@
 앵커 혼합 이후 스케일에 맞는지 데이터로 판정한다. 원자료(synth 문자열 + 점수
 행렬)를 JSON으로 덤프해 QC 서브에이전트가 독립 분석하게 한다.
 
-    LLM_PROVIDER=friendli python scripts/calibrate_retrieve.py --m 5 \
-        --input examples/divein_retrieve.json --out /tmp/retrieve_calib.json
+    python scripts/calibrate_retrieve.py --m 5 \
+        --input examples/samplehotel_retrieve.json --out /tmp/retrieve_calib.json
 """
 import argparse
 import json

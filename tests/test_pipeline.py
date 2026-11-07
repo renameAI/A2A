@@ -2,7 +2,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
-from tests.test_product import DIVEIN_TEXT, INTENT, _run_job
+from tests.test_product import SAMPLEHOTEL_TEXT, INTENT, _run_job
 
 client = TestClient(app)
 
@@ -17,7 +17,7 @@ def _node_events(logs: list[dict]) -> dict[str, list[dict]]:
 
 def _onboard_id() -> str:
     job = _run_job("/product/onboard", {
-        "assets": [{"type": "text", "content": DIVEIN_TEXT}]})
+        "assets": [{"type": "text", "content": SAMPLEHOTEL_TEXT}]})
     return job["result"]["company_id"]
 
 
@@ -25,7 +25,7 @@ class TestNodeEvents:
     def test_onboard_pipeline_nodes(self):
         """Represent 파이프라인: fetch → mock.parse → gate → audit 수명주기."""
         job = _run_job("/product/onboard", {
-            "assets": [{"type": "text", "content": DIVEIN_TEXT}]})
+            "assets": [{"type": "text", "content": SAMPLEHOTEL_TEXT}]})
         events = _node_events(job["logs"])
         for node in ("fetch", "mock.parse", "gate", "audit"):
             assert node in events, f"{node} 노드 이벤트 누락"

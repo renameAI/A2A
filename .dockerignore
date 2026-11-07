@@ -11,3 +11,7 @@ docs/*
 !docs/LEAD_DISCOVERY_SAAS_PLAN.md
 *.db
 __pycache__/
+# 웹은 따로 빌드한다(node_modules가 엔진 빌드 컨텍스트로 딸려 오지 않게)
+web/
+supabase/
+deploy/

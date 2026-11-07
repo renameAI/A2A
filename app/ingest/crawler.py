@@ -26,6 +26,7 @@ from bs4 import BeautifulSoup
 from .. import progress
 from ..config import Settings
 from ..errors import EngineError
+from . import netguard
 
 _BROWSER_HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -126,10 +127,12 @@ def _looks_like_js_shell(html: str, text: str) -> bool:
 
 # ── robots.txt (ING-08) ─────────────────────────────────────────────
 
-def _robots(client: httpx.Client, base: str) -> urllib.robotparser.RobotFileParser:
+def _robots(client: httpx.Client, base: str,
+            total_timeout: float) -> urllib.robotparser.RobotFileParser:
     rp = urllib.robotparser.RobotFileParser()
     try:
-        resp = client.get(urljoin(base, "/robots.txt"))
+        resp = netguard.get(client, urljoin(base, "/robots.txt"),
+                            total_timeout=total_timeout)
         if resp.status_code == 200:
             rp.parse(resp.text.splitlines())
         else:
@@ -179,19 +182,22 @@ def crawl_website(url: str, settings: Settings,
         return cached
 
     own = client is None
-    client = client or httpx.Client(timeout=settings.fetch_timeout,
-                                    follow_redirects=True,
-                                    headers=_BROWSER_HEADERS)
+    # 사용자가 준(또는 검색으로 찾은) 사이트 — 리다이렉트 매 홉과 하위 페이지까지
+    # 연결 시점 SSRF 검사(netguard)를 거친다
+    client = client or netguard.make_client(settings.fetch_timeout,
+                                            headers=_BROWSER_HEADERS)
     try:
         base = url if url.startswith(("http://", "https://")) else f"https://{url}"
-        rp = _robots(client, base)
+        # 요청마다 크기·전체 시간 상한(netguard.get)
+        total = settings.fetch_timeout * 2
+        rp = _robots(client, base, total)
         ua = _BROWSER_HEADERS["User-Agent"]
 
         if not rp.can_fetch(ua, base):
             raise CrawlFailed(url, "robots.txt가 수집을 금지 (ING-08 준수)")
 
         try:
-            resp = client.get(base)
+            resp = netguard.get(client, base, total_timeout=total)
             resp.raise_for_status()
         except httpx.HTTPError as e:
             raise CrawlFailed(url, str(e))
@@ -214,7 +220,7 @@ def crawl_website(url: str, settings: Settings,
                 progress.log("수집", f"robots.txt 차단 — 건너뜀: {urlparse(link).path}")
                 continue
             try:
-                sub = client.get(link)
+                sub = netguard.get(client, link, total_timeout=total)
                 sub.raise_for_status()
             except httpx.HTTPError:
                 continue   # 하위 페이지 실패는 전체를 막지 않는다

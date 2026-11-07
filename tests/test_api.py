@@ -6,7 +6,7 @@ from app.main import app
 
 client = TestClient(app)
 
-DIVEIN_ASSET = """이름: 다이브인그룹
+SAMPLEHOTEL_ASSET = """이름: 샘플호텔그룹
 국가: 한국
 도시: 서울
 산업: hospitality_renovation
@@ -20,9 +20,9 @@ DIVEIN_ASSET = """이름: 다이브인그룹
 """
 
 
-def _represent_divein() -> dict:
+def _represent_samplehotel() -> dict:
     res = client.post("/v1/represent", json={
-        "assets": [{"type": "text", "content": DIVEIN_ASSET}]})
+        "assets": [{"type": "text", "content": SAMPLEHOTEL_ASSET}]})
     assert res.status_code == 200
     return res.json()
 
@@ -42,8 +42,8 @@ def _poll_job(job_id: str) -> dict:
 class TestRepresent:
     def test_three_form_output(self):
         """REP-01: 한 번의 호출로 3형 출력(프로필+임베딩+온톨로지 앵커)."""
-        data = _represent_divein()
-        assert data["profile"]["basic"]["name"] == "다이브인그룹"
+        data = _represent_samplehotel()
+        assert data["profile"]["basic"]["name"] == "샘플호텔그룹"
         assert len(data["embedding"]) == 16
         categories = {a["category"] for a in data["ontology_anchors"]}
         assert {"industry", "region", "stage"} <= categories
@@ -51,7 +51,7 @@ class TestRepresent:
 
     def test_provenance(self):
         """REP-03: 모든 추론 가능 필드에 provenance."""
-        p = _represent_divein()["profile"]
+        p = _represent_samplehotel()["profile"]
         assert p["problem_solved"]["provenance"] == "stated"
         assert p["willingness_sell"] == "very_high"
 
@@ -82,7 +82,7 @@ class TestRepresent:
 class TestRetrieve:
     def test_complementarity_not_similarity(self):
         """RET-02: 보완성 검색 — 동종 경쟁사가 상위에 오지 않는다."""
-        profile = _represent_divein()["profile"]
+        profile = _represent_samplehotel()["profile"]
         res = client.post("/v1/retrieve", json={
             "requester_profile": profile, "intent": _intent(),
             "direction": "sell_outreach", "pool": "external", "k": 5})
@@ -97,7 +97,7 @@ class TestRetrieve:
 
     def test_match_points_present(self):
         """RET-03: 후보마다 검색 근거(매칭 포인트) 포함."""
-        profile = _represent_divein()["profile"]
+        profile = _represent_samplehotel()["profile"]
         res = client.post("/v1/retrieve", json={
             "requester_profile": profile, "intent": _intent(),
             "direction": "sell_outreach", "pool": "both", "k": 10})
@@ -125,7 +125,7 @@ class TestRetrieve:
 
 def _judge_payload(counterpart: dict, vantage="seller",
                    objective="exploration_budget", **kw) -> dict:
-    profile = _represent_divein()["profile"]
+    profile = _represent_samplehotel()["profile"]
     return {"vantage": vantage, "objective": objective,
             "self_profile": profile,
             "self_private_state": {"items": [
@@ -173,7 +173,7 @@ class TestJudge:
         """JDG-02/06: buy 렌즈는 +2차원(대체재·기회비용) — 같은 로직, 파라미터 교체."""
         payload = _judge_payload(_livi_profile(), vantage="buyer",
                                  objective="willingness_gate")
-        # buyer 렌즈: 나=호텔, 상대=다이브인으로 뒤집기
+        # buyer 렌즈: 나=호텔, 상대=샘플호텔으로 뒤집기
         payload["self_profile"], payload["counterpart_profile"] = \
             payload["counterpart_profile"], payload["self_profile"]
         res = client.post("/v1/judge", json=payload)
@@ -236,7 +236,7 @@ class TestCompose:
     def test_outreach_with_claim_trace(self):
         """CMP-01/02/06: 아웃리치 초안 + 주장→근거 추적 + 발송 차단."""
         jr = _judge_result()
-        profile = _represent_divein()["profile"]
+        profile = _represent_samplehotel()["profile"]
         res = client.post("/v1/compose", json={
             "mode": "outreach", "judge_result": jr,
             "self_profile": profile, "counterpart_profile": _livi_profile("high"),
@@ -254,7 +254,7 @@ class TestCompose:
     def test_buy_lens_single_variant(self):
         """CMP-05: Purchase = 끌어당기기 — 1안, 톤 없음."""
         jr = _judge_result()
-        profile = _represent_divein()["profile"]
+        profile = _represent_samplehotel()["profile"]
         res = client.post("/v1/compose", json={
             "mode": "recommendation_summary", "judge_result": jr,
             "self_profile": _livi_profile("high"), "counterpart_profile": profile,
@@ -265,7 +265,7 @@ class TestCompose:
 # ── Negotiate (7-A 협상 왕복) ────────────────────────────────────────
 
 def _negotiate_payload(buyer_private=None, max_rounds=3) -> dict:
-    seller = _represent_divein()["profile"]
+    seller = _represent_samplehotel()["profile"]
     buyer = _livi_profile("high")
     buyer["purchase_value_props"] = ["revenue_growth"]
     return {"seller_profile": seller,
@@ -323,7 +323,7 @@ class TestNegotiate:
 def test_full_cycle():
     """6월 합격 기준: 입력 → 후보 → 판단 → 초안 생성 흐름이 한 번에 돈다."""
     # 1. Represent
-    rep = _represent_divein()
+    rep = _represent_samplehotel()
     # 2. Retrieve
     ret = client.post("/v1/retrieve", json={
         "requester_profile": rep["profile"], "intent": _intent(),

@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/* 톤(light/dark)은 배경화면이 정한다 — 색은 CSS 변수로 두고 Tailwind 토큰이 그 변수를 가리킨다 */
+@theme inline {
+  --color-ink: var(--ink);
+  --color-sub: var(--sub);
+  --color-faint: var(--faint);
+  --color-glass: var(--glass);
+  --color-glass-line: var(--glass-line);
+  --color-hover: var(--hover);
+  --color-sel: var(--sel);
+  --color-card: var(--card);
+  --color-card-ink: var(--card-ink);
+  --color-card-sub: var(--card-sub);
+  --color-card-faint: var(--card-faint);
+  --color-card-line: var(--card-line);
+  --color-field: var(--field);
+  --color-field-line: var(--field-line);
+  --color-raise: var(--raise);
+  --shadow-card: var(--shadow);
+  --shadow-sel: var(--sel-shadow);
+}
+@theme {
+  --color-accent: #ff6b45;
+  --color-accent-soft: rgb(255 107 69 / 0.12);
+  --color-ok: #21a366;
+  --color-warn: #c98412;
+  --color-info: #3d6fe0;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --animate-twinkle: twinkle 1.6s ease-in-out infinite;
+  --animate-breathe: breathe 1.4s ease-in-out infinite;
+  @keyframes twinkle { 50% { transform: scale(.8) rotate(12deg); opacity: .6 } }
+  @keyframes breathe { 50% { opacity: .45 } }
+}
+
+body[data-tone="light"] {
+  --ink:#16202b; --sub:#4f5b69; --faint:#7c8795;
+  --glass:rgb(255 255 255 / .34); --glass-line:rgb(255 255 255 / .55);
+  --hover:rgb(255 255 255 / .42); --sel:rgb(255 255 255 / .86);
+  --sel-shadow:0 1px 2px rgb(16 32 48 / .08),0 2px 8px rgb(16 32 48 / .06);
+  --card:#fbfcfd; --card-ink:#151b23; --card-sub:#5e6977; --card-faint:#8c96a3; --card-line:#e7ebef;
+  --field:#fff; --field-line:#e2e7ec; --raise:#f2f5f7;
+  --shadow:0 1px 1px rgb(14 30 48 / .05),0 14px 44px rgb(14 30 48 / .16);
+}
+body[data-tone="dark"] {
+  --ink:#eef1f5; --sub:#b2bac5; --faint:#808a97;
+  --glass:rgb(16 18 24 / .32); --glass-line:rgb(255 255 255 / .08);
+  --hover:rgb(255 255 255 / .08); --sel:rgb(255 255 255 / .15);
+  --sel-shadow:0 1px 0 rgb(255 255 255 / .06) inset;
+  --card:#15181d; --card-ink:#eceff3; --card-sub:#a3acb8; --card-faint:#737d8a; --card-line:#262b33;
+  --field:#1c2026; --field-line:#2c323b; --raise:#1f242b;
+  --shadow:0 1px 0 rgb(255 255 255 / .04) inset,0 18px 50px rgb(0 0 0 / .45);
+}
+
+@utility drag { -webkit-app-region: drag; }
+@utility no-drag { -webkit-app-region: no-drag; }
+
+@layer base {
+  html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+  body { font: 13px/1.45 var(--font-sans); color: var(--ink); background: #cfe3ee;
+    -webkit-font-smoothing: antialiased; user-select: none; }
+  button { cursor: default; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgb(128 128 128 / .25); border-radius: 8px; }
+}
+
+/* 배경화면 프리셋 — 화면 전체와 고르기 스와치가 같은 클래스를 쓴다 */
+.wall-sky { background:
+  radial-gradient(38% 30% at 18% 22%,rgb(255 255 255 / .95),transparent 70%),
+  radial-gradient(30% 22% at 30% 30%,rgb(255 255 255 / .7),transparent 70%),
+  radial-gradient(34% 26% at 82% 18%,rgb(255 255 255 / .85),transparent 70%),
+  radial-gradient(46% 30% at 70% 92%,rgb(255 255 255 / .9),transparent 70%),
+  radial-gradient(40% 26% at 10% 96%,rgb(255 255 255 / .75),transparent 70%),
+  linear-gradient(180deg,#7cc8ee 0%,#a9dcf4 45%,#d6effa 100%); }
+.wall-dawn { background:
+  radial-gradient(50% 40% at 80% 10%,rgb(255 236 214 / .95),transparent 70%),
+  radial-gradient(60% 50% at 10% 80%,rgb(210 196 250 / .9),transparent 70%),
+  linear-gradient(160deg,#ffcfb5 0%,#f6bfd3 48%,#cdc4f3 100%); }
+.wall-meadow { background:
+  radial-gradient(50% 40% at 85% 15%,rgb(255 255 236 / .9),transparent 70%),
+  radial-gradient(60% 45% at 15% 85%,rgb(170 214 186 / .85),transparent 70%),
+  linear-gradient(165deg,#e4f1d9 0%,#bfe0c8 55%,#dcefe2 100%); }
+.wall-sand { background:
+  radial-gradient(55% 45% at 80% 20%,rgb(255 255 255 / .7),transparent 70%),
+  linear-gradient(160deg,#f3ebdd 0%,#e7d8c2 60%,#f1e9dc 100%); }
+.wall-dusk { background:
+  radial-gradient(55% 50% at 78% 18%,rgb(118 86 214 / .55),transparent 70%),
+  radial-gradient(60% 55% at 12% 88%,rgb(40 108 160 / .55),transparent 70%),
+  radial-gradient(30% 25% at 45% 55%,rgb(255 120 90 / .18),transparent 70%),
+  linear-gradient(170deg,#141a33 0%,#0c1020 100%); }
+.wall-graphite { background:
+  radial-gradient(60% 50% at 70% 10%,rgb(255 255 255 / .06),transparent 70%),
+  linear-gradient(170deg,#202329 0%,#121418 100%); }

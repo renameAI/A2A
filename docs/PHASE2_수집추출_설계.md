@@ -58,9 +58,9 @@ Represent (기존 계약 유지: 3형 출력 + 최소 프로필 게이트 REP-06
 ```json
 POST /v1/represent
 { "assets": [
-    {"type": "ir_deck",   "url": "/Users/.../다이브인_IR.pdf"},
-    {"type": "website",   "url": "https://divein.example.com"},
-    {"type": "instagram", "url": "https://instagram.com/divein_official"}
+    {"type": "ir_deck",   "url": "/Users/.../샘플호텔_IR.pdf"},
+    {"type": "website",   "url": "https://samplehotel.example.com"},
+    {"type": "instagram", "url": "https://instagram.com/samplehotel_official"}
 ] }
 ```
 → 수집 → 청킹 → LLM 추출 → `profile`(provenance 부착) + `evidence` + `open_questions`(ask 항목만).

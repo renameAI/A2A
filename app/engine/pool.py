@@ -130,12 +130,12 @@ SEED_POOL: list[CandidateRecord] = [
         pain_points="부품 공급망 다변화",
         tags=["항공 제조", "대기업"],
     ),
-    # ── 가입 회원 풀: 다이브인그룹 (판매자, CoT #01) ──
+    # ── 가입 회원 풀: 샘플호텔그룹 (판매자, CoT #01) ──
     CandidateRecord(
-        company_id="mem-divein",
+        company_id="mem-samplehotel",
         pool=PoolKind.members,
         profile=Profile(
-            basic=BasicInfo(name="다이브인그룹", country="한국", city="서울",
+            basic=BasicInfo(name="샘플호텔그룹", country="한국", city="서울",
                             industry="hospitality_renovation"),
             description="노후 호텔 객실을 예술 경험형 상품으로 전환하는 스타트업. "
                         "선투자 부담 없는 매출 쉐어 구조.",

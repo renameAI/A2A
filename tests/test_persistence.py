@@ -14,7 +14,7 @@ from app.schemas import (BBox, BasicInfo, CommentThread, PrivateState,
 client = TestClient(app)
 
 
-def _profile(name="다이브인"):
+def _profile(name="샘플호텔"):
     return Profile(
         basic=BasicInfo(name=name, country="한국", industry="hospitality"),
         description="d",
@@ -24,7 +24,7 @@ def _profile(name="다이브인"):
         sell_value_props=["revenue_growth"])
 
 
-def _seed(store, name="다이브인"):
+def _seed(store, name="샘플호텔"):
     rec = store.save_company(_profile(name), PrivateState(items=[]),
                              ["협력 의향은?"], None, "mock")
     pin = QuestionPin(evidence_id="ev1", question="협력 의향은?", asset_index=0,
@@ -44,7 +44,7 @@ class TestPersistenceSurvivesRestart:
         fresh = ProductStore()
         rec = fresh.get(cid)
         assert rec is not None
-        assert rec.profile.basic.name == "다이브인"
+        assert rec.profile.basic.name == "샘플호텔"
         assert len(rec.question_pins) == 1
         assert rec.question_pins[0].relevance == 0.9
         assert rec.question_pins[0].grounding == 1.0
@@ -67,10 +67,10 @@ class TestPersistenceSurvivesRestart:
         ProductStore().reply_thread(cid, "th1", "매우 적극적", "now")
         # 재분석(update)은 프로필만 갈아끼우고 핀·answered는 보존해야 한다
         ProductStore().update_company(
-            cid, _profile("다이브인그룹"), PrivateState(items=[]),
+            cid, _profile("샘플호텔그룹"), PrivateState(items=[]),
             [], {"x": ["c1"]}, "llm")
         rec = ProductStore().get(cid)
-        assert rec.profile.basic.name == "다이브인그룹"
+        assert rec.profile.basic.name == "샘플호텔그룹"
         assert rec.engine_mode == "llm"
         assert rec.evidence == {"x": ["c1"]}
         assert len(rec.question_pins) == 1           # 보존

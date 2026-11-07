@@ -1,0 +1,30 @@
+{
+  "name": "a2a-browser-ext",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A2A Browser — Chromium 확장(나중에 우리 빌드의 내장 확장)",
+  "scripts": {
+    "build": "vite build",
+    "test": "node test/harness.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0"
+  },
+  "devDependencies": {
+    "@noble/hashes": "^1.8.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "buffer": "^6.0.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "d3-force": "^3.0.1",
+    "lucide-react": "^0.577.0",
+    "path-browserify": "^1.0.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.0.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^7.3.7"
+  }
+}

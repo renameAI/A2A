@@ -92,7 +92,7 @@ async def upload(file: UploadFile):
 
 # ── 질문 위치 탐지 (bbox) — 엑사원 질문을 IR덱 페이지에 핀 꽂기 (선택 기능) ──
 # 역할 분리: 엑사원(추론)이 질문을 만들고, VLM은 그 질문을 페이지 어디에 붙일지
-# 위치만 찾는다. GEMINI_API_KEY 없으면 아무 일도 안 함 — 텍스트 추출과 완전 독립.
+# 위치만 찾는다(Claude 비전). ANTHROPIC_API_KEY 없으면 아무 일도 안 함 — 텍스트 추출과 독립.
 # 위치를 못 찾은 질문은 여기서 빠지고, 기존 텍스트 보강질문(clarify) 흐름이 담당한다.
 
 _PINS_PER_QUESTION = 2   # 질문당 상위 K개 핀 (결합 점수 s = r·g 내림차순)

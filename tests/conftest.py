@@ -1,10 +1,10 @@
-"""테스트는 실 Friendli(K-EXAONE) API로 돈다 — mock 제거(2026-07) 이후 방침.
+"""LLM을 타는 테스트는 실 Claude API로 돈다 — mock 제거(2026-07) 이후 방침.
 
 예전엔 여기서 키를 비워 오프라인 Mock으로 돌렸다. 그 구조가 '가짜 결과가 진짜처럼
 보이는' 통로였고(mock 모드인데 .env 자동 로드로 스코어러가 실 API를 호출한 실측 포함),
 엔진에서 조용한 규칙 대체 경로를 제거하면서 테스트도 실 경로를 검증하도록 바꿨다.
 
-전제: FRIENDLI_TOKEN·FRIENDLI_ENDPOINT_ID가 .env에 있어야 한다(app/config.py가
+전제: ANTHROPIC_API_KEY가 .env에 있어야 한다(app/config.py가
 자동 로드). 없으면 LLM을 타는 테스트는 config_error로 실패한다 — 조용히 통과하지
 않는 게 의도다.
 

@@ -157,7 +157,7 @@ class TestJourney:
         from app.schemas import (BasicInfo, CompanyPortrait, Profile, ProvField,
                                  Provenance, RepresentResponse, SearchBrief)
         ok_profile = Profile(
-            basic=BasicInfo(name="다이브인그룹", country="한국", industry="공간개발"),
+            basic=BasicInfo(name="샘플호텔그룹", country="한국", industry="공간개발"),
             description="호텔 예술 전환",
             problem_solved=ProvField(value="노후 객실 매출 정체",
                                      provenance=Provenance.stated),
@@ -184,7 +184,7 @@ class TestJourney:
         # (2) synthesize_counterpart의 로컬 LLM(Ollama)을 실제로 호출해
         # 관통 테스트 하나가 90~120초를 쓴다. 게이트는 빨라야 게이트다.
         # 더 나쁜 것: get_settings()가 .env를 os.environ에 주입하므로,
-        # LLM_PROVIDER=openai인 개발자 머신에서는 테스트가 실제 API를 태운다.
+        # ANTHROPIC_API_KEY가 있는 개발자 머신에서는 테스트가 실제 API를 태운다.
         import app.engine.scorer_client as sc
         monkeypatch.setattr(sc, "score_batch_timed", lambda pairs: (None, None))
         monkeypatch.setattr(sc, "api_score_batch", lambda pairs: (None, None))
@@ -253,25 +253,28 @@ class TestJourney:
         assert res["drafts"][0]["claim_trace"], "주장→근거 연결이 비어 있으면 안 된다"
 
 
-class TestLlmToggle:
-    def test_state_and_guarded_switch(self, client, monkeypatch):
-        monkeypatch.setenv("LLM_PROVIDER", "local")
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+class TestLlmSettings:
+    """모델은 Claude 하나 — 상태 조회와 브라우저 키 입력만 남았다."""
+
+    def test_state_and_key(self, client, monkeypatch, tmp_path):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("A2A_ENV_FILE", str(tmp_path / ".env"))
         s = client.get("/saas/settings/llm", headers=H).json()
-        assert s["provider"] == "local" and s["ready"]["openai"] is False
-        # 키 없이 GPT 전환 → 409 (조용한 대체 없음)
-        r = client.post("/saas/settings/llm", headers=H,
-                        json={"provider": "openai"})
-        assert r.status_code == 409
-        # 키가 있으면 전환되고 상태가 반영된다
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-        r = client.post("/saas/settings/llm", headers=H,
-                        json={"provider": "openai"}).json()
-        assert r["provider"] == "openai" and r["label"] == "GPT Luna"
-        # 로컬 복귀
-        r = client.post("/saas/settings/llm", headers=H,
-                        json={"provider": "local"}).json()
-        assert r["provider"] == "local"
+        assert s["provider"] == "anthropic" and s["ready"] is False
+        bad = client.post("/saas/settings/anthropic-key", headers=H,
+                          json={"key": "sk-notclaude-xxxxxxxxxxxxxxxx"})
+        assert bad.status_code == 400
+        k = "sk-ant-test-" + "x" * 20 + "WXYZ"
+        r = client.post("/saas/settings/anthropic-key", headers=H, json={"key": k}).json()
+        assert r["masked"] == "sk-ant-****WXYZ" and k not in str(r)   # 전문은 응답에 없다
+        assert r["ready"] is True and r["label"] == "Claude"
+        assert r["model"] == "claude-opus-5-5"
+
+    def test_provider_switch_endpoints_are_gone(self, client):
+        assert client.post("/saas/settings/llm", headers=H,
+                           json={"provider": "openai"}).status_code == 405
+        assert client.post("/saas/settings/openai-key", headers=H,
+                           json={"key": "sk-" + "x" * 30}).status_code == 404
 
 
 class TestAccessControl:

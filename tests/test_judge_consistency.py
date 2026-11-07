@@ -23,7 +23,7 @@ def _prof(name):
 
 def _judge_req():
     return JudgeRequest(vantage=Vantage.seller, objective=Objective.exploration_budget,
-                        self_profile=_prof("다이브인"), counterpart_profile=_prof("상대사"),
+                        self_profile=_prof("샘플호텔"), counterpart_profile=_prof("상대사"),
                         intent=Intent(value_props=[ValueProp.revenue_growth]))
 
 

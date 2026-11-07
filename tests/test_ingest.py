@@ -46,13 +46,13 @@ class TestChunking:
 class TestFetchers:
     def test_website_text_extraction(self):
         html = ("<html><head><script>bad()</script></head><body>"
-                "<nav>메뉴</nav><h1>다이브인그룹</h1>"
+                "<nav>메뉴</nav><h1>샘플호텔그룹</h1>"
                 "<p>노후 호텔 객실을 예술 경험형으로 전환합니다.</p>"
                 "<footer>푸터</footer></body></html>")
         transport = httpx.MockTransport(lambda req: httpx.Response(200, text=html))
         http = httpx.Client(transport=transport)
-        text = fetch_url("https://divein.example.com", _settings(), client=http)
-        assert "다이브인그룹" in text
+        text = fetch_url("https://samplehotel.example.com", _settings(), client=http)
+        assert "샘플호텔그룹" in text
         assert "노후 호텔 객실" in text
         assert "bad()" not in text      # script 제거
         assert "메뉴" not in text        # nav 제거
@@ -67,24 +67,24 @@ class TestFetchers:
     def test_instagram_requires_token(self):
         """ING-08: 토큰 없이는 명확한 안내 에러 (무단 스크레이핑 금지)."""
         with pytest.raises(EngineError) as exc:
-            fetch_instagram("https://instagram.com/divein_official", _settings())
+            fetch_instagram("https://instagram.com/samplehotel_official", _settings())
         assert exc.value.code == "instagram_not_configured"
 
     def test_instagram_via_provider(self):
-        items = [{"username": "divein_official", "fullName": "다이브인그룹",
+        items = [{"username": "samplehotel_official", "fullName": "샘플호텔그룹",
                   "biography": "호텔 객실 아트 전환",
                   "latestPosts": [{"caption": "하노이 프로젝트 완공"}]}]
         transport = httpx.MockTransport(
             lambda req: httpx.Response(200, json=items))
         http = httpx.Client(transport=transport)
-        text = fetch_instagram("divein_official", _settings(apify="tok"), client=http)
-        assert "다이브인그룹" in text and "하노이 프로젝트" in text
+        text = fetch_instagram("samplehotel_official", _settings(apify="tok"), client=http)
+        assert "샘플호텔그룹" in text and "하노이 프로젝트" in text
 
 
 # ── ING-03/04: LLM 추출 (Fake 어댑터) ───────────────────────────────
 
 FAKE_EXTRACTION = {
-    "basic": {"name": "다이브인그룹", "country": "한국", "city": "서울",
+    "basic": {"name": "샘플호텔그룹", "country": "한국", "city": "서울",
               "founded_year": None, "industry": "hospitality_renovation"},
     "description": "노후 호텔 객실을 예술 경험형 상품으로 전환하는 스타트업",
     "problem_solved": {"value": "노후 호텔 객실의 매출 정체와 리뉴얼 자본 부담",
@@ -128,7 +128,7 @@ class FakeExtractor:
 class TestExtractor:
     def test_extract_profile_with_provenance_and_evidence(self):
         # R2 인용 계약: 인용되는 청크는 실존해야 한다 — 인스타 청크도 실제 제공
-        chunks = (chunk_text("다이브인그룹은 노후 객실을 전환한다", "a1:website")
+        chunks = (chunk_text("샘플호텔그룹은 노후 객실을 전환한다", "a1:website")
                   + chunk_text("성수동 호텔 전환 사례 소개", "a2:instagram"))
         fake = FakeExtractor()
         profile, open_qs, evidence = extract_profile(chunks, fake)
@@ -161,7 +161,7 @@ class TestEngineMode:
                             lambda settings: FakeExtractor())
         res = client.post("/v1/represent", json={"assets": [
             {"type": "website",
-             "content": "다이브인그룹 — 노후 호텔 객실을 예술 경험형 상품으로 전환"}]})
+             "content": "샘플호텔그룹 — 노후 호텔 객실을 예술 경험형 상품으로 전환"}]})
         assert res.status_code == 200
         data = res.json()
         assert data["engine_mode"] == "llm"

@@ -1,0 +1,83 @@
+/* 메리 투자심사보고서 — 종이 문서. 앱 톤(밝음/어두움)과 상관없이 늘 흰 종이에 검은 글씨.
+   기준: MYSC 최종 보고서 PDF — 맑은 고딕 계열, 개조식, 회색 머리 칸 표, 오른쪽 위 mysc 로고, 아래 가운데 쪽 번호 */
+.mr-desk {
+  --paper: #ffffff; --ink: #111; --sub: #444; --rule: #9a9a9a; --hair: #cfcfcf; --head: #ececec; --head2: #f5f5f5;
+  --mark: #fff4c2; --cite: #6d4bd8; --tbd: #b4232c;
+  background: #e9e7e2;
+  font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", "Pretendard", sans-serif;
+  color: var(--ink);
+}
+.mr-page {
+  position: relative; box-sizing: border-box;
+  width: 210mm; min-height: 297mm; margin: 0 auto 18px; padding: 24mm 21mm 22mm;
+  background: var(--paper);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .12), 0 8px 28px rgb(0 0 0 / .10);
+  font-size: 10.5pt; line-height: 1.78; letter-spacing: -0.01em; word-break: keep-all;
+}
+.mr-page::before {            /* 오른쪽 위 로고 */
+  content: "mysc"; position: absolute; top: 11mm; right: 16mm;
+  font-family: Georgia, "Times New Roman", serif; font-size: 15pt; color: #6b6b6b; letter-spacing: .02em;
+}
+.mr-page .mr-folio { position: absolute; bottom: 9mm; left: 0; right: 0; text-align: center; font-size: 9pt; color: #333; }
+
+/* 제목 위계 — 장(I.) · 절(1.) · 항(1.1) · 소제목([ 사업개요 ]) */
+.mr-doc h1.mr-chapter { font-size: 19pt; font-weight: 800; margin: 0 0 10px; letter-spacing: -0.02em; }
+.mr-doc h2 { font-size: 14.5pt; font-weight: 800; margin: 18px 0 8px; letter-spacing: -0.02em; }
+.mr-doc h3 { font-size: 11pt; font-weight: 400; margin: 14px 0 6px; }
+.mr-doc h4 { font-size: 10.5pt; font-weight: 800; margin: 12px 0 4px; }
+.mr-doc h4::before { content: "■"; margin-right: 8px; font-size: 9pt; }
+.mr-doc p { margin: 4px 0 8px; text-align: justify; }
+.mr-doc strong { font-weight: 800; }
+.mr-doc u, .mr-under { text-decoration: underline; text-underline-offset: 3px; }
+
+/* 개조식 — "–" 대시 들여쓰기, 안쪽은 "·" */
+.mr-doc ul, .mr-doc ol { margin: 4px 0 10px; padding-left: 26px; }
+.mr-doc ul > li { list-style: none; position: relative; margin: 3px 0; text-align: justify; }
+.mr-doc ul > li::before { content: "–"; position: absolute; left: -16px; }
+.mr-doc ul ul > li::before { content: "·"; left: -12px; }
+.mr-doc ol > li { margin: 3px 0; }
+
+/* 표 — 위·아래 굵은 선, 회색 머리 칸, 가는 가로선 */
+.mr-doc table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 9.5pt; line-height: 1.55; border-top: 1.6px solid #222; border-bottom: 1.2px solid #222; }
+.mr-doc th, .mr-doc td { border: 1px solid var(--hair); border-left: 0; border-right: 0; padding: 7px 9px; vertical-align: middle; }
+.mr-doc th { background: var(--head); font-weight: 800; text-align: center; }
+.mr-doc tbody th { background: var(--head2); text-align: left; width: 22%; }
+.mr-doc td.num, .mr-doc th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.mr-doc td:has(> .mr-neg), .mr-neg { color: #c4161c; font-style: italic; }
+.mr-doc .caption { text-align: center; font-weight: 800; font-size: 9.5pt; margin: 6px 0 2px; }
+.mr-doc .box { border: 1px solid #222; padding: 8px 14px; margin: 8px 0 12px; }
+.mr-doc .box > ul { margin: 0; }
+.mr-doc blockquote { margin: 8px 0; padding: 4px 14px; border-left: 3px solid #bbb; color: var(--sub); }
+
+/* 근거·확인 필요 표시 — 화면에서만(인쇄하면 근거 번호만 작게) */
+.mr-doc sup.mr-cite { color: var(--cite); font-size: 7pt; font-weight: 700; cursor: pointer; margin-left: 1px; }
+.mr-doc sup.mr-cite:hover { text-decoration: underline; }
+.mr-doc .mr-tbd { color: var(--tbd); background: #fdecec; border-radius: 2px; padding: 0 3px; font-size: 9.5pt; }
+.mr-doc .mr-hl { background: var(--mark); }
+.mr-doc .mr-empty { color: #8a8a8a; font-style: italic; }
+
+/* 표지 */
+.mr-cover .mr-kicker { font-weight: 800; font-size: 10.5pt; margin-top: 18mm; }
+.mr-cover .mr-title { display: inline-block; font-size: 25pt; font-weight: 800; margin: 6px 0 10px; padding-bottom: 2px; border-bottom: 2px solid #111; letter-spacing: -0.02em; }
+.mr-cover .mr-vision { font-size: 10.5pt; margin: 6px 0 22px; }
+.mr-cover .mr-sched { display: grid; grid-template-columns: 92px auto; row-gap: 4px; font-size: 10.5pt; }
+.mr-cover .mr-bottom { position: absolute; left: 21mm; right: 21mm; bottom: 30mm; }
+.mr-cover table { font-size: 10pt; }
+.mr-cover tbody th { width: 34%; background: #ededed; }
+
+/* 대화 대상으로 고른 종이 */
+.mr-page.mr-target { box-shadow: 0 0 0 2px #3d6fe0, 0 8px 28px rgb(0 0 0 / .10); }
+
+/* 섹션 머리의 상태 표(화면 전용) */
+.mr-status { position: absolute; top: 10mm; left: 21mm; display: flex; gap: 6px; font-family: -apple-system, "Pretendard", sans-serif; font-size: 10px; }
+.mr-status span { border-radius: 99px; padding: 1px 7px; background: #f1f1f1; color: #555; }
+.mr-status .ok { background: #e6f5ec; color: #17784a; }
+.mr-status .warn { background: #fdf2dc; color: #94600b; }
+.mr-status .bad { background: #fdecec; color: #b4232c; }
+
+@media print {
+  .mr-desk { background: none; }
+  .mr-page { box-shadow: none; margin: 0; page-break-after: always; }
+  .mr-status, .mr-noprint { display: none !important; }
+  .mr-doc .mr-tbd { background: none; }
+}

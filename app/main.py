@@ -56,6 +56,12 @@ async def _lifespan(_: FastAPI):
         "cap_global_month_usd": cost.global_month_cap(),
         "legacy_surface": LEGACY_ON,
     })
+    # 동기 엔드포인트 스레드풀 크기(기본 40). 스레드가 많으면 이벤트 루프 스레드가
+    # GIL을 되찾느라 기다린다 — 메시징 부하 시험에서 측정해 정한다(docs/MESSAGING_PLATFORM.md).
+    tp = os.environ.get("CHAT_THREADPOOL")
+    if tp:
+        import anyio.to_thread
+        anyio.to_thread.current_default_thread_limiter().total_tokens = int(tp)
     yield
 
 
@@ -219,7 +225,15 @@ if LEGACY_ON:
 # ── SaaS 계층 (이슈 #6) — 인증·비용캡이 있는 유일한 표면 ────────────
 from .saas.router import router as saas_router   # noqa: E402
 
+from .saas.team import router as team_router     # noqa: E402
+
+
 app.include_router(saas_router)
+app.include_router(team_router)
+# 메시징 데이터 플레인(/chat/v1)은 Rust 엔진(rust/chat-engine)이 앞단에서 직접 서빙한다 —
+# 이 앱에는 더 이상 없다(run-mac.sh·Dockerfile이 앞뒤를 잇는다). 관리 플레인은 그대로 여기.
+from .chat.platform_router import router as platform_router  # noqa: E402
+app.include_router(platform_router)
 
 
 @app.get("/healthz")
@@ -247,8 +261,10 @@ def readyz():
     s = get_settings()
     if not s.saas_allowed_users:
         problems.append("SAAS_ALLOWED_USERS 비어 있음 — 전원 거부 상태")
-    if s.llm_provider == "openai" and not s.openai_api_key:
-        problems.append("OPENAI_API_KEY 없음")
+    if s.llm_provider != "anthropic":
+        problems.append(f"LLM_PROVIDER={s.llm_provider} — Claude(anthropic)만 지원")
+    elif not s.anthropic_api_key:
+        problems.append("ANTHROPIC_API_KEY 없음")
     # Settings에는 tavily 필드가 없다 — 커넥터가 os.environ을 직접 읽는다.
     # getattr(s, "tavily_api_key", "")로 보면 **항상** 빈 문자열이라
     # readyz가 영원히 503이 된다(실측: 키를 넣고도 503). 같은 출처를 본다.

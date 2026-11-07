@@ -128,7 +128,7 @@ class TestA2ATaskGetAfterRestart:
                     "messageId": "m", "parts": [{"kind": "data", "data": {
                         "skill": "represent",
                         "input": {"assets": [{"type": "text", "content":
-                            "이름: 다이브인그룹\n국가: 한국\n산업: h\n설명: d\n문제: p\n"
+                            "이름: 샘플호텔그룹\n국가: 한국\n산업: h\n설명: d\n문제: p\n"
                             "솔루션: s\n타겟: t\n판매가치: 매출"}]}}}]}}}
         task_id = client.post("/a2a", json=body).json()["result"]["id"]
         # 완료 대기

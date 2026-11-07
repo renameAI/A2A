@@ -1,0 +1,108 @@
+opening 1000 SSE streams…
+posting 500.0/s for 45.0s…
+{
+ "subscribers": 1000,
+ "streams_ready": 1000,
+ "stream_open_sec": 0.6,
+ "target_rate": 500.0,
+ "achieved_rate": 138.0,
+ "posts": 22500,
+ "status": {
+  "200": 22500
+ },
+ "post_ms": {
+  "p50": 66843.7,
+  "p95": 134798.2,
+  "p99": 145412.8,
+  "max": 158337.4
+ },
+ "server_ms": {
+  "p50": 17.8,
+  "p95": 55.1,
+  "p99": 127.2,
+  "max": 2098.1
+ },
+ "deliveries": 225000,
+ "deliver_ms": {
+  "p50": 34.7,
+  "p95": 114.6,
+  "p99": 288.9
+ },
+ "delivery_expected": 225000,
+ "delivery_missing": 0,
+ "channels_with_seq_gaps": 0,
+ "channels_count_mismatch": 0,
+ "p95_by_5s": [
+  1392.3,
+  141599.7,
+  144766.7,
+  142307.9,
+  137296.5,
+  132140.7,
+  127755.5,
+  122607.9,
+  117959.6,
+  114644.5
+ ],
+ "segments_ms": {
+  "send_to_server_recv": {
+   "p50": null,
+   "p95": null,
+   "p99": null
+  },
+  "server_done_to_client": {
+   "p50": null,
+   "p95": null,
+   "p99": null
+  }
+ },
+ "pre_split_ms": {
+  "in_client": {
+   "p50": null,
+   "p99": null
+  },
+  "socket_to_app": {
+   "p50": null,
+   "p99": null
+  }
+ },
+ "new_connections": 540,
+ "pre_by_conn": {
+  "new": {
+   "n": 0,
+   "p50": null,
+   "p99": null,
+   "max": null
+  },
+  "reuse": {
+   "n": 0,
+   "p50": null,
+   "p99": null,
+   "max": null
+  }
+ },
+ "connect_ms": {
+  "p50": 175.8,
+  "p99": 444.6,
+  "max": 464.5,
+  "over_900ms": 0,
+  "buckets_s": {
+   "~1": 0,
+   "~3": 0,
+   "~7": 0,
+   "~15+": 0
+  }
+ },
+ "client_loop_lag_ms": {
+  "p99": 263.8,
+  "max": 2346.7
+ },
+ "by_worker": {
+  "?": {
+   "n": 22500,
+   "client_p99": 145412.8,
+   "server_p99": 127.2,
+   "over_100ms": 20461
+  }
+ }
+}

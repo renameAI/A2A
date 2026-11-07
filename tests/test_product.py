@@ -5,7 +5,7 @@ from app.main import app
 
 client = TestClient(app)
 
-DIVEIN_TEXT = """이름: 다이브인그룹
+SAMPLEHOTEL_TEXT = """이름: 샘플호텔그룹
 국가: 한국
 산업: hospitality_renovation
 설명: 노후 호텔 객실을 예술 경험형 상품으로 전환하는 스타트업. 매출 쉐어 구조.
@@ -32,7 +32,7 @@ def _run_job(path: str, body: dict) -> dict:
 
 def _onboard() -> str:
     job = _run_job("/product/onboard", {
-        "assets": [{"type": "text", "content": DIVEIN_TEXT}],
+        "assets": [{"type": "text", "content": SAMPLEHOTEL_TEXT}],
         "dialogue": [{"q": "판매의향", "a": "매우 적극적"}],
         "private_state": [
             {"key": "최저선:share", "value": "8:2", "source": "observed"},
@@ -109,7 +109,7 @@ def test_reanalyze_accepts_full_question_text():
 def test_progress_logs_visible():
     """진행 로그 — 수집·청킹·게이트 단계가 기록되어 UI가 과정을 보여줄 수 있다."""
     job = _run_job("/product/onboard", {
-        "assets": [{"type": "text", "content": DIVEIN_TEXT}]})
+        "assets": [{"type": "text", "content": SAMPLEHOTEL_TEXT}]})
     stages = {entry["stage"] for entry in job["logs"]}
     assert {"수집", "청킹", "게이트", "완료"} <= stages
     assert all("t" in e and "message" in e for e in job["logs"])

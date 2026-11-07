@@ -28,7 +28,7 @@
 
 $$ y \sim p_\theta(\,\cdot \mid x, \pi), \qquad x=\text{입력(청크·프로필)},\ \pi=\text{system 프롬프트},\ \theta=\text{frozen 가중치} $$
 
-- 코드 대응: `llm.py:AnthropicExtractor.extract_json`(`messages.create`), `_OpenAICompatExtractor._chat`, `vision.py:GeminiBBoxExtractor.locate_batch`.
+- 코드 대응: `llm.py:AnthropicExtractor.extract_json`(`messages.stream`), `vision.py:ClaudeBBoxExtractor.locate_batch`.
 - 온도 $T>0$인 한 같은 $x$에도 $\mathrm{Var}[Y\mid x]>0$. 이게 예측불가의 1차 원천.
 
 ### 1.2 잠재 해석에 대한 전체 확률모형 **[부분]**

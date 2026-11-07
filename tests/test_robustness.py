@@ -6,7 +6,7 @@ import pytest
 
 from app.config import Settings
 from app.engine import prompts
-from app.engine.llm import (LocalExtractor, _clean_text, get_extractor, sanitize)
+from app.engine.llm import (AnthropicExtractor, _clean_text, get_extractor, sanitize)
 
 
 # ── 이슈 #3: 순수 한국어 출력 정화 ──────────────────────────────────
@@ -46,49 +46,28 @@ class TestHardRules:
         assert "Poco Hotel" in prompts.EXTRACT_SYSTEM   # 구체 예시
 
 
-# ── 로컬/오프라인 프로바이더 선택 ───────────────────────────────────
+# ── 공급자 선택 — Claude 하나(2026-10 통일) ─────────────────────────
 
 class TestProviderSelection:
-    def _settings(self, **env) -> Settings:
+    def _settings(self, provider="anthropic", key="") -> Settings:
         s = Settings()
-        s.llm_provider = env.get("provider", "mock")
-        s.friendli_token = env.get("friendli_token", "")
-        s.friendli_endpoint_id = env.get("friendli_endpoint_id", "")
-        s.local_base_url = env.get("local_base_url", "http://localhost:11434/v1/chat/completions")
-        s.local_model = env.get("local_model", "exaone3.5:7.8b")
-        s.anthropic_api_key = env.get("anthropic_api_key", "")
+        s.llm_provider = provider
+        s.anthropic_api_key = key
         return s
 
-    def test_local_provider_selected(self):
-        ext = get_extractor(self._settings(provider="local"))
-        assert isinstance(ext, LocalExtractor)
-        assert ext._thinking_kwargs is False   # 범용 모델엔 reasoning 토글 없음
+    def test_claude_selected_with_key(self):
+        assert isinstance(get_extractor(self._settings(key="sk-ant-x")), AnthropicExtractor)
 
-    def test_friendli_isolated_from_local(self):
-        # provider=friendli면 local 설정이 있어도 friendli만 (모델 개입 차단)
-        s = self._settings(provider="friendli")   # friendli 키 없음
-        assert get_extractor(s) is None
-
-    def test_mock_when_provider_mock(self):
-        assert get_extractor(self._settings(provider="mock")) is None
-
-    def test_unknown_provider_errors(self):
+    def test_missing_key_fails_loud(self):
         from app.errors import EngineError
-        with pytest.raises(EngineError):
-            get_extractor(self._settings(provider="gpt5"))
+        with pytest.raises(EngineError) as e:
+            get_extractor(self._settings())
+        assert "ANTHROPIC_API_KEY" in e.value.message
 
-
-# ── 로컬 어댑터 연결 실패 메시지 (오프라인 서버 없을 때) ────────────
-
-def test_local_unreachable_message():
-    from app.errors import EngineError
-    s = Settings()
-    s.llm_provider = "local"
-    s.local_base_url = "http://127.0.0.1:1/v1/chat/completions"  # 닫힌 포트
-    s.local_model = "test"
-    s.llm_timeout = 2
-    ext = get_extractor(s)
-    with pytest.raises(EngineError) as exc:
-        ext.complete_text("sys", "user")
-    assert exc.value.code == "llm_unreachable"
-    assert "Ollama" in exc.value.message   # 오프라인 안내
+    @pytest.mark.parametrize("old", ["openai", "friendli", "local", "mock"])
+    def test_retired_providers_refuse_with_reason(self, old):
+        """예전 .env 값이 남아 있으면 조용히 Claude로 바꾸지 않고 이유를 말한다."""
+        from app.errors import EngineError
+        with pytest.raises(EngineError) as e:
+            get_extractor(self._settings(provider=old, key="sk-ant-x"))
+        assert "anthropic" in e.value.message

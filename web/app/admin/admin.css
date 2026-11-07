@@ -1,0 +1,208 @@
+/* ═══════════ 플랫폼 어드민 콘솔 ═══════════ */
+/* 색은 globals.css 토큰만 쓴다 — 테마를 바꾸면 콘솔도 따라온다. 클래스는
+   전부 adm- 접두사: 같은 문서에 워크스페이스 스타일이 함께 로드되므로
+   .card·.btn 같은 흔한 이름은 충돌한다. */
+
+/* body가 overflow:hidden(워크스페이스 3단 레이아웃용)이라 콘솔은 자기
+   높이를 잡고 안쪽에서 스크롤한다. */
+.adm-root{height:100vh;height:100dvh;background:var(--paper);color:var(--txt);overflow:hidden}
+.adm-center{display:grid;place-items:center;padding:16px;overflow:auto}
+.adm-shell{display:grid;grid-template-columns:200px minmax(0,1fr)}
+
+/* ── 내비게이션 ── */
+.adm-nav{background:var(--ink);border-right:1px solid var(--line);display:flex;flex-direction:column;
+  min-height:0;padding:14px 10px;gap:12px}
+.adm-brand{font-weight:800;font-size:15px;letter-spacing:-.3px;padding:0 8px}
+.adm-brand::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;
+  background:var(--coral);margin-right:8px;vertical-align:1px}
+.adm-tabs{display:flex;flex-direction:column;gap:2px;flex:1;overflow:auto}
+.adm-tab{text-align:left;padding:7px 10px;border-radius:6px;color:var(--txt-2);white-space:nowrap}
+.adm-tab:hover{background:var(--ink-2);color:var(--txt)}
+.adm-tab.on{background:var(--ink-2);color:var(--txt);font-weight:700;box-shadow:inset 2px 0 0 var(--coral)}
+.adm-who{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px;border-top:1px solid var(--line);
+  font-size:12px;min-width:0}
+.adm-who-mail{color:var(--txt-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.adm-who-dev{font-family:var(--mono);font-size:10px;color:var(--amber)}
+
+.adm-main{overflow:auto;padding:22px 28px 60px;min-width:0}
+.adm-main > *{max-width:1200px}
+
+/* 900px 이하: 왼쪽 메뉴를 위쪽 가로 스크롤 탭으로. 메뉴가 화면 폭을
+   먹으면 표를 볼 자리가 없다. */
+@media (max-width:900px){
+  .adm-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .adm-nav{flex-direction:row;align-items:center;border-right:none;border-bottom:1px solid var(--line);
+    padding:8px 16px;gap:10px;min-width:0}
+  .adm-brand{display:none}
+  .adm-tabs{flex-direction:row;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;min-width:0}
+  .adm-tabs::-webkit-scrollbar{display:none}
+  .adm-tab{padding:6px 10px}
+  .adm-tab.on{box-shadow:inset 0 -2px 0 var(--coral)}
+  .adm-who{border-top:none;padding:0;flex-wrap:nowrap;flex-shrink:0}
+  .adm-who-mail{display:none}
+  .adm-main{padding:16px 16px 60px}
+}
+
+/* ── 제목·구획 ── */
+.adm-title-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.adm-title-row h1{font-size:20px;letter-spacing:-.4px}
+.adm-title-row h2{font-size:17px;letter-spacing:-.3px;min-width:0;overflow-wrap:anywhere}
+.adm-sec{margin:22px 0}
+.adm-sec-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.adm-sec-h h2{font-size:13px;font-weight:700;color:var(--txt-2);letter-spacing:.2px}
+.adm-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;align-items:start}
+.adm-grid2 > .adm-sec{margin:0}
+.adm-stack{display:flex;flex-direction:column;gap:10px}
+
+.adm-card{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:14px;
+  display:flex;flex-direction:column;gap:10px;min-width:0}
+.adm-card h3{font-size:14px}
+.adm-gate{max-width:440px;text-align:left}
+.adm-gate h1{font-size:18px}
+
+/* ── 텍스트 ── */
+.adm-muted{color:var(--txt-3)}
+.adm-hint{color:var(--txt-3);font-size:12px;margin-top:6px}
+.adm-mono{font-family:var(--mono);font-size:12px}
+.adm-strong{font-weight:700}
+.adm-nowrap{white-space:nowrap}
+.adm-c-green{color:var(--green)}
+.adm-c-coral{color:var(--coral)}
+.adm-c-amber{color:var(--amber)}
+.adm-c-blue{color:var(--blue)}
+.adm-empty{color:var(--txt-3);padding:14px;border:1px dashed var(--line);border-radius:var(--r);text-align:center;font-size:13px}
+.adm-locked{color:var(--txt-3);font-size:12.5px;padding:8px 10px;border-radius:6px;background:var(--ink-2)}
+.adm-locked::before{content:"권한 · ";color:var(--amber);font-weight:600}
+
+/* ── 배지·칩 ── */
+.adm-badge{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;
+  margin-right:4px;white-space:nowrap;vertical-align:1px}
+.adm-green{background:var(--green-soft);color:var(--green)}
+.adm-coral{background:var(--coral-soft);color:var(--coral)}
+.adm-amber{background:var(--amber-soft);color:var(--amber)}
+.adm-blue{background:var(--blue-soft);color:var(--blue)}
+.adm-chips{display:flex;flex-wrap:wrap;gap:6px}
+.adm-chip{background:var(--raise);border:1px solid var(--raise-line);border-radius:6px;padding:3px 8px;font-size:12px}
+
+/* ── 알림 상자 ── */
+.adm-err{background:var(--coral-soft);color:var(--coral);border-radius:6px;padding:8px 10px;font-size:13px;
+  overflow-wrap:anywhere;margin:6px 0}
+.adm-ok{background:var(--green-soft);color:var(--green);border-radius:6px;padding:8px 10px;font-size:13px;
+  overflow-wrap:anywhere;margin:6px 0}
+/* 열람 경고는 접거나 닫을 수 없다 — 본문을 보는 내내 눈에 걸려야 한다. */
+.adm-banner{background:var(--amber-soft);color:var(--amber);border:1px solid var(--amber);border-radius:6px;
+  padding:9px 12px;font-size:13px;font-weight:600;margin-bottom:10px}
+.adm-banner::before{content:"⚠ "}
+
+/* ── 버튼·입력 ── */
+.adm-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--coral);color:var(--txt);
+  font-weight:700;font-size:13px;padding:7px 14px;border-radius:6px;text-decoration:none;white-space:nowrap}
+.adm-btn:hover{filter:brightness(1.08)}
+.adm-btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.adm-btn.ghost{background:var(--raise);color:var(--txt);border:1px solid var(--raise-line)}
+.adm-btn.danger{background:transparent;color:var(--coral);border:1px solid var(--coral)}
+.adm-btn.danger:hover:not(:disabled){background:var(--coral-soft)}
+.adm-full{width:100%}
+.adm-link{color:var(--blue);font-size:12.5px;text-decoration:underline;text-underline-offset:2px}
+.adm-link:disabled{opacity:.5}
+
+.adm-root input:not([type=checkbox]),.adm-root select,.adm-root textarea{
+  background:var(--ink);color:var(--txt);border:1px solid var(--line);border-radius:6px;
+  padding:7px 9px;font:inherit;font-size:13px;min-width:0;max-width:100%;outline:none}
+.adm-root input:focus,.adm-root select:focus,.adm-root textarea:focus{border-color:var(--blue)}
+.adm-root input:disabled,.adm-root select:disabled,.adm-root textarea:disabled{opacity:.55}
+.adm-root textarea{resize:vertical;width:100%;line-height:1.5}
+.adm-root input.adm-mono{font-family:var(--mono)}
+.adm-form label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--txt-2)}
+.adm-fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:10px}
+.adm-check{display:flex !important;flex-direction:row !important;align-items:center;gap:8px;font-size:13px;color:var(--txt-2)}
+.adm-row{display:flex;align-items:center;gap:8px;min-width:0}
+.adm-wrap{flex-wrap:wrap}
+.adm-between{justify-content:space-between}
+.adm-grow{flex:1 1 220px}
+
+/* ── KPI ── */
+.adm-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+@media (max-width:640px){.adm-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.adm-kpi{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.adm-kpi-l{font-size:12px;color:var(--txt-3)}
+.adm-kpi-v{font-family:var(--mono);font-size:24px;font-weight:800;letter-spacing:-.5px}
+
+/* ── 표 ── 넓은 표는 이 상자 안에서만 가로 스크롤 */
+.adm-tbox{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--white);max-width:100%}
+.adm-table{width:100%;border-collapse:collapse;font-size:13px}
+.adm-table th{text-align:left;font-weight:600;font-size:11.5px;color:var(--txt-3);padding:8px 10px;
+  border-bottom:1px solid var(--line);white-space:nowrap;background:var(--ink)}
+.adm-table td{padding:8px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+.adm-table tr:last-child td{border-bottom:none}
+.adm-table .r{text-align:right;white-space:nowrap}
+.adm-click tbody tr{cursor:pointer}
+.adm-click tbody tr:hover{background:var(--ink-2)}
+.adm-click tbody tr.on{background:var(--raise);box-shadow:inset 2px 0 0 var(--coral)}
+.adm-detail{max-width:340px;color:var(--txt-2);overflow-wrap:anywhere;font-size:11.5px}
+
+.adm-top{list-style:none;display:flex;flex-direction:column;gap:6px}
+.adm-top li{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;background:var(--white);
+  border:1px solid var(--line);border-radius:6px;min-width:0}
+.adm-top-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── 테넌트 상세 ── */
+.adm-detail-panel{margin-top:18px;padding:16px;border:1px solid var(--raise-line);border-radius:var(--r);
+  background:var(--ink);min-width:0}
+.adm-facts{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--txt-3);min-width:0}
+.adm-facts b{color:var(--txt);font-weight:600}
+.adm-facts > span{overflow-wrap:anywhere}
+.adm-report{background:var(--raise);border:1px solid var(--raise-line);border-radius:6px;padding:10px;
+  display:flex;flex-direction:column;gap:8px;margin-top:8px}
+
+/* ── 스파크라인 ── 선 색은 토큰을 currentColor로 받아 SVG에 넘긴다 */
+.adm-spark{background:var(--white);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.adm-spark-h{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--txt-2);margin-bottom:6px}
+.adm-spark svg{width:100%;height:64px;display:block}
+.adm-spark-f{display:flex;justify-content:space-between;gap:8px;font-size:10.5px;color:var(--txt-3);margin-top:4px}
+.adm-s-blue{color:var(--blue)}
+.adm-s-amber{color:var(--amber)}
+.adm-s-line{fill:none;stroke:currentColor;stroke-width:1.6;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.adm-s-dot{fill:currentColor}
+.adm-s-base{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.adm-s-ref{stroke:var(--coral);stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke;opacity:.7}
+
+/* ── 본문 열람 ── */
+.adm-viewer{display:grid;grid-template-columns:240px minmax(0,1fr);gap:12px;margin-top:10px}
+@media (max-width:700px){.adm-viewer{grid-template-columns:minmax(0,1fr)}}
+.adm-chlist{list-style:none;display:flex;flex-direction:column;gap:4px;max-height:420px;overflow:auto}
+.adm-ch{width:100%;text-align:left;padding:8px 10px;border-radius:6px;background:var(--white);
+  border:1px solid var(--line);color:var(--txt);display:flex;flex-direction:column;gap:3px}
+.adm-ch:hover{border-color:var(--raise-line)}
+.adm-ch.on{border-color:var(--coral);background:var(--raise)}
+.adm-ch-n{font-weight:600;overflow-wrap:anywhere}
+.adm-ch-m{display:flex;flex-wrap:wrap;align-items:center;gap:2px}
+.adm-msgs{display:flex;flex-direction:column;gap:8px;min-width:0}
+.adm-mlist{list-style:none;display:flex;flex-direction:column;gap:6px;max-height:560px;overflow:auto}
+.adm-m{background:var(--white);border:1px solid var(--line-soft);border-radius:6px;padding:8px 10px;min-width:0}
+.adm-m.reply{margin-left:18px;border-left:2px solid var(--raise-line)}
+.adm-m.del .adm-m-b{color:var(--txt-3)}
+.adm-m.sys{background:var(--ink-2)}
+.adm-m-h{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-size:12.5px}
+.adm-m-b{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13.5px;margin-top:2px}
+
+/* ── 셀 ── */
+.adm-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:12px}
+.adm-reach{font-size:13px;font-weight:600}
+.adm-dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.adm-dl dt{color:var(--txt-3)}
+.adm-dl dd{text-align:right}
+
+/* ── 운영 채널 ── */
+.adm-seg{display:inline-flex;gap:2px;background:var(--ink);border:1px solid var(--line);border-radius:8px;
+  padding:3px;margin-bottom:10px;max-width:100%;overflow-x:auto}
+.adm-seg-b{padding:5px 12px;border-radius:6px;color:var(--txt-2);font-family:var(--mono);font-size:12.5px}
+.adm-seg-b.on{background:var(--raise);color:var(--txt);font-weight:700}
+.adm-chat{padding:0;gap:0}
+.adm-chat-list{height:min(60vh,560px);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:6px}
+.adm-chat .adm-err{margin:6px 12px}
+.adm-composer{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line);align-items:flex-end}
+.adm-composer textarea{flex:1}
+/* 이동 진행 — 하트비트가 오래 멈췄거나 취소가 요청됐을 때 */
+.adm-warn { color: var(--amber); }
+.adm-warn b { color: var(--amber); }

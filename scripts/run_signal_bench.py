@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """B1 타이밍 신호 벤치마크 실행 — 프로덕션 경로(read_company)를 그대로 잰다.
 
-    LLM_PROVIDER=openai python scripts/run_signal_bench.py           # 1회
-    LLM_PROVIDER=openai python scripts/run_signal_bench.py --k 3     # 안정성 포함
+    python scripts/run_signal_bench.py           # 1회
+    python scripts/run_signal_bench.py --k 3     # 안정성 포함
     python scripts/run_signal_bench.py --json                        # 원자료
 
 프로덕션 경로를 재는 이유: 신호 추출만 떼어 재면 벤치는 좋아지고 제품은
@@ -64,7 +64,7 @@ def main():
 
     cases = load_cases()
     extractor = get_extractor(get_settings())
-    provider = os.environ.get("LLM_PROVIDER", "?")
+    provider = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5-5")   # Claude 하나(2026-10)
 
     reports = []
     for i in range(args.k):

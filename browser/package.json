@@ -1,0 +1,36 @@
+{
+  "name": "a2a-browser",
+  "version": "1.0.0",
+  "description": "A2A 브라우저 — 탭 브라우저 + 팀 채팅 + Claude 에이전트",
+  "main": "main.js",
+  "scripts": {
+    "build": "vite build",
+    "start": "vite build && electron .",
+    "dev": "electron .",
+    "postinstall": "install-electron"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "d3-force": "3.0.0",
+    "electron": "^45.0.0",
+    "lucide-react": "^0.577.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^7.3.7"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "@modelcontextprotocol/sdk": "1.32.1"
+  },
+  "private": true,
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true
+  }
+}

@@ -6,7 +6,7 @@
    라벨 토큰 Jaccard를 잰다 — 목적이 달라졌는데 같은 업종이 나오면
    purpose 배선은 장식이다. 임계 0.3 미만이어야 통과.
 
-    LLM_PROVIDER=openai python scripts/run_poc_bench.py [-v] [--k N] [--no-seg]
+    python scripts/run_poc_bench.py [-v] [--k N] [--no-seg]
 """
 import argparse, json, os, re, sys, time, unicodedata
 from pathlib import Path
@@ -101,7 +101,7 @@ def main():
     cases = json.loads((Path(__file__).resolve().parent.parent /
                         "app/eval/poc_golden.json").read_text())["cases"]
     extractor = get_extractor(get_settings())
-    provider = os.environ.get("LLM_PROVIDER", "?")
+    provider = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5-5")   # Claude 하나(2026-10)
     for i in range(args.k):
         t0 = time.time()
         r = run_axis(cases, extractor, verbose=args.verbose and i == 0)

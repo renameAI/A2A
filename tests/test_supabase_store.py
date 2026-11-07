@@ -203,3 +203,13 @@ def test_delete_reports_absence(store):
     store.put("outcome", "ws-1", "lr-1::c1", {"saved": True})
     assert store.delete("outcome", "ws-1", "lr-1::c1") is True
     assert store.delete("outcome", "ws-1", "lr-1::c1") is False
+
+
+def test_list_prefix_escapes_like_wildcards(store):
+    """_와 %는 PostgREST like에서도 와일드카드다 — 백슬래시로 글자 그대로."""
+    store.list_prefix("chat_msg", "ws-1", "g::t::cand:a_b%::", limit=5)
+    _m, _p, q = CALLS[-1]
+    f = dict(p.split("=", 1) for p in q.split("&") if "=" in p)
+    assert unquote(f["doc_id"]) == "like.g::t::cand:a\\_b\\%::*"
+    assert f["order"] == "doc_id.desc" and f["limit"] == "5"
+

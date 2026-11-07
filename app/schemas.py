@@ -693,11 +693,12 @@ class JobOut(BaseModel):
 
 
 # ── 근거 시각화 (bbox) — IR덱 원문 위 빨간 박스 + 댓글 강제 (v1.2 확장) ──
-# Simsa(cts_screening) 검토 SaaS의 box_2d 패턴을 재사용. 비전 모델(Gemini)이
-# 있을 때만 켜진다 — 텍스트 추출(LLM_PROVIDER)과는 독립된 기능.
+# Simsa(cts_screening) 검토 SaaS의 box_2d 패턴을 재사용. 비전 모델(Claude,
+# ANTHROPIC_API_KEY)이 있을 때만 켜진다 — 텍스트 추출과는 독립된 선택 기능.
 
 class BBox(BaseModel):
-    """Gemini box_2d 그대로 — [ymin, xmin, ymax, xmax], 0~1000 정규화."""
+    """box_2d 그대로 — [ymin, xmin, ymax, xmax], 0~1000 정규화 (Simsa/Gemini 시절
+    형식 유지 — 프론트·validate_box가 이 형식에 의존한다. Claude에 정규화 값을 요구)."""
     ymin: float
     xmin: float
     ymax: float
@@ -779,7 +780,7 @@ class ScoutCandidate(BaseModel):
 
 class ScoutCompany(BaseModel):
     """웹 히트에서 LLM이 발굴한 기업 후보 — 기사도 '단서'로 소비하되, 기업명은
-    히트 원문에 실재해야 한다(코드가 대조 검증). 다이브인그룹 데모의 후보 카드처럼
+    히트 원문에 실재해야 한다(코드가 대조 검증). 샘플호텔그룹 데모의 후보 카드처럼
     '기업'이 보이게 하는 층."""
     name: str
     track: HypothesisTrack
